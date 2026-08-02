@@ -121,6 +121,9 @@ class FirebaseCM {
             'body': message,
             'title': title,
           },
+          'android': {
+            'priority': 'HIGH'
+          }
         },
       };
 

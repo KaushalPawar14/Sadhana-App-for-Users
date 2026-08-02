@@ -108,7 +108,7 @@ class _QuestionsPageState extends State<QuestionsPage> {
       selectedOptions.clear();
     });
 
-    // sendNotificationToAdmin(reversedDate, timeEntered, Sleeping, sentence);
+    sendNotificationToAdmin(reversedDate, timeEntered, Sleeping, sentence);
     print(
         'Report Data: $reversedDate, $timeEntered, $Rounds, $bookRead, $Hearing, ${serviceDone}, $japaEnd');
 

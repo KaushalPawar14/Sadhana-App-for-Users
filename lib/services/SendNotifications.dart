@@ -14,7 +14,7 @@ void sendNotificationToAdmin(String date, String time, String sleep, String text
     String userName = userDoc.data()?['name'] ?? 'Unknown User';
 
     // Folk guides
-    List<String> folkGuides = ["SBSD", "MMGD"];
+    List<String> folkGuides = ["SBSD", "AMHD"];
 
     Set<String> adminTokens = {}; // use Set to avoid duplicates
 
