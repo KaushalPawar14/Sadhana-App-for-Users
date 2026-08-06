@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:folk_app/services/SendNotifications.dart';
+import 'package:folk_app/services/SadhanaSyncService.dart';
 import 'package:folk_app/utils/ColorProvider.dart';
 import 'package:folk_app/utils/Snackbar.dart';
 import 'package:intl/intl.dart';
@@ -78,7 +79,7 @@ class _QuestionsPageState extends State<QuestionsPage> {
     final double extraLecturePoints;
 
     if (answers[9] == 'more than 30 mins') {
-      extraLecturePoints =2;
+      extraLecturePoints = 2;
       sentence =
           "📿: $Rounds rounds,  📖 : $bookRead mins\n👂👍>30mins : $Hearing points ,  🙇🏻‍♂️ : $japaEnd";
     } else if (answers[9] == 'more than 15 mins') {
@@ -123,7 +124,6 @@ class _QuestionsPageState extends State<QuestionsPage> {
     print('New Report created: ${newReport.toMap()}');
 
     await saveSadhanaReport(newReport, reversedDate, extraLecturePoints);
-
   }
 
   Future<void> SelectDate() async {
@@ -168,7 +168,7 @@ class _QuestionsPageState extends State<QuestionsPage> {
       return date;
     }
   }
-  
+
   BoxDecoration glassDecoration(ColorProvider colorProvider) {
     return BoxDecoration(
       color: colorProvider.fourthColor.withOpacity(0.65),
@@ -354,7 +354,6 @@ class _QuestionsPageState extends State<QuestionsPage> {
           children: [
             questionTitle(question, colorProvider),
             const SizedBox(height: 14),
-
             for (int i = 0; i < options.length; i++)
               GestureDetector(
                 onTap: () {
@@ -367,7 +366,7 @@ class _QuestionsPageState extends State<QuestionsPage> {
                   duration: Duration(milliseconds: 180),
                   margin: const EdgeInsets.only(bottom: 10),
                   padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
@@ -404,7 +403,6 @@ class _QuestionsPageState extends State<QuestionsPage> {
                   ),
                 ),
               ),
-
             if (text != null)
               Padding(
                 padding: const EdgeInsets.only(top: 6),
@@ -437,24 +435,20 @@ class _QuestionsPageState extends State<QuestionsPage> {
           children: [
             questionTitle(question, colorProvider),
             const SizedBox(height: 12),
-
             DropdownButtonFormField<String>(
               value: answers[questionId],
               dropdownColor: colorProvider.fourthColor,
-
               style: TextStyle(color: colorProvider.secondColor),
-
               decoration: InputDecoration(
                 filled: true,
                 fillColor: colorProvider.color.withOpacity(0.25),
                 contentPadding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide.none,
                 ),
               ),
-
               items: optionsMap.entries.map((entry) {
                 return DropdownMenuItem<String>(
                   value: entry.key,
@@ -464,7 +458,6 @@ class _QuestionsPageState extends State<QuestionsPage> {
                   ),
                 );
               }).toList(),
-
               onChanged: (value) {
                 setState(() {
                   answers[questionId] = value!;
@@ -495,13 +488,11 @@ class _QuestionsPageState extends State<QuestionsPage> {
           children: [
             questionTitle(question, colorProvider),
             const SizedBox(height: 12),
-
             TextField(
               controller: controller,
               keyboardType: keyboardType,
               onTap: onTap,
               style: TextStyle(color: colorProvider.secondColor),
-
               decoration: InputDecoration(
                 filled: true,
                 fillColor: colorProvider.color.withOpacity(0.25),
@@ -509,8 +500,7 @@ class _QuestionsPageState extends State<QuestionsPage> {
                 hintStyle: TextStyle(
                     color: colorProvider.secondColor.withOpacity(0.5)),
                 contentPadding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide.none,
@@ -539,7 +529,6 @@ class _QuestionsPageState extends State<QuestionsPage> {
           children: [
             questionTitle(question, colorProvider),
             const SizedBox(height: 12),
-
             GestureDetector(
               onTap: () async {
                 final TimeOfDay? pickedTime = await showTimePicker(
@@ -549,8 +538,8 @@ class _QuestionsPageState extends State<QuestionsPage> {
 
                 if (pickedTime != null) {
                   final now = DateTime.now();
-                  final dt = DateTime(
-                      now.year, now.month, now.day, pickedTime.hour, pickedTime.minute);
+                  final dt = DateTime(now.year, now.month, now.day,
+                      pickedTime.hour, pickedTime.minute);
 
                   final formattedTime = DateFormat('HH:mm').format(dt);
                   controller.text = formattedTime;
@@ -560,19 +549,16 @@ class _QuestionsPageState extends State<QuestionsPage> {
                 child: TextField(
                   controller: controller,
                   style: TextStyle(color: colorProvider.secondColor),
-
                   decoration: InputDecoration(
                     filled: true,
                     fillColor: colorProvider.color.withOpacity(0.25),
                     hintText: labelText,
                     hintStyle: TextStyle(
                         color: colorProvider.secondColor.withOpacity(0.5)),
-                    contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 14),
                     suffixIcon: Icon(Icons.access_time,
                         color: colorProvider.secondColor.withOpacity(0.7)),
-
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide.none,
@@ -591,8 +577,8 @@ class _QuestionsPageState extends State<QuestionsPage> {
 FirebaseFirestore firestore = FirebaseFirestore.instance;
 CollectionReference reports = firestore.collection('sadhana-reports');
 
-Future<void> saveSadhanaReport( SadhanaReport report, String reportDate, double selectedExtraLecturePoints) async {
-
+Future<void> saveSadhanaReport(SadhanaReport report, String reportDate,
+    double selectedExtraLecturePoints) async {
   try {
     final User? currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) {
@@ -630,7 +616,7 @@ Future<void> saveSadhanaReport( SadhanaReport report, String reportDate, double 
       await CompetitionService().updateScores(
         userName,
         report,
-        DateFormat("dd-MM-yyyy").parse(reportDate),             // <-- reported date
+        DateFormat("dd-MM-yyyy").parse(reportDate), // <-- reported date
         extraLecture: selectedExtraLecturePoints,
       );
     } else {
@@ -641,6 +627,21 @@ Future<void> saveSadhanaReport( SadhanaReport report, String reportDate, double 
     }
 
     await reportRef.set(report.toMap());
+
+    final reportMap = report.toMap();
+    await const SadhanaSyncService().shadowUpsert(
+      entryDate: DateFormat('dd-MM-yyyy').parseStrict(reportDate),
+      residenceMode: 'folk',
+      chantingRounds: report.chantRounds,
+      bookReadingMinutes: report.bookReading,
+      classHearingScore: report.classHearing.toDouble(),
+      sleepTime: reportMap['sleepTiming'] as String?,
+      japaFinishTime: reportMap['finishTiming'] as String?,
+      templeEntryTime: reportMap['templeEntry'] as String?,
+      dailyServiceScore: report.dailyServices.toDouble(),
+      legacyCollection: 'sadhana-reports',
+      legacyDocumentPath: 'sadhana-reports/$userName/dates/$reportDate',
+    );
 
     // 🔍 TEMP DEBUG (remove later)
     debugPrint(

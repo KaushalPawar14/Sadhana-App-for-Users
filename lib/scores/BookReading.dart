@@ -1,7 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:folk_app/utils/ColorProvider.dart';
-import 'package:iconly/iconly.dart';
 import 'package:provider/provider.dart';
 import 'package:sizer/sizer.dart';
 
@@ -38,7 +37,7 @@ class BookReading extends StatelessWidget {
             elevation: 0,
             leading: IconButton(
               icon: Icon(
-                IconlyBroken.arrow_left,
+                Icons.arrow_back_rounded,
                 size: 4.5.h, // same as chanting
                 color: colorProvider.secondColor,
               ),

@@ -1,30 +1,35 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:folk_app/main.dart';
+import 'package:folk_app/pages/JapaCounter.dart';
+import 'package:folk_app/pages/RduaSession.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(AnimatedLogin());
+  testWidgets('japa counter starts at zero and increments', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(home: JapaCounterPage()),
+    );
 
-    // Verify that our counter starts at 0.
     expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    expect(find.text('of 108 · tap to count'), findsOneWidget);
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
+    await tester.tap(find.text('0'));
     await tester.pump();
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
     expect(find.text('1'), findsOneWidget);
+  });
+
+  testWidgets('RDUA preview preserves the four-step sequence', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(home: RduaSessionPage()),
+    );
+
+    expect(find.textContaining('Step 1 of 4'), findsOneWidget);
+    expect(find.text('Finished reading'), findsOneWidget);
+
+    await tester.tap(find.text('Finished reading'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Step 2 of 4'), findsOneWidget);
+    expect(find.text('We discussed it'), findsOneWidget);
   });
 }

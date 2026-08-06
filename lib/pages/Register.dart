@@ -5,7 +5,6 @@ import 'package:folk_app/pages/CompleteProfile.dart';
 import 'package:folk_app/utils/BottomNavBar.dart';
 import 'package:folk_app/utils/MalaLoading.dart';
 import 'package:folk_app/utils/Snackbar.dart';
-import 'package:iconly/iconly.dart';
 import 'package:sizer/sizer.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../main.dart';
@@ -152,7 +151,7 @@ class _RegisterState extends State<RegisterPage> {
                           Navigator.pop(context);
                         },
                         icon: Icon(
-                          IconlyBroken.arrow_left,
+                          Icons.arrow_back_rounded,
                           size: 3.6.h,
                         )),
                   ),
