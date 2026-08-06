@@ -13,6 +13,7 @@ import 'package:folk_app/utils/BottomNavBar.dart';
 import 'package:folk_app/utils/ColorProvider.dart';
 import 'package:folk_app/utils/MalaLoading.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import 'package:sizer/sizer.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -136,28 +137,33 @@ class _AnimatedLoginState extends State<AnimatedLogin> {
     }
 
     if (AppConfiguration.canUseGoogleAuth) {
-      final supabaseUser = FolkIdentityService.currentUser;
       return Sizer(
         builder: (context, orientation, deviceType) => MaterialApp(
           debugShowCheckedModeBanner: false,
           theme: ThemeData(fontFamily: 'Satoshi'),
-          home: supabaseUser == null
-              ? const WelcomePage()
-              : FutureBuilder<Map<String, dynamic>?>(
-                  future: FolkIdentityService.loadCurrentProfile(),
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Scaffold(
-                          body: Center(child: CustomLoader()));
-                    }
-                    final profile = snapshot.data;
-                    if (profile == null) return const WelcomePage();
-                    final residence = profile['residence_mode'] == 'hostel'
-                        ? 'Stay at Hostel'
-                        : 'Stay at FOLK';
-                    return CurvedNavBar(residence);
-                  },
-                ),
+          home: StreamBuilder<supabase.AuthState>(
+            stream: FolkIdentityService.authStateChanges,
+            builder: (context, authSnapshot) {
+              final supabaseUser = FolkIdentityService.currentUser;
+              if (supabaseUser == null) return const WelcomePage();
+              return FutureBuilder<Map<String, dynamic>?>(
+                key: ValueKey(supabaseUser.id),
+                future: FolkIdentityService.loadCurrentProfile(),
+                builder: (context, profileSnapshot) {
+                  if (profileSnapshot.connectionState ==
+                      ConnectionState.waiting) {
+                    return const Scaffold(body: Center(child: CustomLoader()));
+                  }
+                  final profile = profileSnapshot.data;
+                  if (profile == null) return const WelcomePage();
+                  final residence = profile['residence_mode'] == 'hostel'
+                      ? 'Stay at Hostel'
+                      : 'Stay at FOLK';
+                  return CurvedNavBar(residence);
+                },
+              );
+            },
+          ),
         ),
       );
     }
