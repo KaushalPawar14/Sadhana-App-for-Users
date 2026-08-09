@@ -2,7 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:folk_app/utils/ColorProvider.dart';
 import 'package:folk_app/utils/MalaLoading.dart';
-import 'package:iconly/iconly.dart';
 import 'package:provider/provider.dart';
 import 'package:sizer/sizer.dart';
 
@@ -40,7 +39,7 @@ class Chanting extends StatelessWidget {
             elevation: 0,
             leading: IconButton(
               icon: Icon(
-                IconlyBroken.arrow_left,
+                Icons.arrow_back_rounded,
                 size: 4.5.h, // bigger back icon
                 color: colorProvider.secondColor,
               ),

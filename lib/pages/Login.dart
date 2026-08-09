@@ -2,15 +2,14 @@ import 'package:animate_do/animate_do.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:folk_app/HostelersPage/Sadhana.dart';
 import 'package:folk_app/utils/BottomNavBar.dart';
-import 'package:folk_app/utils/MalaLoading.dart';
 import 'package:folk_app/utils/Snackbar.dart';
-import 'package:iconly/iconly.dart';
 import 'package:sizer/sizer.dart';
 
 import '../main.dart';
 import '../services/ForgetPassword.dart';
+import '../config/AppConfiguration.dart';
+import '../services/FolkIdentityService.dart';
 import 'CompleteProfile.dart';
 
 class LoginPage extends StatefulWidget {
@@ -48,9 +47,8 @@ class _LoginPageState extends State<LoginPage> {
 
       if (currentUser != null) {
         // 🔹 2. Check if user document exists using UID (not email)
-        DocumentReference userRef = FirebaseFirestore.instance
-            .collection('users')
-            .doc(currentUser.uid);
+        DocumentReference userRef =
+            FirebaseFirestore.instance.collection('users').doc(currentUser.uid);
 
         DocumentSnapshot userDoc = await userRef.get();
 
@@ -79,14 +77,11 @@ class _LoginPageState extends State<LoginPage> {
         ensureUserCompetitionDocument();
 
         // 🔹 5. Redirect depending on profile completeness
-        if (role == null ||
-            role.isEmpty ||
-            mobile == null ||
-            mobile.isEmpty) {
+        if (role == null || role.isEmpty || mobile == null || mobile.isEmpty) {
           Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(builder: (context) => CompleteProfilePage()),
-                (route) => false,
+            (route) => false,
           );
           return;
         }
@@ -95,13 +90,13 @@ class _LoginPageState extends State<LoginPage> {
           Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(builder: (context) => CurvedNavBar(role)),
-                (route) => false,
+            (route) => false,
           );
         } else {
           Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(builder: (context) => CurvedNavBar(role)),
-                (route) => false,
+            (route) => false,
           );
         }
       }
@@ -113,8 +108,8 @@ class _LoginPageState extends State<LoginPage> {
       if (e.code == 'user-not-found') {
         showSnackbar(context, 'No user found', Colors.red, Icons.no_accounts);
       } else if (e.code == 'wrong-password') {
-        showSnackbar(
-            context, 'Wrong password', Colors.red, Icons.no_encryption_outlined);
+        showSnackbar(context, 'Wrong password', Colors.red,
+            Icons.no_encryption_outlined);
       } else {
         showSnackbar(
             context,
@@ -143,6 +138,83 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (AppConfiguration.googleOnlyAuthEnabled) {
+      return Scaffold(
+        backgroundColor: Colors.white,
+        appBar: AppBar(backgroundColor: Colors.white),
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Icon(
+                  Icons.self_improvement,
+                  size: 72,
+                  color: Color(0xFF835DF1),
+                ),
+                const SizedBox(height: 24),
+                const Text(
+                  'Hare Krishna',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 30, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Use your Google account for one secure FOLK Surat identity.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 16, color: Colors.black54),
+                ),
+                const SizedBox(height: 32),
+                FilledButton.icon(
+                  onPressed: isLoading
+                      ? null
+                      : () async {
+                          setState(() => isLoading = true);
+                          try {
+                            await FolkIdentityService.signInWithGoogle();
+                          } catch (error) {
+                            if (mounted) {
+                              showSnackbar(
+                                context,
+                                error.toString(),
+                                Colors.red,
+                                Icons.error_outline,
+                              );
+                            }
+                          } finally {
+                            if (mounted) setState(() => isLoading = false);
+                          }
+                        },
+                  icon: isLoading
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.login),
+                  label: const Text('Continue with Google'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF835DF1),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                ),
+                if (!AppConfiguration.hasSupabaseConfiguration) ...[
+                  const SizedBox(height: 18),
+                  const Text(
+                    'This test build still needs its secure Supabase configuration.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.orange),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       body: Column(
         children: [
@@ -169,7 +241,7 @@ class _LoginPageState extends State<LoginPage> {
                             Navigator.pop(context);
                           },
                           icon: Icon(
-                            IconlyBroken.arrow_left,
+                            Icons.arrow_back_rounded,
                             size: 3.6.h,
                           )),
                     ),
@@ -395,7 +467,8 @@ class _LoginPageState extends State<LoginPage> {
                                   ),
                                   padding: EdgeInsets.symmetric(vertical: 16)),
                               child: isLoading
-                                  ? Center(child: const CircularProgressIndicator())
+                                  ? Center(
+                                      child: const CircularProgressIndicator())
                                   : FadeInUp(
                                       delay: const Duration(milliseconds: 200),
                                       duration:

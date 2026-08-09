@@ -5,6 +5,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:folk_app/models/HostelSadhana.dart';
 import 'package:folk_app/services/SendNotifications.dart';
+import 'package:folk_app/services/SadhanaSyncService.dart';
 import 'package:folk_app/utils/ColorProvider.dart';
 import 'package:folk_app/utils/Snackbar.dart';
 import 'package:intl/intl.dart';
@@ -504,6 +505,20 @@ Future<void> saveSadhanaReport(HostelSadhana report, String reportDate) async {
 
     // Save the report data
     await reportRef.set(report.toMap(), SetOptions(merge: true));
+
+    final reportMap = report.toMap();
+    await const SadhanaSyncService().shadowUpsert(
+      entryDate: DateFormat('dd-MM-yyyy').parseStrict(reportDate),
+      residenceMode: 'hostel',
+      chantingRounds: report.chantRounds,
+      bookReadingMinutes: report.bookReading,
+      classHearingScore: report.classHearing.toDouble(),
+      sleepTime: reportMap['sleepTiming'] as String?,
+      wakeTime: reportMap['wakeUpTime'] as String?,
+      japaFinishTime: reportMap['finishTiming'] as String?,
+      legacyCollection: 'hostel-sadhana',
+      legacyDocumentPath: 'hostel-sadhana/$userName/dates/$reportDate',
+    );
 
     print(
         '📌 HostelSadhana report saved successfully for $userName on $reportDate');
