@@ -28,9 +28,22 @@ class _MonthlyResultsPageState extends State<MonthlyResultsPage> with TickerProv
   final FirebaseFirestore firestore = FirebaseFirestore.instance;
   String? username;
 
+  /// Firestore-listener-in-build() fix (2026-09-09, size/perf task) — both
+  /// used to be constructed fresh in `build()`/`buildCurrentRank()` on
+  /// every rebuild. `_leaderboardStream` has no `username` dependency, so
+  /// it's built immediately below. `_myRankStream` depends on `username`,
+  /// which isn't known synchronously (`fetchUsername()`'s async read) —
+  /// built once, the moment `username` transitions from null to set, the
+  /// same "deferred but still build-once" pattern used in
+  /// `RduaFriendsScreen.dart`; `build()`'s own `username == null` branch
+  /// never uses it any earlier than that anyway.
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _leaderboardStream;
+  Stream<DocumentSnapshot<Map<String, dynamic>>>? _myRankStream;
+
   @override
   void initState() {
     super.initState();
+    _leaderboardStream = firestore.collection('competition').snapshots();
     fetchUsername();
     // Animation setup
     _controller = AnimationController(
@@ -209,6 +222,8 @@ class _MonthlyResultsPageState extends State<MonthlyResultsPage> with TickerProv
         percentageChanges = await service.getMonthlyPercentageChange(
           username: username!,
         );
+        _myRankStream =
+            firestore.collection('competition').doc(username).snapshots();
       }
 
       // now both username & percentages are ready
@@ -223,7 +238,7 @@ class _MonthlyResultsPageState extends State<MonthlyResultsPage> with TickerProv
   Widget buildCurrentRank() {
 
     return StreamBuilder<QuerySnapshot>(
-      stream: firestore.collection('competition').snapshots(),
+      stream: _leaderboardStream,
       builder: (context, snapshot) {
 
         if (!snapshot.hasData) {
@@ -395,10 +410,7 @@ class _MonthlyResultsPageState extends State<MonthlyResultsPage> with TickerProv
                   child: username == null
                       ? CustomLoader()
                       : StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                    stream: firestore
-                        .collection('competition')
-                        .doc(username)
-                        .snapshots(),
+                    stream: _myRankStream,
                     builder: (context, snapshot) {
                       // 🔹 1. Loading state
                       if (snapshot.connectionState == ConnectionState.waiting) {

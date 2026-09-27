@@ -138,9 +138,14 @@ class AssignedTasksState extends State<AssignedTasks> {
       return Scaffold(
         backgroundColor: colorProvider.color,
         appBar: AppBar(
-          leading: IconButton(onPressed: (){
-            Navigator.pop(context);
-          }, icon: Icon(Icons.arrow_back_outlined,color: colorProvider.secondColor,)),
+          leading: IconButton(
+              onPressed: () {
+                Navigator.pop(context);
+              },
+              icon: Icon(
+                Icons.arrow_back_outlined,
+                color: colorProvider.secondColor,
+              )),
           backgroundColor: colorProvider.color,
           elevation: 0,
           centerTitle: true,
@@ -215,112 +220,125 @@ class _LevelWidget extends StatelessWidget {
               )
             ],
           ),
-          child: ExpansionTile(
-            tilePadding:
-                const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
-            childrenPadding: const EdgeInsets.only(bottom: 16),
-            title: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      level.toUpperCase(),
-                      style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    Text(
-                      "$completed / $total",
-                      style: TextStyle(
-                        color: Colors.grey.shade600,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    )
-                  ],
-                ),
-                const SizedBox(height: 8),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(6),
-                  child: LinearProgressIndicator(
-                    value: progress,
-                    minHeight: 6,
-                    backgroundColor: Colors.grey.shade200,
-                    valueColor:
-                        const AlwaysStoppedAnimation<Color>(Colors.green),
-                  ),
-                ),
-              ],
-            ),
-            children: data.entries.map((entry) {
-              bool completed = entry.value["completed"];
-
-              return InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: () {
-                  firestore
-                      .collection("users")
-                      .doc(uid)
-                      .collection("questions")
-                      .doc(level)
-                      .update({"${entry.key}.completed": !completed});
-                },
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  margin:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  decoration: BoxDecoration(
-                    color:
-                        completed ? Colors.green.shade50 : Colors.grey.shade100,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: completed ? Colors.green : Colors.grey.shade300,
-                    ),
-                  ),
-                  child: Row(
+          // ExpansionTile paints its header/ink via the nearest Material
+          // ancestor — without one here, the Container's own `color:
+          // white` above sits between it and the Scaffold's Material,
+          // triggering "ListTile background color or ink splashes may be
+          // invisible" (recurred three times in this project already —
+          // same fix each time).
+          child: Material(
+            color: Colors.transparent,
+            borderRadius: BorderRadius.circular(18),
+            clipBehavior: Clip.antiAlias,
+            child: ExpansionTile(
+              tilePadding:
+                  const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+              childrenPadding: const EdgeInsets.only(bottom: 16),
+              title: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        height: 22,
-                        width: 22,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(
-                            color: completed ? Colors.green : Colors.grey,
-                            width: 2,
-                          ),
-                          color: completed ? Colors.green : Colors.transparent,
-                        ),
-                        child: completed
-                            ? const Icon(
-                                Icons.check,
-                                size: 16,
-                                color: Colors.white,
-                              )
-                            : null,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          entry.value["question"],
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w500,
-                            decoration:
-                                completed ? TextDecoration.lineThrough : null,
-                            color: completed ? Colors.black54 : Colors.black,
-                          ),
+                      Text(
+                        level.toUpperCase(),
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
+                      Text(
+                        "$completed / $total",
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      )
                     ],
                   ),
-                ),
-              );
-            }).toList(),
+                  const SizedBox(height: 8),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: LinearProgressIndicator(
+                      value: progress,
+                      minHeight: 6,
+                      backgroundColor: Colors.grey.shade200,
+                      valueColor:
+                          const AlwaysStoppedAnimation<Color>(Colors.green),
+                    ),
+                  ),
+                ],
+              ),
+              children: data.entries.map((entry) {
+                bool completed = entry.value["completed"];
+
+                return InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () {
+                    firestore
+                        .collection("users")
+                        .doc(uid)
+                        .collection("questions")
+                        .doc(level)
+                        .update({"${entry.key}.completed": !completed});
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    margin:
+                        const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: completed
+                          ? Colors.green.shade50
+                          : Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: completed ? Colors.green : Colors.grey.shade300,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          height: 22,
+                          width: 22,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: completed ? Colors.green : Colors.grey,
+                              width: 2,
+                            ),
+                            color:
+                                completed ? Colors.green : Colors.transparent,
+                          ),
+                          child: completed
+                              ? const Icon(
+                                  Icons.check,
+                                  size: 16,
+                                  color: Colors.white,
+                                )
+                              : null,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            entry.value["question"],
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w500,
+                              decoration:
+                                  completed ? TextDecoration.lineThrough : null,
+                              color: completed ? Colors.black54 : Colors.black,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
           ),
         );
       },

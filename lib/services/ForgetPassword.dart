@@ -114,11 +114,32 @@ class _forgetPasswordState extends State<forgetPassword> {
   //         );
   //       });
   // }
+  /// Back-button fix (2026-09-03) — same bug and same fix as
+  /// `pages/Questions.dart`'s own `build()`, applied to this dialog's
+  /// content instead of a page `Scaffold` (this text field lives in a
+  /// `showDialog`, not a pushed route): no `PopScope`/`WillPopScope` at
+  /// all before this fix, so a hardware back press with the keyboard open
+  /// could close the app instead of just the keyboard. Same
+  /// `PopScope<Object?>` + `canPop: false` idiom, same `viewInsets.bottom >
+  /// 0` keyboard-open check — closed keyboard pops this DIALOG (there is
+  /// always an underlying page route to return to; a shown dialog is never
+  /// the app's own root), matching the existing close (`X`) button's own
+  /// `Navigator.pop(context)`.
   void myDialogBox(BuildContext context) {
     showDialog(
       context: context,
       builder: (BuildContext context) {
-        return Dialog(
+        return PopScope<Object?>(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, result) {
+            if (didPop) return;
+            if (MediaQuery.of(context).viewInsets.bottom > 0) {
+              FocusScope.of(context).unfocus();
+              return;
+            }
+            Navigator.of(context).pop();
+          },
+          child: Dialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           child: Container(
             decoration: BoxDecoration(
@@ -197,6 +218,7 @@ class _forgetPasswordState extends State<forgetPassword> {
                 ),
               ],
             ),
+          ),
           ),
         );
       },

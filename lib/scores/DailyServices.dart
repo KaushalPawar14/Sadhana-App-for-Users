@@ -1,7 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:folk_app/utils/ColorProvider.dart';
-import 'package:iconly/iconly.dart';
 import 'package:provider/provider.dart';
 import 'package:sizer/sizer.dart';
 
@@ -39,7 +38,7 @@ class DailyServices extends StatelessWidget {
             backgroundColor: colorProvider.color,
             leading: IconButton(
               icon: Icon(
-                IconlyBroken.arrow_left,
+                Icons.arrow_back,
                 size: 3.6.h,
                 color: colorProvider.secondColor,
               ),

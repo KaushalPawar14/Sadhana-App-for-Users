@@ -111,7 +111,7 @@ class _AchievementsPageState extends State<AchievementsPage>
                 ),
                 child: Padding(
                   padding: const EdgeInsets.all(8),
-                  child: Image.asset("assets/images/$badgeName.png"),
+                  child: Image.asset("assets/images/$badgeName.webp"),
                 ),
               ),
 

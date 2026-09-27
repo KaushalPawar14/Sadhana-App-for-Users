@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
 import '../main.dart';
+import '../utils/ForceUpdateCheck.dart';
+import 'ForceUpdateScreen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -16,6 +18,13 @@ class _SplashScreenState extends State<SplashScreen>
   late AnimationController _textController;
   late Animation<double> _fadeText;
   late Animation<Offset> _slideText;
+
+  /// Follow-up task, 2026-09-10 — kicked off HERE, concurrently with the
+  /// splash's own timer below, so it costs no extra visible delay in the
+  /// common case: a Firestore round trip comfortably finishes inside the
+  /// existing 5-second window, and a slow/failed one still resolves
+  /// (fails open) via its own timeout by the time that timer fires.
+  late final Future<bool> _forceUpdateCheck;
 
   @override
   void initState() {
@@ -38,9 +47,38 @@ class _SplashScreenState extends State<SplashScreen>
 
     _textController.forward();
 
+    _forceUpdateCheck = ForceUpdateCheck.isUpdateRequired();
+
     // 🔥 Navigate after 4 sec
-    Future.delayed(const Duration(seconds: 5), () {
+    Future.delayed(const Duration(seconds: 5), () async {
       if (!mounted) return;
+
+      // Decided at the SAME point splash already decides where to go, so
+      // the update screen wins outright — whichever branch below fires is
+      // the ONLY navigation this splash screen ever performs. The normal
+      // destination, `AnimatedLogin`, is what calls `markAppReady()` (the
+      // one thing that can flush a queued notification route — see
+      // `utils/NotificationRouter.dart`), from ITS OWN `initState()`.
+      // Pushing `ForceUpdateScreen` instead means `AnimatedLogin` — and
+      // therefore `markAppReady()` — is simply never reached: a
+      // notification tapped while an update is required stays queued,
+      // structurally unable to fire underneath or after this blocking
+      // screen, rather than needing an explicit skip here.
+      final mustUpdate = await _forceUpdateCheck;
+      if (!mounted) return;
+
+      if (mustUpdate) {
+        Navigator.of(context).pushReplacement(
+          PageRouteBuilder(
+            pageBuilder: (_, __, ___) => const ForceUpdateScreen(),
+            transitionsBuilder: (_, animation, __, child) {
+              return FadeTransition(opacity: animation, child: child);
+            },
+            transitionDuration: const Duration(milliseconds: 700),
+          ),
+        );
+        return;
+      }
 
       Navigator.of(context).pushReplacement(
         PageRouteBuilder(

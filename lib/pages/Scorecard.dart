@@ -23,7 +23,7 @@ class ScorecardState extends State<ScorecardPage>
   final List<Map<String, dynamic>> cards = [
     {
       "title": "Chanting",
-      "image": "assets/images/Chanting.png",
+      "image": "assets/images/Chanting.webp",
       "page": Chanting(),
     },
     {
@@ -85,7 +85,9 @@ class ScorecardState extends State<ScorecardPage>
 
                 final role = userDoc.data()?['role'] ?? '';
 
-                if (role == 'Stay at Hostel') {
+                // Localites (Master Task, 2026-09-03) are gated exactly like
+                // Hostel residents here.
+                if (role == 'Stay at Hostel' || role == 'Stay at Localite') {
                   showSnackbar(context, "Coming soon !!", Colors.yellow, Icons.watch_later);
                 } else {
                   Navigator.push(

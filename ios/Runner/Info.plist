@@ -5,7 +5,7 @@
 		<key>CFBundleDevelopmentRegion</key>
 		<string>$(DEVELOPMENT_LANGUAGE)</string>
 		<key>CFBundleDisplayName</key>
-		<string>Folk App</string>
+		<string>FOLK Students</string>
 		<key>CFBundleExecutable</key>
 		<string>$(EXECUTABLE_NAME)</string>
 		<key>CFBundleIdentifier</key>
@@ -49,5 +49,8 @@
 		<true/>
 		<key>UIViewControllerBasedStatusBarAppearance</key>
 		<false/>
+		<!-- RDUA Friends voice rooms (ZegoCloud Voice Call SDK) -->
+		<key>NSMicrophoneUsageDescription</key>
+		<string>Used to let you speak in an RDUA Friends voice room.</string>
 	</dict>
 </plist>

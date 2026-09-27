@@ -5,11 +5,11 @@ import 'package:folk_app/pages/CompleteProfile.dart';
 import 'package:folk_app/utils/BottomNavBar.dart';
 import 'package:folk_app/utils/MalaLoading.dart';
 import 'package:folk_app/utils/Snackbar.dart';
-import 'package:iconly/iconly.dart';
 import 'package:sizer/sizer.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../main.dart';
 import '../services/Authentication.dart';
+import '../utils/StudentNameGuard.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -34,23 +34,18 @@ class _RegisterState extends State<RegisterPage> {
   final _formKey = GlobalKey<FormState>();
 
   // Role Dropdown
+  //
+  // ⚠️ `RegisterPage` itself has no navigation call site anywhere in this
+  // app (confirmed by grep, Master Task 2026-09-03) — unreachable dead code.
+  // Kept in sync with the live role list anyway, in case it's ever revived.
   String? selectedRole;
-  List<String> roles = ['Stay at FOLK', 'Stay at Hostel'];
-
-  Future<bool> isNameAlreadyTaken(String name) async {
-    final snapshot = await FirebaseFirestore.instance
-        .collection('users')
-        .where('name', isEqualTo: name.trim())
-        .get();
-
-    return snapshot.docs.isNotEmpty;
-  }
+  List<String> roles = ['Stay at FOLK', 'Stay at Hostel', 'Stay at Localite'];
 
   void signUpUser() async {
     if (_formKey.currentState!.validate() && selectedRole != null) {
       setState(() => isLoading = true);
 
-      String name = nameController.text.trim();
+      String name = normalizeStudentName(nameController.text);
       String email = emailController.text.trim();
       String password = passwordController.text.trim();
 
@@ -58,12 +53,16 @@ class _RegisterState extends State<RegisterPage> {
         showSnackbar(context, "Name cannot be empty", Colors.red, Icons.error);
         return;
       }
-      // 🔥 CHECK IF NAME ALREADY EXISTS
-      bool nameExists = await isNameAlreadyTaken(nameController.text);
+      // Unique/normalized names task — StudentNameGuard.dart is the ONE
+      // shared implementation every registration path uses; this screen is
+      // currently unreachable dead code (kept per this project's convention
+      // of not deleting architecturally-relevant code), but is fixed
+      // defensively in case it is ever resurrected.
+      bool nameExists = await isStudentNameTaken(name);
 
       if (nameExists) {
         setState(() => isLoading = false);
-        showSnackbar(context, "Username already taken", Colors.red, Icons.error);
+        showSnackbar(context, kNameTakenMessage, Colors.red, Icons.error);
         return;
       }
 
@@ -78,7 +77,10 @@ class _RegisterState extends State<RegisterPage> {
         final User? currentUser = userCredential.user;
 
         if (currentUser != null) {
-          // 🔥 STORE USER IN FIRESTORE
+          // `name` is written exactly ONCE, right here, at account creation.
+          // Do NOT add a way to edit it later — see StudentNameGuard.dart
+          // for why every name-keyed collection depends on it never
+          // changing after this point.
           await FirebaseFirestore.instance
               .collection('users')
               .doc(currentUser.uid)
@@ -152,7 +154,7 @@ class _RegisterState extends State<RegisterPage> {
                           Navigator.pop(context);
                         },
                         icon: Icon(
-                          IconlyBroken.arrow_left,
+                          Icons.arrow_back,
                           size: 3.6.h,
                         )),
                   ),
@@ -173,7 +175,7 @@ class _RegisterState extends State<RegisterPage> {
                         delay: const Duration(milliseconds: 700),
                         duration: const Duration(milliseconds: 800),
                         child: Text(
-                          'Folk Surat',
+                          'FOLK Students',
                           style: TextStyle(fontSize: 24.sp, fontWeight: FontWeight.w400),
                         ),
                       ),

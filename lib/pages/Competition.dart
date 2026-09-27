@@ -63,7 +63,15 @@ class _CompetitionPageState extends State<CompetitionPage> with TickerProviderSt
         backgroundColor: colorProvider.color,
         body: Padding(
           padding: const EdgeInsets.only(top: 50, left: 16, right: 16),
-          child: GridView.builder(
+          child: Column(
+            children: [
+              /// Phase 7 — "Competitions upgrade". An upgrade to this screen
+              /// rather than a new feature, so it is noted here instead of
+              /// getting its own placeholder screen. Purely informational:
+              /// nothing below is disabled or changed.
+              
+              Expanded(
+                child: GridView.builder(
             itemCount: cards.length,
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 2,
@@ -75,7 +83,10 @@ class _CompetitionPageState extends State<CompetitionPage> with TickerProviderSt
               final card = cards[index];
               return GestureDetector(
                 onTap: () {
-                  if (widget.role == "Stay at Hostel" &&
+                  // Localites (Master Task, 2026-09-03) are gated exactly
+                  // like Hostel residents here.
+                  if ((widget.role == "Stay at Hostel" ||
+                          widget.role == "Stay at Localite") &&
                       card['title'] != "Graphical Analysis") {
 
                     showSnackbar(
@@ -161,6 +172,9 @@ class _CompetitionPageState extends State<CompetitionPage> with TickerProviderSt
                 ),
               );
             },
+                ),
+              ),
+            ],
           ),
         ),
       );

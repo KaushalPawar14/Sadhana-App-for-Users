@@ -10,7 +10,7 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
-        android:label="Folk Surat"
+        android:label="FOLK Students"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
 
@@ -34,51 +34,12 @@
             </intent-filter>
         </activity>
 
-        <!-- Broadcast Receiver for AlarmManager -->
-        <receiver
-            android:name=".services.AlarmReceiver"
-            android:exported="true"
-            android:enabled="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED"/>
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
-            </intent-filter>
-        </receiver>
-
-        <!-- Required for android_alarm_manager_plus -->
-        <receiver
-            android:name="dev.fluttercommunity.plus.androidalarmmanager.AlarmBroadcastReceiver"
-            android:exported="true"
-            android:permission="android.permission.WAKE_LOCK">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED"/>
-            </intent-filter>
-        </receiver>
-
-        <service
-            android:name="dev.fluttercommunity.plus.androidalarmmanager.AlarmService"
-            android:permission="android.permission.BIND_JOB_SERVICE"
-            android:exported="false"/>
-
         <!-- Firebase Messaging Service -->
         <service
             android:name="com.google.firebase.messaging.FirebaseMessagingService"
             android:exported="false">
             <intent-filter>
                 <action android:name="com.google.firebase.MESSAGING_EVENT"/>
-            </intent-filter>
-        </service>
-
-        <!-- Background Service - Fixed Conflict -->
-        <service
-            android:name="id.flutter.flutter_background_service.BackgroundService"
-            android:permission="android.permission.FOREGROUND_SERVICE"
-            android:exported="false"
-            android:foregroundServiceType="location|dataSync"
-            tools:replace="android:exported">
-            <intent-filter>
-                <action android:name="id.flutter.flutter_background_service.BackgroundService" />
-                <action android:name="android.intent.action.BOOT_COMPLETED"/>
             </intent-filter>
         </service>
 
@@ -92,6 +53,17 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- Force-update task, 2026-09-10 — required for `url_launcher` to
+             reliably find a browser/the Play Store app on Android 11+
+             (API 30+) package-visibility restrictions
+             (https://developer.android.com/training/package-visibility);
+             without this, `launchUrl` on the update screen's "Update now"
+             button could silently fail to find a matching app on some
+             devices even though the browser/Play Store is installed. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
         </intent>
     </queries>
 </manifest>

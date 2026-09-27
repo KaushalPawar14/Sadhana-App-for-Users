@@ -4,7 +4,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:folk_app/services/SendNotifications.dart';
 import 'package:folk_app/utils/ColorProvider.dart';
 import 'package:folk_app/utils/Snackbar.dart';
 import 'package:intl/intl.dart';
@@ -108,7 +107,12 @@ class _QuestionsPageState extends State<QuestionsPage> {
       selectedOptions.clear();
     });
 
-    sendNotificationToAdmin(reversedDate, timeEntered, Sleeping, sentence);
+    // Master Task follow-up (2026-09-03) — the old hardcoded-guide broadcast
+    // (sendNotificationToAdmin, ["SBSD", "AMHD"] regardless of this
+    // student's real guide) was removed here. The student's own guide and
+    // the HOD are now notified server-side, correctly, by
+    // `functions/submissionNotify.js`'s `onDocumentCreated` trigger on this
+    // same write — see that file's own header.
     print(
         'Report Data: $reversedDate, $timeEntered, $Rounds, $bookRead, $Hearing, ${serviceDone}, $japaEnd');
 
@@ -209,10 +213,43 @@ class _QuestionsPageState extends State<QuestionsPage> {
     );
   }
 
+  /// Back-button fix (2026-09-03) — with the keyboard open, the hardware
+  /// back button/gesture was closing the entire app instead of just the
+  /// keyboard. This page had NO `PopScope`/`WillPopScope` at all before this
+  /// fix, leaving back handling entirely to the platform's own default —
+  /// on this Flutter/Android combination that default does not reliably
+  /// resolve "keyboard open, back pressed" to "dismiss keyboard, stay on
+  /// this route": it can fall through to the OS's own default action
+  /// (finishing the Activity) instead, since nothing here ever registers an
+  /// explicit callback for the system to hand the gesture to. There is no
+  /// pushAndRemoveUntil anywhere in this app's navigation to this page
+  /// (confirmed by grep — `Calendar.dart`'s only route here is a plain
+  /// `Navigator.push`) and no existing PopScope with a wrong return value
+  /// either — the bug is the absence of one, not a mistake in one.
+  ///
+  /// Same `PopScope<Object?>` + `canPop: false` idiom already used
+  /// elsewhere in this app (`BookReaderPage.dart`, `BookPageList.dart`'s
+  /// commitment dialog) — not a new pattern. `viewInsets.bottom > 0` is the
+  /// standard proxy for "the on-screen keyboard is showing." `canPop: false`
+  /// means every pop attempt — system back AND `Navigator.pop(context)`
+  /// from anywhere in this subtree — is intercepted here, so this is the one
+  /// place that decides: keyboard open -> unfocus and stay; keyboard closed
+  /// -> pop for real, explicitly, through this app's own Navigator rather
+  /// than left ambiguous.
   @override
   Widget build(BuildContext context) {
     return Consumer<ColorProvider>(builder: (context, colorProvider, child) {
-      return Scaffold(
+      return PopScope<Object?>(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, result) {
+          if (didPop) return;
+          if (MediaQuery.of(context).viewInsets.bottom > 0) {
+            FocusScope.of(context).unfocus();
+            return;
+          }
+          Navigator.of(context).pop();
+        },
+        child: Scaffold(
         backgroundColor: colorProvider.color,
         body: SafeArea(
           child: SingleChildScrollView(
@@ -328,6 +365,7 @@ class _QuestionsPageState extends State<QuestionsPage> {
               ),
             ),
           ),
+        ),
         ),
       );
     });
@@ -640,7 +678,33 @@ Future<void> saveSadhanaReport( SadhanaReport report, String reportDate, double 
       );
     }
 
-    await reportRef.set(report.toMap());
+    // ⚠️ `SetOptions(merge: true)` added 2026-08-23, matching the hostel path.
+    //
+    // This was a BARE `.set()` — a whole-document replace. Any field not in
+    // `report.toMap()` was deleted on every resubmission, which meant the japa
+    // counter's `chantRounds` increments (ChantingScreen.dart) were silently
+    // erased whenever a student submitted the form again the same day. It also
+    // made the new fields below impossible: they would have been wiped by the
+    // next submission. The merge lands FIRST, for exactly that reason.
+    //
+    // Nothing is lost by merging: `toMap()` supplies every field this document
+    // has ever held, so the merge writes the same values the replace did.
+    final bool isNewReport = !reportSnapshot.exists;
+    final existing = reportSnapshot.data() as Map<String, dynamic>?;
+    final int japaSoFar = existing?['japaCounterRounds'] is num
+        ? (existing!['japaCounterRounds'] as num).toInt()
+        : 0;
+
+    await reportRef.set({
+      ...report.toMap(),
+      // `chantRounds` stays exactly what the form typed — unchanged behaviour.
+      // `roundsSource` only *describes* the document; no existing reader is
+      // repointed by this change (that is a separate, later decision).
+      'roundsSource': japaSoFar > 0 ? 'both' : 'form',
+      'updatedAt': FieldValue.serverTimestamp(),
+      // Only on creation, so a resubmission never rewrites the original.
+      if (isNewReport) 'createdAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
 
     // 🔍 TEMP DEBUG (remove later)
     debugPrint(

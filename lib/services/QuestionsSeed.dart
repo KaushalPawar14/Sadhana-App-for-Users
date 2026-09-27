@@ -1,27 +1,11 @@
-import 'package:googleapis_auth/auth_io.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-class AccessTokenFirebase {
-  // first add endpoint url
-  static String firebaseMessagingScope =
-      "https://www.googleapis.com/auth/firebase.messaging";
-
-  Future<String> getAccessToken() async {
-    final client = await clientViaServiceAccount(
-        ServiceAccountCredentials.fromJson(
-          {
-
-          },
-        ), [firebaseMessagingScope]
-    );
-    final accessToken = client.credentials.accessToken.data;
-
-    client.close(); // ✅ MUST ADD THIS
-
-    return accessToken;
-  }
-}
-
+/// Seeds a new student's `users/{uid}/questions/{level}` docs the first
+/// time they sign in. Extracted out of `services/AccessToken.dart` (task:
+/// "Remove the embedded service-account key from the Student app") — this
+/// content was unrelated to that file's actual subject (minting an FCM
+/// access token from a bundled service-account key) and needed a home of
+/// its own once that file was deleted.
 final Map<String, List<String>> questionLevels = {
   "level-1": [
     "Who am I?",
@@ -90,4 +74,3 @@ Future<void> initializeQuestionsIfNeeded(String uid) async {
     print("Questions initialized for $uid");
   }
 }
-

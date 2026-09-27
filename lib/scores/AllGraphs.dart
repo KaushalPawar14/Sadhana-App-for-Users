@@ -1,10 +1,10 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../utils/ColorProvider.dart';
 import '../utils/MalaLoading.dart';
+import '../utils/SadhanaReportSource.dart';
 
 class AllGraph extends StatefulWidget {
   final String? username;
@@ -24,61 +24,46 @@ class _ChantingGraphState extends State<AllGraph> {
   Map<String, int> classHearingCount = {'Fully': 0, 'Partial': 0, 'Missed': 0};
   Map<String, int> dailyServicesCount = {'Fully': 0, 'Partial': 0, 'Missed': 0};
 
+  /// Every date-doc for this student, merged across both residence
+  /// collections — Master Task 2026-09-11, so history filed before a
+  /// residence switch still counts here. Fetched once and shared by all
+  /// three processing methods below (Part 3 item 4 — this was already three
+  /// separate reads of the same subcollection before this task; merging by
+  /// re-reading it three times per collection would have made that worse,
+  /// so it is now one shared fetch feeding all three instead). See
+  /// utils/SadhanaReportSource.dart's own header for the one-per-date rule.
+  Map<String, Map<String, dynamic>> _mergedReports = {};
+
   @override
   void initState() {
     super.initState();
-    fetchChantingData();
-    fetchTempleEntryData();
-    fetchPieChartData();
+    _loadAndProcess();
   }
 
-  Future<String> getCollectionName() async {
+  Future<void> _loadAndProcess() async {
+    setState(() => loading = true);
     try {
-      final inputUsername = widget.username?.trim() ?? '';
-
-      final querySnapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .where('name', isEqualTo: inputUsername)
-          .limit(1)
-          .get();
-
-      if (querySnapshot.docs.isNotEmpty) {
-        final data = querySnapshot.docs.first.data();
-        print("User doc exists. Data: $data"); // Debug
-        final role = data['role'] as String? ?? '';
-        print("User role: $role"); // Debug
-        if (role == 'Stay at Hostel') {
-          return 'hostel-sadhana';
-        } else {
-          return 'sadhana-reports';
-        }
-      } else {
-        print("No user found with username: $inputUsername"); // Debug
-        return 'sadhana-reports';
-      }
+      _mergedReports =
+          await fetchMergedDateReports((widget.username ?? '').trim());
+      _processChantingData();
+      _processTempleEntryData();
+      _processPieChartData();
     } catch (e) {
-      print("Error fetching role: $e");
-      return 'sadhana-reports';
+      print("Error fetching data: $e");
+      chantingRounds = [];
+      bookReadingData = [];
+      templeEntryData = [];
+      finishTimingData = [];
     }
+    if (mounted) setState(() => loading = false);
   }
 
-
-  Future<void> fetchPieChartData() async {
-    final collectionName = await getCollectionName();
-    final datesCollection = FirebaseFirestore.instance
-        .collection(collectionName)
-        .doc(widget.username)
-        .collection('dates');
-
-    final querySnapshot = await datesCollection.get();
-
+  void _processPieChartData() {
     // Reset counts
     classHearingCount = {'Fully': 0, 'Partial': 0, 'Missed': 0};
     dailyServicesCount = {'Fully': 0, 'Partial': 0, 'Missed': 0};
 
-    for (final doc in querySnapshot.docs) {
-      final data = doc.data();
-
+    for (final data in _mergedReports.values) {
       // 🔹 classHearing
       if (data.containsKey('classHearing')) {
         final val = data['classHearing'] as int;
@@ -95,158 +80,102 @@ class _ChantingGraphState extends State<AllGraph> {
         else dailyServicesCount['Missed'] = dailyServicesCount['Missed']! + 1;
       }
     }
-
-    if (mounted) setState(() {});
   }
 
-  Future<void> fetchTempleEntryData() async {
+  void _processTempleEntryData() {
     final now = DateTime.now();
     final thirtyDaysAgo = now.subtract(const Duration(days: 29));
     final dateFormat = DateFormat('dd-MM-yyyy');
 
-    try {
-      final collectionName = await getCollectionName();
-      final datesCollection = FirebaseFirestore.instance
-          .collection(collectionName)
-          .doc(widget.username)
-          .collection('dates');
+    Map<String, String> templeMap = {};
+    Map<String, String> finishMap = {};
 
-      final querySnapshot = await datesCollection.get();
-      print("Collection '$collectionName/dates' docs count: ${querySnapshot.docs.length}"); // ✅ Debug
-      for (var doc in querySnapshot.docs) {
-        print("Date doc id: ${doc.id}, data: ${doc.data()}"); // ✅ Debug
+    for (final entry in _mergedReports.entries) {
+      final dateString = entry.key;
+      final data = entry.value;
+
+      if (data.containsKey('templeEntry')) {
+        templeMap[dateString] = data['templeEntry'] as String;
       }
 
-      Map<String, String> templeMap = {};
-      Map<String, String> finishMap = {};
-
-      for (final doc in querySnapshot.docs) {
-        final dateString = doc.id;
-        final data = doc.data();
-
-        if (data.containsKey('templeEntry')) {
-          templeMap[dateString] = data['templeEntry'] as String;
-        }
-
-        if (data.containsKey('finishTiming')) {
-          finishMap[dateString] = data['finishTiming'] as String;
-        }
-      }
-
-      List<int> templeList = [];
-      List<int> finishList = [];
-
-      for (int i = 0; i < 30; i++) {
-        final day = thirtyDaysAgo.add(Duration(days: i));
-        final dayKey = dateFormat.format(day);
-
-        if (templeMap.containsKey(dayKey)) {
-          final timeStr = templeMap[dayKey]!; // "HH:mm"
-          final parts = timeStr.split(":");
-          if (parts.length == 2) {
-            final hour = int.tryParse(parts[0]) ?? 0;
-            final minute = int.tryParse(parts[1]) ?? 0;
-            final totalMinutes = hour * 60 + minute;
-            templeList.add(totalMinutes);
-          }
-        }
-
-        if (finishMap.containsKey(dayKey)) {
-          final timeStr = finishMap[dayKey]!; // "HH:mm"
-          final parts = timeStr.split(":");
-          if (parts.length == 2) {
-            final hour = int.tryParse(parts[0]) ?? 0;
-            final minute = int.tryParse(parts[1]) ?? 0;
-            final totalMinutes = hour * 60 + minute;
-            finishList.add(totalMinutes);
-          }
-        }
-      }
-
-      if (mounted) {
-        setState(() {
-          templeEntryData = templeList;
-          finishTimingData = finishList;
-        });
-      }
-    } catch (e) {
-      print("Error fetching templeEntry/finishTiming data: $e");
-      if (mounted) {
-        setState(() {
-          templeEntryData = [];
-          finishTimingData = [];
-        });
+      if (data.containsKey('finishTiming')) {
+        finishMap[dateString] = data['finishTiming'] as String;
       }
     }
+
+    List<int> templeList = [];
+    List<int> finishList = [];
+
+    for (int i = 0; i < 30; i++) {
+      final day = thirtyDaysAgo.add(Duration(days: i));
+      final dayKey = dateFormat.format(day);
+
+      if (templeMap.containsKey(dayKey)) {
+        final timeStr = templeMap[dayKey]!; // "HH:mm"
+        final parts = timeStr.split(":");
+        if (parts.length == 2) {
+          final hour = int.tryParse(parts[0]) ?? 0;
+          final minute = int.tryParse(parts[1]) ?? 0;
+          final totalMinutes = hour * 60 + minute;
+          templeList.add(totalMinutes);
+        }
+      }
+
+      if (finishMap.containsKey(dayKey)) {
+        final timeStr = finishMap[dayKey]!; // "HH:mm"
+        final parts = timeStr.split(":");
+        if (parts.length == 2) {
+          final hour = int.tryParse(parts[0]) ?? 0;
+          final minute = int.tryParse(parts[1]) ?? 0;
+          final totalMinutes = hour * 60 + minute;
+          finishList.add(totalMinutes);
+        }
+      }
+    }
+
+    templeEntryData = templeList;
+    finishTimingData = finishList;
   }
 
-  Future<void> fetchChantingData() async {
-    setState(() {
-      loading = true;
-    });
-
+  void _processChantingData() {
     final now = DateTime.now();
     final thirtyDaysAgo = now.subtract(const Duration(days: 29));
     final dateFormat = DateFormat('dd-MM-yyyy');
 
-    try {
-      final collectionName = await getCollectionName();
-      final datesCollection = FirebaseFirestore.instance
-          .collection(collectionName)
-          .doc(widget.username)
-          .collection('dates');
+    Map<String, int> roundsMap = {};
+    Map<String, int> readingMap = {}; // 🔹 New map for reading
 
-      final querySnapshot = await datesCollection.get();
+    for (final entry in _mergedReports.entries) {
+      final dateString = entry.key;
+      final data = entry.value;
 
-      Map<String, int> roundsMap = {};
-      Map<String, int> readingMap = {}; // 🔹 New map for reading
-
-      for (final doc in querySnapshot.docs) {
-        final dateString = doc.id;
-        final data = doc.data();
-
-        if (data.containsKey('chantRounds')) {
-          roundsMap[dateString] = data['chantRounds'] as int;
-        }
-
-        if (data.containsKey('bookReading')) {
-          readingMap[dateString] = data['bookReading'] as int; // 🔹 Get reading
-        }
+      if (data.containsKey('chantRounds')) {
+        roundsMap[dateString] = data['chantRounds'] as int;
       }
 
-      List<int> roundsList = [];
-      List<int> readingList = []; // 🔹 New list for reading
-
-      for (int i = 0; i < 30; i++) {
-        final day = thirtyDaysAgo.add(Duration(days: i));
-        final dayKey = dateFormat.format(day);
-
-        if (roundsMap.containsKey(dayKey)) {
-          roundsList.add(roundsMap[dayKey]!); // Chanting Data
-        }
-
-        if (readingMap.containsKey(dayKey)) {
-          readingList.add(readingMap[dayKey]!); // 🔹 Reading data
-        }
-      }
-
-      if (mounted) {
-        setState(() {
-          chantingRounds = roundsList;
-          bookReadingData = readingList; // 🔹 Set reading state
-          loading = false;
-        });
-      }
-    } catch (e) {
-      print("Error fetching data: $e");
-      if (mounted) {
-        setState(() {
-          chantingRounds = [];
-          bookReadingData = [];
-          loading = false;
-        });
+      if (data.containsKey('bookReading')) {
+        readingMap[dateString] = data['bookReading'] as int; // 🔹 Get reading
       }
     }
+
+    List<int> roundsList = [];
+    List<int> readingList = []; // 🔹 New list for reading
+
+    for (int i = 0; i < 30; i++) {
+      final day = thirtyDaysAgo.add(Duration(days: i));
+      final dayKey = dateFormat.format(day);
+
+      if (roundsMap.containsKey(dayKey)) {
+        roundsList.add(roundsMap[dayKey]!); // Chanting Data
+      }
+
+      if (readingMap.containsKey(dayKey)) {
+        readingList.add(readingMap[dayKey]!); // 🔹 Reading data
+      }
+    }
+
+    chantingRounds = roundsList;
+    bookReadingData = readingList; // 🔹 Set reading state
   }
 
   @override

@@ -6,11 +6,11 @@ import 'package:folk_app/HostelersPage/Sadhana.dart';
 import 'package:folk_app/utils/BottomNavBar.dart';
 import 'package:folk_app/utils/MalaLoading.dart';
 import 'package:folk_app/utils/Snackbar.dart';
-import 'package:iconly/iconly.dart';
 import 'package:sizer/sizer.dart';
 
 import '../main.dart';
 import '../services/ForgetPassword.dart';
+import '../utils/StudentNameGuard.dart';
 import 'CompleteProfile.dart';
 
 class LoginPage extends StatefulWidget {
@@ -54,11 +54,32 @@ class _LoginPageState extends State<LoginPage> {
 
         DocumentSnapshot userDoc = await userRef.get();
 
-        // 🔹 3. If document doesn't exist, create a basic one
+        // 🔹 3. If document doesn't exist, create a basic one.
+        //
+        // Unique/normalized/immutable-names task — this screen is currently
+        // unreachable dead code (kept per this project's convention), fixed
+        // defensively in case it is ever resurrected. This sign-IN flow has
+        // no name text field, and an email/password Firebase Auth account
+        // typically has a null `displayName` — without a uniqueness guard
+        // this would silently write the literal string 'User' for every
+        // such account, a severe collision risk. `name` is written exactly
+        // ONCE, right here, at account creation — see StudentNameGuard.dart
+        // for why it must never change after this.
         if (!userDoc.exists) {
+          final candidateName =
+              normalizeStudentName(currentUser.displayName ?? 'User');
+          if (await isStudentNameTaken(candidateName)) {
+            await FirebaseAuth.instance.signOut();
+            if (!mounted) return;
+            setState(() {
+              isLoading = false;
+            });
+            showSnackbar(context, kNameTakenMessage, Colors.red, Icons.error);
+            return;
+          }
           await userRef.set({
             'email': currentUser.email,
-            'name': currentUser.displayName?.trim() ?? 'User',
+            'name': candidateName,
             'role': '',
             'mobileNumber': '',
             'createdByAdmin': false,
@@ -141,9 +162,25 @@ class _LoginPageState extends State<LoginPage> {
     super.initState();
   }
 
+  /// Back-button fix (2026-09-03) — same bug and same fix as
+  /// `pages/Questions.dart`'s own `build()`: no `PopScope`/`WillPopScope`
+  /// at all before this fix, so a hardware back press with the keyboard
+  /// open could close the app instead of just the keyboard. Same
+  /// `PopScope<Object?>` + `canPop: false` idiom, same `viewInsets.bottom >
+  /// 0` keyboard-open check.
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope<Object?>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (MediaQuery.of(context).viewInsets.bottom > 0) {
+          FocusScope.of(context).unfocus();
+          return;
+        }
+        Navigator.of(context).pop();
+      },
+      child: Scaffold(
       body: Column(
         children: [
           Expanded(
@@ -169,7 +206,7 @@ class _LoginPageState extends State<LoginPage> {
                             Navigator.pop(context);
                           },
                           icon: Icon(
-                            IconlyBroken.arrow_left,
+                            Icons.arrow_back,
                             size: 3.6.h,
                           )),
                     ),
@@ -415,6 +452,7 @@ class _LoginPageState extends State<LoginPage> {
             ),
           ))
         ],
+      ),
       ),
     );
   }

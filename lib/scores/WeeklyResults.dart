@@ -29,9 +29,16 @@ class _WeeklyResultsPageState extends State<WeeklyResultsPage>
   final FirebaseFirestore firestore = FirebaseFirestore.instance;
   String? username;
 
+  /// Firestore-listener-in-build() fix (2026-09-09, size/perf task) — same
+  /// fix as `MonthlyResults.dart`'s own twin fields; see that file's doc
+  /// comment for the full reasoning.
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _leaderboardStream;
+  Stream<DocumentSnapshot<Map<String, dynamic>>>? _myRankStream;
+
   @override
   void initState() {
     super.initState();
+    _leaderboardStream = firestore.collection('competition').snapshots();
     fetchUsername();
     // Animation setup
     _controller = AnimationController(
@@ -90,6 +97,8 @@ class _WeeklyResultsPageState extends State<WeeklyResultsPage>
         percentageChanges = await service.getWeeklyPercentageChange(
           username: username!,
         );
+        _myRankStream =
+            firestore.collection('competition').doc(username).snapshots();
       }
 
       // now both username & percentages are ready
@@ -224,7 +233,7 @@ class _WeeklyResultsPageState extends State<WeeklyResultsPage>
   Widget buildCurrentRank() {
 
     return StreamBuilder<QuerySnapshot>(
-      stream: firestore.collection('competition').snapshots(),
+      stream: _leaderboardStream,
       builder: (context, snapshot) {
 
         if (!snapshot.hasData) {
@@ -417,10 +426,7 @@ class _WeeklyResultsPageState extends State<WeeklyResultsPage>
                             ? CustomLoader()
                             : StreamBuilder<
                                 DocumentSnapshot<Map<String, dynamic>>>(
-                                stream: firestore
-                                    .collection('competition')
-                                    .doc(username)
-                                    .snapshots(),
+                                stream: _myRankStream,
                                 builder: (context, snapshot) {
                                   // 🔹 1. Loading state
                                   if (snapshot.connectionState ==

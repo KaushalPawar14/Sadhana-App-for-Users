@@ -2,7 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:folk_app/utils/ColorProvider.dart';
 import 'package:folk_app/utils/MalaLoading.dart';
-import 'package:iconly/iconly.dart';
 import 'package:provider/provider.dart';
 import 'package:sizer/sizer.dart';
 
@@ -10,7 +9,7 @@ class Chanting extends StatelessWidget {
   // Fetch leaderboard data
   Future<List<Map<String, dynamic>>> fetchLeaderboard() async {
     var userDocs =
-    await FirebaseFirestore.instance.collection('scorecard').get();
+        await FirebaseFirestore.instance.collection('scorecard').get();
 
     List<Map<String, dynamic>> leaderboard = [];
 
@@ -23,8 +22,8 @@ class Chanting extends StatelessWidget {
       });
     }
 
-    leaderboard.sort(
-            (a, b) => b['totalChantRounds'].compareTo(a['totalChantRounds']));
+    leaderboard
+        .sort((a, b) => b['totalChantRounds'].compareTo(a['totalChantRounds']));
     return leaderboard;
   }
 
@@ -40,7 +39,7 @@ class Chanting extends StatelessWidget {
             elevation: 0,
             leading: IconButton(
               icon: Icon(
-                IconlyBroken.arrow_left,
+                Icons.arrow_back,
                 size: 4.5.h, // bigger back icon
                 color: colorProvider.secondColor,
               ),
@@ -137,7 +136,8 @@ class Chanting extends StatelessWidget {
                 Expanded(
                   child: ListView.builder(
                     physics: const BouncingScrollPhysics(),
-                    itemCount: leaderboard.length > 3 ? leaderboard.length - 3 : 0,
+                    itemCount:
+                        leaderboard.length > 3 ? leaderboard.length - 3 : 0,
                     itemBuilder: (context, index) {
                       var user = leaderboard[index + 3];
 
@@ -147,7 +147,8 @@ class Chanting extends StatelessWidget {
                         curve: Curves.easeOutBack,
                         builder: (context, value, child) {
                           return Transform.translate(
-                            offset: Offset(0, (1 - value) * 40), // slide from bottom
+                            offset: Offset(
+                                0, (1 - value) * 40), // slide from bottom
                             child: Opacity(
                               opacity: value.clamp(0.0, 1.0),
                               child: child,
@@ -155,7 +156,8 @@ class Chanting extends StatelessWidget {
                           );
                         },
                         child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 8),
                           child: AnimatedContainer(
                             duration: const Duration(milliseconds: 500),
                             curve: Curves.easeInOut,
@@ -171,39 +173,54 @@ class Chanting extends StatelessWidget {
                               ),
                               boxShadow: [
                                 BoxShadow(
-                                  color: colorProvider.secondColor.withOpacity(0.3),
+                                  color: colorProvider.secondColor
+                                      .withOpacity(0.3),
                                   blurRadius: 8,
                                   offset: const Offset(2, 4),
                                 ),
                               ],
                             ),
-                            child: ListTile(
-                              leading: CircleAvatar(
-                                radius: 20,
-                                backgroundColor: Colors.black.withOpacity(0.2),
-                                child: Text(
-                                  (index + 4).toString(),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
+                            // ListTile paints its background/ink splashes
+                            // via the nearest Material ancestor — without
+                            // one here, this Container's own gradient
+                            // above sits between it and the Scaffold's
+                            // Material, triggering "ListTile background
+                            // color or ink splashes may be invisible"
+                            // (recurred three times in this project
+                            // already — same fix each time).
+                            child: Material(
+                              color: Colors.transparent,
+                              borderRadius: BorderRadius.circular(16),
+                              clipBehavior: Clip.antiAlias,
+                              child: ListTile(
+                                leading: CircleAvatar(
+                                  radius: 20,
+                                  backgroundColor:
+                                      Colors.black.withOpacity(0.2),
+                                  child: Text(
+                                    (index + 4).toString(),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
                                   ),
                                 ),
-                              ),
-                              title: Text(
-                                user['userName'],
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 16.sp,
-                                  color: Colors.white,
+                                title: Text(
+                                  user['userName'],
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 16.sp,
+                                    color: Colors.white,
+                                  ),
+                                  softWrap: true,
                                 ),
-                                softWrap: true,
-                              ),
-                              trailing: Text(
-                                '${user['totalChantRounds']} rounds',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w500,
-                                  fontSize: 13.sp,
-                                  color: Colors.white,
+                                trailing: Text(
+                                  '${user['totalChantRounds']} rounds',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w500,
+                                    fontSize: 13.sp,
+                                    color: Colors.white,
+                                  ),
                                 ),
                               ),
                             ),
@@ -213,7 +230,6 @@ class Chanting extends StatelessWidget {
                     },
                   ),
                 ),
-
               ],
             );
           },
@@ -251,8 +267,8 @@ class _AnimatedTopPlayerCardState extends State<_AnimatedTopPlayerCard>
     super.initState();
 
     _controller =
-    AnimationController(vsync: this, duration: const Duration(seconds: 2))
-      ..repeat(reverse: true);
+        AnimationController(vsync: this, duration: const Duration(seconds: 2))
+          ..repeat(reverse: true);
 
     _scale = Tween<double>(begin: 1.0, end: 1.15).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeInOut),

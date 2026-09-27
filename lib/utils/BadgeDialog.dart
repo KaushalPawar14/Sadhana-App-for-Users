@@ -342,7 +342,7 @@ class _BadgeDialogState extends State<BadgeDialog>
                       ScaleTransition(
                         scale: scaleAnim,
                         child: Image.asset(
-                          "assets/images/${widget.badgeName}.png",
+                          "assets/images/${widget.badgeName}.webp",
                           width: 180,
                         ),
                       ),

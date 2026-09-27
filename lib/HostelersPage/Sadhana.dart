@@ -4,7 +4,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:folk_app/models/HostelSadhana.dart';
-import 'package:folk_app/services/SendNotifications.dart';
 import 'package:folk_app/utils/ColorProvider.dart';
 import 'package:folk_app/utils/Snackbar.dart';
 import 'package:intl/intl.dart';
@@ -85,7 +84,12 @@ class SadhanaPageState extends State<SadhanaPage> {
       selectedOptions.clear();
     });
 
-    sendNotificationToAdmin(reversedDate, wakeUpTime, Sleeping, sentence);
+    // Master Task follow-up (2026-09-03) — the old hardcoded-guide broadcast
+    // (sendNotificationToAdmin, ["SBSD", "AMHD"] regardless of this
+    // student's real guide) was removed here, same as Questions.dart's own
+    // submission path. The student's own guide and the HOD are now notified
+    // server-side, correctly, by `functions/submissionNotify.js`'s
+    // `notifyGuideOnHostelSadhana` trigger on this same write.
     print(
         'Report Data: $reversedDate, $wakeUpTime, $Rounds, $bookRead, $Hearing, $japaEnd');
 
@@ -143,10 +147,27 @@ class SadhanaPageState extends State<SadhanaPage> {
     }
   }
 
+  /// Back-button fix (2026-09-03) — same bug and same fix as
+  /// `pages/Questions.dart`'s own `build()`, see that method's doc comment
+  /// for the full investigation. This screen had the identical gap: no
+  /// `PopScope`/`WillPopScope` at all, so a hardware back press with the
+  /// keyboard open could close the app instead of just the keyboard. Same
+  /// `PopScope<Object?>` + `canPop: false` idiom, same `viewInsets.bottom >
+  /// 0` keyboard-open check.
   @override
   Widget build(BuildContext context) {
     return Consumer<ColorProvider>(builder: (context, colorProvider, child) {
-      return Scaffold(
+      return PopScope<Object?>(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, result) {
+          if (didPop) return;
+          if (MediaQuery.of(context).viewInsets.bottom > 0) {
+            FocusScope.of(context).unfocus();
+            return;
+          }
+          Navigator.of(context).pop();
+        },
+        child: Scaffold(
         backgroundColor: colorProvider.color,
         body: SingleChildScrollView(
           child: Padding(
@@ -237,6 +258,7 @@ class SadhanaPageState extends State<SadhanaPage> {
               ],
             ),
           ),
+        ),
         ),
       );
     });
@@ -502,8 +524,24 @@ Future<void> saveSadhanaReport(HostelSadhana report, String reportDate) async {
         .collection('dates')
         .doc(reportDate);
 
-    // Save the report data
-    await reportRef.set(report.toMap(), SetOptions(merge: true));
+    // Read first, so `createdAt` is written only on creation and
+    // `roundsSource` can tell whether the japa counter has already contributed.
+    // Added 2026-08-23 alongside the same change on the FOLK path
+    // (`pages/Questions.dart`). `merge: true` was already correct here.
+    final existingSnap = await reportRef.get();
+    final bool isNewReport = !existingSnap.exists;
+    final existing = existingSnap.data();
+    final int japaSoFar = existing?['japaCounterRounds'] is num
+        ? (existing!['japaCounterRounds'] as num).toInt()
+        : 0;
+
+    // Save the report data. `chantRounds` stays exactly what the form typed.
+    await reportRef.set({
+      ...report.toMap(),
+      'roundsSource': japaSoFar > 0 ? 'both' : 'form',
+      'updatedAt': FieldValue.serverTimestamp(),
+      if (isNewReport) 'createdAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
 
     print(
         '📌 HostelSadhana report saved successfully for $userName on $reportDate');

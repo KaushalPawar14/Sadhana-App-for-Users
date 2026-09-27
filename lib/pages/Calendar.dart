@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../utils/ColorProvider.dart';
+import '../utils/SadhanaReportSource.dart';
 
 class CalendarPage extends StatefulWidget {
   final String username, role;
@@ -26,7 +27,7 @@ class _CalendarPageState extends State<CalendarPage>
   late Set<String> _availableDates;
   bool showWeekDot = false;
   late AnimationController _dotController; // for in/out animation
-  late Stream<QuerySnapshot> _datesStream;
+  late Stream<Set<String>> _datesStream;
 
   // Floating button animation
   late AnimationController _buttonController;
@@ -42,11 +43,10 @@ class _CalendarPageState extends State<CalendarPage>
     _selectedDayColors = {};
     _availableDates = {};
 
-    _datesStream = FirebaseFirestore.instance
-        .collection(collectionName)
-        .doc(widget.username)
-        .collection('dates')
-        .snapshots();
+    // Master Task 2026-09-11 — merged across both residence collections so
+    // history filed before a residence switch still shows here. See
+    // utils/SadhanaReportSource.dart's own header for the one-per-date rule.
+    _datesStream = mergedAvailableDatesStream(widget.username);
 
     _buttonController = AnimationController(
       vsync: this,
@@ -65,12 +65,6 @@ class _CalendarPageState extends State<CalendarPage>
     super.dispose();
   }
 
-  String get collectionName {
-    return widget.role == 'Stay at Hostel'
-        ? 'hostel-sadhana'
-        : 'sadhana-reports';
-  }
-
   Future<void> _fetchSelectedDayData(DateTime selectedDay) async {
     setState(() {
       _loadingDayData = true;
@@ -80,15 +74,10 @@ class _CalendarPageState extends State<CalendarPage>
 
     try {
       String formattedDate = _getFormattedDate(selectedDay);
-      var doc = await FirebaseFirestore.instance
-          .collection(collectionName)
-          .doc(widget.username)
-          .collection('dates')
-          .doc(formattedDate)
-          .get();
+      final data = await fetchMergedDateReport(widget.username, formattedDate);
 
       setState(() {
-        _selectedDayData = doc.exists ? doc.data() : {};
+        _selectedDayData = data ?? {};
         _loadingDayData = false;
       });
     } catch (e) {
@@ -258,7 +247,7 @@ class _CalendarPageState extends State<CalendarPage>
       builder: (context, colorProvider, child) {
         return Scaffold(
           backgroundColor: colorProvider.color,
-          body: StreamBuilder<QuerySnapshot>(
+          body: StreamBuilder<Set<String>>(
               stream: _datesStream,
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
@@ -271,8 +260,7 @@ class _CalendarPageState extends State<CalendarPage>
 
                 // 🔥 UPDATE AVAILABLE DATES FROM STREAM
                 if (snapshot.hasData) {
-                  _availableDates =
-                      snapshot.data!.docs.map((doc) => doc.id).toSet();
+                  _availableDates = snapshot.data!;
                 }
 
                 return SingleChildScrollView(
@@ -418,7 +406,11 @@ class _CalendarPageState extends State<CalendarPage>
                               width: double.infinity,
                               child: ElevatedButton(
                                 onPressed: () async {
-                                  if (widget.role == 'Stay at Hostel') {
+                                  // Localites (Master Task, 2026-09-03) fill
+                                  // the same hostel form, since their reports
+                                  // go to the same hostel-sadhana collection.
+                                  if (widget.role == 'Stay at Hostel' ||
+                                      widget.role == 'Stay at Localite') {
                                     await Navigator.push(
                                       context,
                                       MaterialPageRoute(
