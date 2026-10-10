@@ -67,16 +67,16 @@ class _MonthlyLeaderboardPageState extends State<MonthlyLeaderboardPage> with Ti
 
     if (monthId == null) return [];
 
-    final monthSnap = await firestore
-        .collection('competition-results')
-        .doc('monthly')
-        .collection('months')
-        .doc(monthId)
-        .get();
-
-    // The winners of MY gender only (see `winnersForMe`).
-    final directory = await GenderDirectory.forCurrentUser();
-    return winnersForMe(monthSnap.data(), directory);
+    // The winners of MY gender only: results are split into one document per
+    // gender (`readMyGenderList`).
+    return readMyGenderList(
+      firestore
+          .collection('competition-results')
+          .doc('monthly')
+          .collection('months')
+          .doc(monthId),
+      'topUsers',
+    );
   }
 
   Widget buildAnimatedMedal(int rank) {

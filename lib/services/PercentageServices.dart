@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../utils/SameGender.dart';
+
 class PercentageService {
   final FirebaseFirestore firestore = FirebaseFirestore.instance;
 
@@ -20,14 +22,15 @@ class PercentageService {
     }
 
     // ---- STEP 2: Get previous week data ----
-    final weekDoc = await firestore
-        .collection('competition-results')
-        .doc('weekly-participants')
-        .collection('weeks')
-        .doc(lastWeekId)
-        .get();
-
-    List participants = weekDoc.data()?['participants'] ?? [];
+    // Only my own gender's participants (the results are split by gender).
+    final List participants = await readMyGenderList(
+      firestore
+          .collection('competition-results')
+          .doc('weekly-participants')
+          .collection('weeks')
+          .doc(lastWeekId),
+      'participants',
+    );
 
     Map<String, dynamic>? oldUser;
 
@@ -115,14 +118,15 @@ class PercentageService {
     }
 
     // ---- STEP 2: Get previous month data ----
-    final monthDoc = await firestore
-        .collection('competition-results')
-        .doc('monthly-participants')
-        .collection('months')
-        .doc(lastMonthId)
-        .get();
-
-    List participants = monthDoc.data()?['participants'] ?? [];
+    // Only my own gender's participants (the results are split by gender).
+    final List participants = await readMyGenderList(
+      firestore
+          .collection('competition-results')
+          .doc('monthly-participants')
+          .collection('months')
+          .doc(lastMonthId),
+      'participants',
+    );
 
     Map<String, dynamic>? oldUser;
 

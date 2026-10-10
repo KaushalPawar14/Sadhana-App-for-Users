@@ -66,16 +66,16 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage> with Tick
 
     if (weekId == null) return [];
 
-    final weekSnap = await firestore
-        .collection('competition-results')
-        .doc('weekly')
-        .collection('weeks')
-        .doc(weekId)
-        .get();
-
-    // The winners of MY gender only (see `winnersForMe`).
-    final directory = await GenderDirectory.forCurrentUser();
-    return winnersForMe(weekSnap.data(), directory);
+    // The winners of MY gender only: results are split into one document per
+    // gender (`readMyGenderList`).
+    return readMyGenderList(
+      firestore
+          .collection('competition-results')
+          .doc('weekly')
+          .collection('weeks')
+          .doc(weekId),
+      'topUsers',
+    );
   }
 
   Widget buildAnimatedMedal(int rank) {

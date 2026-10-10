@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import '../theme/FolkColors.dart';
 import '../theme/FolkTheme.dart';
 import '../theme/FolkTokens.dart';
+import '../theme/FolkTypography.dart';
 import '../utils/BookDocParser.dart';
 import '../utils/BookLoader.dart';
 import '../utils/ReaderContrast.dart';
@@ -174,6 +175,21 @@ class _BookReaderPageState extends State<BookReaderPage> {
   bool _finished = false;
   bool _finishing = false;
 
+  /// How much of the chapter on screen has been read: the scroll position as
+  /// 0.0 - 1.0 (a chapter too short to scroll counts as fully read). A notifier,
+  /// so a scroll repaints only the bottom bar, never the page.
+  final ValueNotifier<double> _progress = ValueNotifier<double>(0);
+
+  /// Latched once the last chapter has been read to its end: the Finish Book /
+  /// Mark as Read area stays up from then on (it would otherwise flicker, because
+  /// showing it shortens the scroll view). Reset on every chapter change.
+  bool _endReached = false;
+
+  /// Height of that area once laid out, added to the page's bottom padding so it
+  /// never covers the last lines.
+  double _endAreaHeight = 0;
+  final GlobalKey _endKey = GlobalKey();
+
   String get _bookmarkDocId => '${widget.uid}_${widget.bookKey}';
 
   /// `booksRead/{uid}_{level}_{bookKey}` for a book, or
@@ -194,6 +210,7 @@ class _BookReaderPageState extends State<BookReaderPage> {
 
   @override
   void dispose() {
+    _progress.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -243,6 +260,7 @@ class _BookReaderPageState extends State<BookReaderPage> {
             _media = update.book.media;
             _complete = update.complete;
           });
+          WidgetsBinding.instance.addPostFrameCallback((_) => _syncProgress());
           continue;
         }
 
@@ -875,32 +893,84 @@ class _BookReaderPageState extends State<BookReaderPage> {
   // ---------------------------------------------------------------------------
 
   void _goToChapter(int index) {
+    if (index < 0 || index >= _chapters.length) return;
     setState(() {
       _currentChapter = index;
       _rebuildParagraphKeys();
+      _endReached = false;
+      _endAreaHeight = 0;
     });
+    _progress.value = 0;
     if (_scrollController.hasClients) {
       _scrollController.jumpTo(0);
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncProgress());
   }
 
-  /// Books: unchanged, always "Next Chapter →" — zero behaviour change,
-  /// gated entirely behind [BookReaderPage.isRdua].
-  ///
-  /// RDUA: shows the REAL upcoming chapter's own title (already parsed by
-  /// `parseDocx` from that section's actual Heading 1 text — e.g.
-  /// "Reflection Questions"), not a hardcoded label list. Confirmed via
-  /// real-file investigation (16 files sampled across 8 topics) that every
-  /// RDUA document produces the same 3-heading sequence in the same order,
-  /// but reading the title straight from `_chapters` is correct regardless
-  /// of whether that holds for every one of the 50 topics — it can never
-  /// mislabel a chapter, because it never guesses what the heading says.
-  String _nextButtonLabel() {
-    if (!widget.isRdua) return "Next Chapter  →";
+  bool get _onLastChapter =>
+      _chapters.isNotEmpty && _currentChapter >= _chapters.length - 1 && _complete;
+
+  /// Progress from the scroll metrics: position / extent, clamped (bounce
+  /// overscroll never shows below 0 or above 100); nothing to scroll = 100 %.
+  void _updateProgress(ScrollMetrics m) {
+    final extent = m.maxScrollExtent;
+    final value = extent <= 1 ? 1.0 : (m.pixels / extent).clamp(0.0, 1.0);
+    if ((value - _progress.value).abs() > .0005) _progress.value = value;
+
+    if (value >= .995 && _onLastChapter && !_endReached) {
+      // May arrive mid-layout: rebuild after the frame.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_endReached && _onLastChapter) {
+          setState(() => _endReached = true);
+        }
+      });
+    }
+  }
+
+  void _syncProgress() {
+    if (!mounted || !_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    if (!position.hasContentDimensions) return;
+    _updateProgress(position);
+  }
+
+  bool _onScroll(Notification n) {
+    if (n is ScrollNotification && n.depth == 0) {
+      _updateProgress(n.metrics);
+    } else if (n is ScrollMetricsNotification && n.depth == 0) {
+      _updateProgress(n.metrics);
+    }
+    return false;
+  }
+
+  /// Measures the finish area after it is laid out and makes room for it, then
+  /// keeps the end of the chapter in view.
+  void _measureEndArea() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final box = _endKey.currentContext?.findRenderObject();
+      if (box is! RenderBox || !box.hasSize) return;
+      if ((box.size.height - _endAreaHeight).abs() < .5) return;
+      setState(() => _endAreaHeight = box.size.height);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_scrollController.hasClients) return;
+        final position = _scrollController.position;
+        if (position.hasContentDimensions) {
+          _scrollController.jumpTo(position.maxScrollExtent);
+        }
+      });
+    });
+  }
+
+  /// The right arrow's tooltip. Books: "Next chapter". RDUA: the REAL upcoming
+  /// chapter's own title (already parsed by `parseDocx` from that section's actual
+  /// Heading 1 text, e.g. "Reflection Questions"), never a hardcoded label list.
+  String _nextTooltip() {
+    if (!widget.isRdua) return "Next chapter";
     final nextIndex = _currentChapter + 1;
-    if (nextIndex >= _chapters.length) return "Next Chapter  →";
+    if (nextIndex >= _chapters.length) return "Next chapter";
     final nextTitle = _chapters[nextIndex].title.trim();
-    return nextTitle.isEmpty ? "Next Chapter  →" : "$nextTitle  →";
+    return nextTitle.isEmpty ? "Next chapter" : nextTitle;
   }
 
   /// One paragraph. Carries a [GlobalKey] so it can be scrolled to, highlights
@@ -1164,128 +1234,155 @@ class _BookReaderPageState extends State<BookReaderPage> {
     final chapter = _chapters[_currentChapter];
     final atEnd = _currentChapter >= _chapters.length - 1;
     // While the rest of the book is still being read, the last chapter READ so
-    // far is not the last chapter: the Next button waits for the next one.
+    // far is not the last chapter: the right arrow waits for the next one.
     final isLast = atEnd && _complete;
     final waitingForNext = atEnd && !_complete;
 
-    return Column(
+    final showEnd = isLast && _endReached;
+    if (showEnd) _measureEndArea();
+    final barContent = ReaderProgressBar.contentHeightFor(_fontScale);
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+    // Room under the last line for the fixed bar (and the finish area above it).
+    final bottomPadding = barContent + bottomInset + (showEnd ? _endAreaHeight : 0);
+
+    return Stack(
       children: [
-        /// Chapter progress
-        ReaderChapterStrip(
-          background: Color.alphaBlend(
-              _palette.onChrome.withValues(alpha: .05), _palette.chrome),
-          textColor: _palette.onChrome,
-          chapterLabel: _complete
-              ? "Chapter ${_currentChapter + 1} of ${_chapters.length}"
-              : "Chapter ${_currentChapter + 1}",
-          bookmarkLabel: _hasBookmark
-              ? "Saved at ch ${_bookmarkChapter! + 1} · para ${_bookmarkParagraph! + 1}"
-              : null,
-        ),
-
-        Expanded(
-          child: SingleChildScrollView(
-            controller: _scrollController,
-            physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _chapterHeading(chapter),
-                const SizedBox(height: 18),
-                if (chapter.paragraphs.isEmpty)
-                  Text(
-                    "This chapter has no readable text.",
-                    style: TextStyle(fontSize: 15, color: _palette.secondaryText),
-                  )
-                else
-                  ...List.generate(
-                    chapter.paragraphs.length,
-                    (i) => _paragraphTile(chapter.paragraphs[i], i),
-                  ),
-              ],
+        Column(
+          children: [
+            /// Chapter header: "Chapter 7 of 30" between the two arrows
+            ReaderChapterStrip(
+              background: Color.alphaBlend(
+                  _palette.onChrome.withValues(alpha: .05), _palette.chrome),
+              textColor: _palette.onChrome,
+              chapterLabel: _complete
+                  ? "Chapter ${_currentChapter + 1} of ${_chapters.length}"
+                  : "Chapter ${_currentChapter + 1}",
+              bookmarkLabel: _hasBookmark
+                  ? "Saved at ch ${_bookmarkChapter! + 1} · para ${_bookmarkParagraph! + 1}"
+                  : null,
+              onPrevious: _currentChapter > 0
+                  ? () => _goToChapter(_currentChapter - 1)
+                  : null,
+              onNext: atEnd ? null : () => _goToChapter(_currentChapter + 1),
+              nextLoading: waitingForNext,
+              nextTooltip: _nextTooltip(),
             ),
-          ),
-        ),
 
-        /// Chapter navigation
-        SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-            child: isLast
-                ? Column(
-                    mainAxisSize: MainAxisSize.min,
+            Expanded(
+              child: NotificationListener<Notification>(
+                onNotification: _onScroll,
+                child: SingleChildScrollView(
+                  controller: _scrollController,
+                  physics: const BouncingScrollPhysics(),
+                  padding: EdgeInsets.fromLTRB(20, 24, 20, bottomPadding),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Unchanged: purely a "you reached the last page of
-                      // content" marker, independent of whether the Firestore
-                      // completion state below has been set.
-                      Container(
-                        width: double.infinity,
-                        constraints: const BoxConstraints(
-                            minHeight: FolkShape.buttonHeight),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          gradient: FolkGradients.green,
-                          borderRadius:
-                              BorderRadius.circular(FolkShape.buttonRadius),
-                        ),
-                        child: Text(
-                          "Finished",
-                          style: text.button
-                              .copyWith(color: FolkColors.onGradient),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      // The actual completion write (Part 5.3) — additive to
-                      // the "Finished" banner above, not a replacement for it.
-                      if (_finished)
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.check_circle,
-                                size: 18,
-                                color: FolkCalendarTokens.legendSubmitted),
-                            const SizedBox(width: 6),
-                            Flexible(
-                              child: Text(
-                                widget.isRdua
-                                    ? "Marked as read"
-                                    : "Marked as finished",
-                                style: text.small.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                  color: _palette.secondaryText,
-                                ),
-                              ),
-                            ),
-                          ],
+                      _chapterHeading(chapter),
+                      const SizedBox(height: 18),
+                      if (chapter.paragraphs.isEmpty)
+                        Text(
+                          "This chapter has no readable text.",
+                          style: TextStyle(
+                              fontSize: 15, color: _palette.secondaryText),
                         )
                       else
-                        ReaderGradientButton(
-                          onPressed: _finishing ? null : _finishBook,
-                          loading: _finishing,
-                          gradient: FolkGradients.green,
-                          icon: widget.isRdua
-                              ? Icons.check_circle_outline
-                              : Icons.flag_circle,
-                          label: widget.isRdua ? "Mark as Read" : "Finish Book",
+                        ...List.generate(
+                          chapter.paragraphs.length,
+                          (i) => _paragraphTile(chapter.paragraphs[i], i),
                         ),
                     ],
-                  )
-                : ReaderGradientButton(
-                    onPressed: waitingForNext
-                        ? null
-                        : () => _goToChapter(_currentChapter + 1),
-                    loading: waitingForNext,
-                    gradient: FolkGradients.violet,
-                    label: waitingForNext
-                        ? "Loading next chapter…"
-                        : _nextButtonLabel(),
                   ),
+                ),
+              ),
+            ),
+          ],
+        ),
+
+        /// Fixed to the bottom: the finish area (last chapter, once read to the
+        /// end) above the slim progress bar.
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (showEnd) _finishArea(text),
+              ValueListenableBuilder<double>(
+                valueListenable: _progress,
+                builder: (context, value, _) => ReaderProgressBar(
+                  progress: value,
+                  background: _palette.chrome,
+                  textColor: _palette.secondaryText,
+                  trackColor: _palette.onChrome.withValues(alpha: .12),
+                  fontScale: _fontScale,
+                ),
+              ),
+            ],
           ),
         ),
       ],
+    );
+  }
+
+  /// Last chapter, read to its end. Unfinished: the Finish Book / Mark as Read
+  /// button (the completion write is `_finishBook`, unchanged). Already finished:
+  /// the "Finished" banner and "Marked as finished" line, as before.
+  Widget _finishArea(FolkTypography text) {
+    return Container(
+      key: _endKey,
+      width: double.infinity,
+      color: _palette.chrome,
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
+      child: _finished
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: double.infinity,
+                  constraints:
+                      const BoxConstraints(minHeight: FolkShape.buttonHeight),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    gradient: FolkGradients.green,
+                    borderRadius: BorderRadius.circular(FolkShape.buttonRadius),
+                  ),
+                  child: Text(
+                    "Finished",
+                    style: text.button.copyWith(color: FolkColors.onGradient),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.check_circle,
+                        size: 18, color: FolkCalendarTokens.legendSubmitted),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        widget.isRdua ? "Marked as read" : "Marked as finished",
+                        style: text.small.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: _palette.secondaryText,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            )
+          : ReaderGradientButton(
+              onPressed: _finishing ? null : _finishBook,
+              loading: _finishing,
+              gradient: FolkGradients.green,
+              icon: widget.isRdua
+                  ? Icons.check_circle_outline
+                  : Icons.flag_circle,
+              label: widget.isRdua ? "Mark as Read" : "Finish Book",
+            ),
     );
   }
 }

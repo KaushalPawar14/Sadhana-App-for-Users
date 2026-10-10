@@ -300,7 +300,8 @@ void main() {
         expect(src.contains('users.indexWhere'), isFalse, reason: '$f no longer ranks everyone together');
       }
       for (final f in ['lib/scores/TopWeekResults.dart', 'lib/scores/TopMonthResults.dart']) {
-        expect(read(f), contains('winnersForMe('), reason: f);
+        expect(read(f), contains('readMyGenderList('), reason: f);
+        expect(read(f).contains("'byGender'") || read('lib/utils/SameGender.dart').contains("'byGender'"), isTrue, reason: f);
       }
       // Finalisation moved to the server (functions/competitionFinalize.js).
       final svc = read('lib/models/CompetitionResults.dart');
@@ -314,7 +315,7 @@ void main() {
       expect(util.contains('.delete('), isFalse);
       expect(util.contains('.set('), isFalse);
       expect(util.contains('.update('), isFalse);
-      expect(RegExp(r"collection\('([a-zA-Z-]+)'\)").allMatches(util).map((m) => m.group(1)).toSet(), {'scorecard'}, reason: 'the directory comes from the server now');
+      expect(RegExp(r"collection\('([a-zA-Z-]+)'\)").allMatches(util).map((m) => m.group(1)).toSet(), {'scorecard', 'byGender'}, reason: 'the directory comes from the server now; results are read from the byGender document of the student own gender');
     });
   });
 

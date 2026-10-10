@@ -91,7 +91,7 @@ void main() {
     await Firebase.initializeApp();
   });
 
-  testWidgets('the first chapter shows while the rest is still being read; Next waits, then works', (tester) async {
+  testWidgets('the first chapter shows while the rest is still being read; the next arrow waits, then works', (tester) async {
     phone(tester, 1.0);
     final controller = StreamController<BookLoadUpdate>();
     await tester.pumpWidget(host(reader((u, t) => controller.stream)));
@@ -103,7 +103,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
     expect(find.textContaining('Chapter title 1', findRichText: true), findsWidgets, reason: 'the first chapter is on screen');
     expect(find.text('Chapter 1'), findsOneWidget, reason: 'total unknown yet');
-    expect(find.text('Loading next chapter…'), findsOneWidget);
+    expect(find.bySemanticsLabel('Loading next chapter'), findsOneWidget, reason: 'the right arrow shows a spinner');
+    expect(find.byTooltip('Next chapter'), findsNothing);
     expect(find.text('Next Chapter  →'), findsNothing);
     expect(tester.takeException(), isNull);
 
@@ -111,8 +112,8 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
     expect(find.text('Chapter 1 of 3'), findsOneWidget);
-    expect(find.text('Next Chapter  →'), findsOneWidget);
-    await tester.tap(find.text('Next Chapter  →'));
+    expect(find.byTooltip('Next chapter'), findsOneWidget);
+    await tester.tap(find.byTooltip('Next chapter'));
     await tester.pumpAndSettle();
     expect(find.text('Chapter 2 of 3'), findsOneWidget);
     unawaited(controller.close());

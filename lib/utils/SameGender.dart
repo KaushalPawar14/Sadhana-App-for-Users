@@ -151,6 +151,22 @@ Map<String, List<T>> topByGender<T>(
   return out;
 }
 
+// A finalized week's / month's results are split into one document per gender
+// (`.../{id}/byGender/{male|female}`), so a student can only ever read their own
+// gender's: [parent] is the result document (`competition-results/weekly/weeks/{id}`,
+// `.../monthly/months/{id}`, or a `-participants` one) and [field] the list inside
+// the gender document ('topUsers' or 'participants').
+Future<List<Map<String, dynamic>>> readMyGenderList(
+  DocumentReference<Map<String, dynamic>> parent,
+  String field,
+) async {
+  final directory = await GenderDirectory.forCurrentUser();
+  final snap = await parent.collection('byGender').doc(directory.mine).get();
+  final list = snap.data()?[field];
+  if (list is! List) return [];
+  return [for (final u in list) Map<String, dynamic>.from(u as Map)];
+}
+
 // The winners a student is shown, from a finalized week's or month's document:
 // the list kept for their own gender (`topUsersMale` / `topUsersFemale`). A
 // document from before those lists existed has only `topUsers`, which is then
