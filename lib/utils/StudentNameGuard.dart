@@ -26,7 +26,7 @@
 // expects real casing. Casing is folded ONLY inside isStudentNameTaken()'s
 // own comparison, never applied to what's written.
 
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../services/StudentApi.dart';
 
 /// Trims leading/trailing whitespace and collapses internal runs of
 /// whitespace to a single space. This is the value written to
@@ -60,15 +60,11 @@ Future<bool> isStudentNameTaken(String candidateRaw) async {
   final candidate = normalizeStudentName(candidateRaw).toLowerCase();
   if (candidate.isEmpty) return false;
 
-  final snap = await FirebaseFirestore.instance.collection('users').get();
-  for (final doc in snap.docs) {
-    final data = doc.data();
-    if (data['isManualEntry'] == true) continue;
-    final existing =
-        normalizeStudentName((data['name'] ?? '').toString()).toLowerCase();
-    if (existing == candidate) return true;
-  }
-  return false;
+  // The comparison (trim, collapse spaces, case-fold; manual entries ignored; the
+  // caller's own saved name never counts) runs on the server: a student cannot
+  // read other students' documents. A failed call throws, so the form shows its
+  // existing "could not check" path rather than silently allowing a duplicate.
+  return !(await StudentApi.instance.checkNameAvailable(normalizeStudentName(candidateRaw)));
 }
 
 /// Part 2 item 3 — a message a real person understands, not a technical

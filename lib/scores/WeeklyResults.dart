@@ -43,7 +43,11 @@ class _WeeklyResultsPageState extends State<WeeklyResultsPage>
   @override
   void initState() {
     super.initState();
-    _leaderboardStream = firestore.collection('competition').snapshots();
+    _leaderboardStream = Stream.fromFuture(GenderDirectory.forCurrentUser()).asyncExpand(
+            (directory) => firestore
+                .collection('competition')
+                .where('gender', isEqualTo: directory.mine)
+                .snapshots());
     fetchUsername();
     // Animation setup
     _controller = AnimationController(

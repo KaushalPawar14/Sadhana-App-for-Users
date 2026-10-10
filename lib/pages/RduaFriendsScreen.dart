@@ -1,4 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import '../services/StudentApi.dart';
 import '../utils/SameGender.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -168,21 +170,14 @@ class _RduaFriendsScreenState extends State<RduaFriendsScreen>
               // (Part 1 item 2) — fetch the small real roster once and
               // filter client-side, matching this project's own repeated
               // precedent for collections at this scale.
-              final snap = await _firestore.collection('users').get();
-              final directory = _directory;
-              final matches = snap.docs
-                  .where((d) {
-                    if (d.id == uid) return false;
-                    // Only students of my gender can be found.
-                    if (directory == null || !directory.sameByData(d.data())) {
-                      return false;
-                    }
-                    final name =
-                        (d.data()['name'] ?? '').toString().toLowerCase();
-                    return name.contains(trimmed);
-                  })
-                  .map((d) => {'uid': d.id, ...d.data()})
-                  .toList();
+              // Same-gender search runs on the server: a student cannot read
+              // other students' documents.
+              List<Map<String, dynamic>> matches;
+              try {
+                matches = await StudentApi.instance.searchStudents(trimmed);
+              } catch (_) {
+                matches = const [];
+              }
               setSheetState(() {
                 results = matches;
                 searched = true;
@@ -321,9 +316,8 @@ class _RduaFriendsScreenState extends State<RduaFriendsScreen>
     try {
       // A request can only go to a student of the same gender, whatever
       // brought the other student here.
-      final toUserSnap = await _firestore.collection('users').doc(toUid).get();
       final directory = _directory;
-      if (directory == null || !directory.sameByData(toUserSnap.data())) {
+      if (directory == null || !directory.sameByUid(toUid)) {
         if (mounted) {
           showSnackbar(context, "You can only add students of your own gender.",
               Colors.orange, Icons.info_outline);
@@ -374,11 +368,6 @@ class _RduaFriendsScreenState extends State<RduaFriendsScreen>
 
   Future<void> _respondToRequest(
       String requestId, Map<String, dynamic> data, bool accept) async {
-    final fromUid = (data['fromUid'] ?? '').toString();
-    final fromName = (data['fromName'] ?? '').toString();
-    final toUid = (data['toUid'] ?? '').toString();
-    final toName = (data['toName'] ?? '').toString();
-
     try {
       if (!accept) {
         await _firestore.collection('friendRequests').doc(requestId).update({
@@ -388,55 +377,16 @@ class _RduaFriendsScreenState extends State<RduaFriendsScreen>
         return;
       }
 
-      // Symmetric write, both sides, atomically (Part 2 item 2) — a batch
-      // so either both friendship rows exist or neither does.
-      final fromUserSnap =
-          await _firestore.collection('users').doc(fromUid).get();
-      final toUserSnap = await _firestore.collection('users').doc(toUid).get();
-
-      // A request from a student of the other gender cannot be accepted.
-      if (genderOfData(fromUserSnap.data()) != genderOfData(toUserSnap.data())) {
-        if (mounted) {
-          showSnackbar(context, "You can only add students of your own gender.",
-              Colors.orange, Icons.info_outline);
-        }
-        return;
+      // Accepting is done on the server: it checks the request is addressed to
+      // you, still pending and between two students of the same gender, then
+      // writes BOTH friend lists and marks the request accepted (a student may
+      // not write another student's list).
+      await StudentApi.instance.acceptFriendRequest(requestId);
+    } on FirebaseFunctionsException catch (e) {
+      if (mounted) {
+        showSnackbar(context, e.message ?? "Could not update request",
+            Colors.orange, Icons.info_outline);
       }
-
-      final batch = _firestore.batch();
-      batch.update(
-        _firestore.collection('friendRequests').doc(requestId),
-        {'status': 'accepted', 'respondedAt': FieldValue.serverTimestamp()},
-      );
-      batch.set(
-        _firestore
-            .collection('friends')
-            .doc(toUid)
-            .collection('list')
-            .doc(fromUid),
-        {
-          'friendUid': fromUid,
-          'name': fromName,
-          'role': (fromUserSnap.data()?['role'] ?? '').toString(),
-          'guideId': (fromUserSnap.data()?['guideId'] ?? '').toString(),
-          'addedAt': FieldValue.serverTimestamp(),
-        },
-      );
-      batch.set(
-        _firestore
-            .collection('friends')
-            .doc(fromUid)
-            .collection('list')
-            .doc(toUid),
-        {
-          'friendUid': toUid,
-          'name': toName,
-          'role': (toUserSnap.data()?['role'] ?? '').toString(),
-          'guideId': (toUserSnap.data()?['guideId'] ?? '').toString(),
-          'addedAt': FieldValue.serverTimestamp(),
-        },
-      );
-      await batch.commit();
     } catch (_) {
       if (mounted) {
         showSnackbar(

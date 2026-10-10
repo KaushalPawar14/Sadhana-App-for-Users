@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
+import '../services/StudentApi.dart';
+
 // A student sees ONLY students of their own gender, everywhere in the app
 // (hostel, localite and FOLK alike).
 //
@@ -87,32 +89,32 @@ class GenderDirectory {
   // Forget everything (on sign-out).
   static void reset() => _cache.clear();
 
+  @visibleForTesting
+  static Future<GenderDirectory> forCurrentUserForTestsViaApi() => _load('test');
+
   static Future<GenderDirectory> _load(String uid) async {
-    final db = FirebaseFirestore.instance;
-    final results = await Future.wait([
-      db.collection('users').doc(uid).get(),
-      db.collection('users').where('gender', isEqualTo: kFemale).get(),
-    ]);
-    final me = results[0] as DocumentSnapshot<Map<String, dynamic>>;
-    final females = results[1] as QuerySnapshot<Map<String, dynamic>>;
+    // One server call (functions/studentCallables.js `getGenderDirectory`): a
+    // student cannot read other students' documents any more, so the list of
+    // female names / uids is built on the server.
+    final d = await StudentApi.instance.getGenderDirectory();
     return GenderDirectory(
-      mine: genderOfData(me.data()),
-      femaleNames: {
-        for (final d in females.docs)
-          if ((d.data()['name'] ?? '').toString().isNotEmpty)
-            d.data()['name'].toString(),
-      },
-      femaleUids: {for (final d in females.docs) d.id},
+      mine: d.mine == kFemale ? kFemale : kMale,
+      femaleNames: d.femaleNames,
+      femaleUids: d.femaleUids,
     );
   }
 }
 
-// Every scorecard document (the leaderboards' data), keyed by the student's NAME.
-// Tests hand in their own reader.
 typedef ScorecardReader = Future<Map<String, Map<String, dynamic>>> Function();
 
 Future<Map<String, Map<String, dynamic>>> readScorecardDocs() async {
-  final snap = await FirebaseFirestore.instance.collection('scorecard').get();
+  // Only my own gender's scorecards: the documents carry a server-stamped
+  // `gender`, and a query the security rules can prove is required.
+  final directory = await GenderDirectory.forCurrentUser();
+  final snap = await FirebaseFirestore.instance
+      .collection('scorecard')
+      .where('gender', isEqualTo: directory.mine)
+      .get();
   return {for (final d in snap.docs) d.id: d.data()};
 }
 

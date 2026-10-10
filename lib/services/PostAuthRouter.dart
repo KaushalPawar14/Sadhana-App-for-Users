@@ -56,6 +56,10 @@ Future<void> routeAfterAuthentication(BuildContext context, User user) async {
     await userRef.set({
       'email': user.email,
       'createdByAdmin': false,
+      // Unassigned until an admin claims / assigns them ("" - never absent; the
+      // server also normalises this). A student may create their own document
+      // with an empty owner but can never change it afterwards.
+      'guideId': '',
     });
   }
 

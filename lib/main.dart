@@ -21,7 +21,6 @@ import 'package:folk_app/widgets/StartupWaiting.dart';
  import 'package:sizer/sizer.dart';
  import 'package:firebase_auth/firebase_auth.dart';
  import 'package:cloud_firestore/cloud_firestore.dart';
-import 'models/CompetitionResults.dart';
 
  /// Deep-link routing (Master Task, 2026-09-10 — Part 3). Attached to the
  /// INNER `MaterialApp` below (`_AnimatedLoginState.build()`), not the
@@ -79,13 +78,6 @@ import 'models/CompetitionResults.dart';
      await FirebaseCM().initNotifications();
      await updateFCMToken();
      await ensureUserCompetitionDocument();
-     final CompetitionResultService service = CompetitionResultService();
-     await service.checkAndRunWeeklyLazyTrigger(
-       service.generateWeeklyTop3,
-     );
-     await service.checkAndRunMonthlyLazyTrigger(
-       service.generateTop3Monthly,
-     );
      User? user = FirebaseAuth.instance.currentUser;
 
      if (user != null) {

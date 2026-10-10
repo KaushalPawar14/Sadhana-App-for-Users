@@ -37,19 +37,12 @@ class _AchievementsSectionState extends State<AchievementsSection>
 
   /// 🔥 FETCH BADGES FROM USERS COLLECTION USING 'name' FIELD
   Future<Map<String, int>> fetchBadges() async {
+    // Badges live on the student's OWN user document (a student cannot query
+    // other students' documents by name any more).
     Map<String, dynamic>? data;
-    if (widget.username.isNotEmpty) {
-      final query = await firestore
-          .collection("users")
-          .where("name", isEqualTo: widget.username)
-          .limit(1)
-          .get();
-      data = query.docs.isEmpty ? null : query.docs.first.data();
-    } else {
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-      if (uid != null) {
-        data = (await firestore.collection("users").doc(uid).get()).data();
-      }
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid != null) {
+      data = (await firestore.collection("users").doc(uid).get()).data();
     }
 
     // If no user found, zeros

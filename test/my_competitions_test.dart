@@ -82,8 +82,9 @@ void main() {
       for (final gone in ['Book read', 'My Achievements', "'Chanting Competition'", 'BooksSelectionScreen', 'AchievementsPage', 'ChantingCompetitionPage']) {
         expect(src.contains(gone), isFalse, reason: '$gone is gone from the Profile');
       }
-      expect(src, contains("guideId = (data['guideId'] ?? '').toString();"), reason: 'read from the user stream already open: no extra read');
-      expect(src, contains('guideRowSubtitle(guideId)'));
+      expect(src, contains("guideId = (data['guideId'] ?? '').toString();"), reason: 'read from the user stream already open');
+      expect(src, contains('guideRowSubtitle(guideName)'), reason: 'shows the admin display name');
+      expect(src, contains('StudentApi.instance.getMyGuide()'), reason: 'from the callable, never adminUsers');
       expect(src, contains('MyCompetitionsPage(username: name ?? "")'));
       expect(src, contains('height: 5 * 64 + 12'), reason: 'the ghost has five rows now');
       // the notification deep link opens the same page
@@ -155,7 +156,7 @@ void main() {
     expect(chanting, contains('Timer(const Duration(seconds: 6), _dismissWinner)'));
     expect(chanting.contains('Navigator.'), isFalse, reason: 'the section never navigates');
     // the badges: ONE read of the student's counts
-    expect(count(ach, '.get()'), 2, reason: 'by name, or by uid when no name is given: one of the two runs');
+    expect(count(ach, '.get()'), 1, reason: 'the student own user document only (no query by name any more)');
     // the page: one Navigator call (back), no reads or writes of its own
     expect(count(page, 'Navigator.pop(context)'), 1);
     expect(count(page, RegExp(r'\.(get|set|update|snapshots)\(')), 0);

@@ -109,7 +109,9 @@ void main() {
     test('the merge code is byte-identical: SadhanaReportSource.dart is unchanged', () {
       final before = File('D:/tmp-fl/g9before/SadhanaReportSource.dart.before');
       if (before.existsSync()) {
-        expect(File('lib/utils/SadhanaReportSource.dart').readAsBytesSync(), before.readAsBytesSync());
+        // line endings differ between the working copy and the saved copy; the code must not
+        String norm(List<int> b) => String.fromCharCodes(b).replaceAll('\r\n', '\n');
+        expect(norm(File('lib/utils/SadhanaReportSource.dart').readAsBytesSync()), norm(before.readAsBytesSync()));
       }
     });
   });

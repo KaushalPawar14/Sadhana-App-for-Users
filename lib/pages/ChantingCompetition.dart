@@ -106,10 +106,15 @@ class _ChantingCompetitionSectionState
       String challengeId) {
     if (_contributionsStreamChallengeId != challengeId) {
       _contributionsStreamChallengeId = challengeId;
-      _contributionsStream = _firestore
+      // Only contributions of my own gender (documents carry a server-stamped
+      // `gender`): a query the security rules can prove, and the same
+      // separation the screen already applied on screen.
+      var contributions = _firestore
           .collection('chantingChallengeContributions')
-          .where('challengeId', isEqualTo: challengeId)
-          .snapshots();
+          .where('challengeId', isEqualTo: challengeId);
+      final mine = _directory?.mine;
+      if (mine != null) contributions = contributions.where('gender', isEqualTo: mine);
+      _contributionsStream = contributions.snapshots();
     }
     return _contributionsStream!;
   }
@@ -355,12 +360,13 @@ class _ChantingCompetitionSectionState
       // One-time read, not a stream: a contribution is locked at first
       // submission and never updated again, so nothing here can change once
       // the challenge has already left "active".
+      final directory = await GenderDirectory.forCurrentUser();
       final snap = await _firestore
           .collection('chantingChallengeContributions')
           .where('challengeId', isEqualTo: ended['id'])
+          .where('gender', isEqualTo: directory.mine)
           .get();
 
-      final directory = await GenderDirectory.forCurrentUser();
       top = snap.docs
           .map((d) => d.data())
           .where((d) => directory.sameByName(d['studentName']?.toString()))

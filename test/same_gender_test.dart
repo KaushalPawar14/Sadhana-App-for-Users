@@ -260,14 +260,14 @@ void main() {
     test('RDUA Friends: search, send, accept, requests, friends, groups', () {
       final src = read('lib/pages/RduaFriendsScreen.dart');
       // search finds only my gender
-      expect(src, contains('!directory.sameByData(d.data())'));
+      expect(src, contains('StudentApi.instance.searchStudents(trimmed)'), reason: 'the server returns only my gender');
       // a request cannot be SENT to the other gender (re-read at the moment of sending)
       final send = src.substring(src.indexOf('Future<void> _sendFriendRequest('));
-      expect(send.indexOf('directory.sameByData(toUserSnap.data())'), lessThan(send.indexOf("add({")), reason: 'checked before the request is written');
+      expect(send.indexOf('directory.sameByUid(toUid)'), lessThan(send.indexOf("add({")), reason: 'checked before the request is written');
       // …or ACCEPTED
       final accept = src.substring(src.indexOf('Future<void> _respondToRequest('));
-      expect(accept.indexOf('genderOfData(fromUserSnap.data()) != genderOfData(toUserSnap.data())'), lessThan(accept.indexOf('batch.commit()')));
-      expect(accept.indexOf('genderOfData(fromUserSnap.data()) != genderOfData(toUserSnap.data())'), lessThan(accept.indexOf('batch.update(')));
+      expect(accept, contains('StudentApi.instance.acceptFriendRequest(requestId)'), reason: 'the server checks the gender and writes both lists');
+      expect(accept.contains('batch.commit()'), isFalse, reason: 'no client batch writing another student list');
       // incoming requests, friends, group members: same gender only
       expect(src, contains("_directory?.sameByUid(d.data()['fromUid']?.toString())"));
       expect(src, contains('final docs = _sameGender(snap.data?.docs ?? []);'));
@@ -302,9 +302,11 @@ void main() {
       for (final f in ['lib/scores/TopWeekResults.dart', 'lib/scores/TopMonthResults.dart']) {
         expect(read(f), contains('winnersForMe('), reason: f);
       }
+      // Finalisation moved to the server (functions/competitionFinalize.js).
       final svc = read('lib/models/CompetitionResults.dart');
-      expect(svc, contains('weeklyWinnerNames(byGender)'));
-      expect(svc, contains('monthlyBadgeAwards(byGender)'));
+      expect(svc.contains('CompetitionResultService'), isFalse);
+      expect(svc.contains('checkAndRunWeeklyLazyTrigger'), isFalse);
+      expect(read('lib/main.dart').contains('LazyTrigger'), isFalse);
     });
 
     test('no collection is added and nothing is deleted by this feature', () {
@@ -312,7 +314,7 @@ void main() {
       expect(util.contains('.delete('), isFalse);
       expect(util.contains('.set('), isFalse);
       expect(util.contains('.update('), isFalse);
-      expect(RegExp(r"collection\('([a-zA-Z-]+)'\)").allMatches(util).map((m) => m.group(1)).toSet(), {'scorecard', 'users'});
+      expect(RegExp(r"collection\('([a-zA-Z-]+)'\)").allMatches(util).map((m) => m.group(1)).toSet(), {'scorecard'}, reason: 'the directory comes from the server now');
     });
   });
 

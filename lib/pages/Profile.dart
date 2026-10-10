@@ -23,6 +23,7 @@ import '../widgets/GradientCard.dart';
 import '../widgets/LogoutButton.dart';
 import '../widgets/ProfileMenuRow.dart';
 import '../widgets/ProfileStatTiles.dart';
+import '../services/StudentApi.dart';
 
 class ProfilePage extends StatefulWidget {
   @override
@@ -50,6 +51,26 @@ class _ProfilePageState extends State<ProfilePage>
 
   /// The guide the student is assigned to (`users.guideId`); empty when none.
   String guideId = '';
+
+  /// The display name of the admin (Guide / Enabler) the student is assigned to,
+  /// from the `getMyGuide` callable (a student cannot read `adminUsers`).
+  String guideName = '';
+  String _guideNameFor = '\u0000';
+
+  void _refreshGuideName(String forGuideId) {
+    if (_guideNameFor == forGuideId) return;
+    _guideNameFor = forGuideId;
+    if (forGuideId.isEmpty) {
+      guideName = '';
+      return;
+    }
+    StudentApi.instance.getMyGuide().then((g) {
+      if (!mounted || _guideNameFor != forGuideId) return;
+      setState(() => guideName = g.displayName);
+    }).catchError((_) {
+      // keep whatever is shown; "Not assigned yet" when nothing was ever loaded
+    });
+  }
   int bestReadingMinutes = 0;
 
   late String uid;
@@ -149,6 +170,7 @@ class _ProfilePageState extends State<ProfilePage>
                 ? rawCommitment.toInt()
                 : null;
             guideId = (data['guideId'] ?? '').toString();
+            _refreshGuideName(guideId);
             final rawBestChant = data['bestChantRounds'];
             bestChantRounds = rawBestChant is num ? rawBestChant.toInt() : 0;
             final rawBestReading = data['bestReadingMinutes'];
@@ -452,12 +474,12 @@ class _ProfilePageState extends State<ProfilePage>
                   },
                 ),
 
-                /// MY GUIDE — display only: the guide the student is assigned to
-                /// (`users.guideId`, the adminUsers document id, which is the
-                /// guide's name), or "Not assigned yet".
+                /// MY GUIDE — display only: the display name of the admin
+                /// (Guide or Enabler) the student is assigned to, from the
+                /// `getMyGuide` callable, or "Not assigned yet".
                 _menuRow(
                   'My Guide',
-                  guideRowSubtitle(guideId),
+                  guideRowSubtitle(guideName),
                   CupertinoIcons.person_2,
                   null,
                 ),

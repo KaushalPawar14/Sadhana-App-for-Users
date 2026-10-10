@@ -7,6 +7,8 @@ import '../theme/FolkTokens.dart';
 import '../widgets/FolkPageBackground.dart';
 import '../widgets/FolkStatusBar.dart';
 import '../utils/ForceUpdateCheck.dart';
+import '../utils/InstallSource.dart';
+import 'NonPlayInstallScreen.dart';
 import 'ForceUpdateScreen.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -70,6 +72,16 @@ class _SplashScreenState extends State<SplashScreen>
       // screen, rather than needing an explicit skip here.
       final mustUpdate = await _forceUpdateCheck;
       if (!mounted) return;
+
+      // A copy installed outside the Play Store (a sideloaded APK) is blocked
+      // (release builds only; only a positive "not from the Play Store" blocks).
+      if (!mustUpdate && await installedOutsidePlayStore()) {
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const NonPlayInstallScreen()),
+        );
+        return;
+      }
 
       if (mustUpdate) {
         Navigator.of(context).pushReplacement(

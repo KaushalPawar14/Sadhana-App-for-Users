@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../services/StudentApi.dart';
 
 /// Client-side "does a guide already have this student on the manual
 /// roster?" check for registration (Master Task 2026-09-11, Part 2).
@@ -32,17 +32,12 @@ Future<List<Map<String, dynamic>>> findMatchingManualEntries(
   String normalizedMobile,
 ) async {
   if (normalizedMobile.isEmpty) return const [];
-  final snap = await FirebaseFirestore.instance
-      .collection('users')
-      .where('mobileNumber', isEqualTo: normalizedMobile)
-      .get();
-
-  final matches = <Map<String, dynamic>>[];
-  for (final doc in snap.docs) {
-    final data = doc.data();
-    if (data['isManualEntry'] == true) {
-      matches.add(data);
-    }
-  }
-  return matches;
+  // The matching runs on the server (a student cannot query other users). It
+  // answers with how many manual entries carry this number and, for a UNIQUE
+  // match only, the residence the guide recorded — nothing else about them.
+  final match = await StudentApi.instance.findManualMatch(normalizedMobile);
+  return [
+    for (var i = 0; i < match.count; i++)
+      {'role': match.count == 1 ? match.role : ''},
+  ];
 }

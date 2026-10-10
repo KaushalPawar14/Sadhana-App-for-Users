@@ -7,6 +7,7 @@ import '../pages/BookPageList.dart';
 import '../pages/Calendar.dart';
 import '../pages/MyCompetitions.dart';
 import '../pages/RduaFriendsScreen.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// Notification deep-linking — Master Task, 2026-09-10, Part 3.
 ///
@@ -140,6 +141,12 @@ Future<void> _dispatch(Map<String, dynamic> data) async {
         );
         break;
 
+      // The one-time "please reinstall from the Play Store" push opens this app's
+      // own Play Store page (a fixed package id; the payload's url is never trusted).
+      case 'play_store':
+        openStudentsPlayStorePage();
+        break;
+
       case 'student_friends':
         navState.push(
           MaterialPageRoute(builder: (_) => const RduaFriendsScreen()),
@@ -179,4 +186,22 @@ Future<void> _openCalendar(NavigatorState navState) async {
   navState.push(
     MaterialPageRoute(builder: (_) => CalendarPage(username: name, role: role)),
   );
+}
+
+
+/// Opens FOLK Students on the Play Store (market:// first, the web page as a
+/// fallback). Used by the `play_store` notification destination.
+Future<void> openStudentsPlayStorePage() async {
+  const id = 'org.folksurat.students';
+  final market = Uri.parse('market://details?id=$id');
+  final web = Uri.parse('https://play.google.com/store/apps/details?id=$id');
+  try {
+    if (await canLaunchUrl(market) &&
+        await launchUrl(market, mode: LaunchMode.externalApplication)) {
+      return;
+    }
+    await launchUrl(web, mode: LaunchMode.externalApplication);
+  } catch (_) {
+    // nothing sensible to do for a notification tap
+  }
 }
