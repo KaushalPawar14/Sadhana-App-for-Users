@@ -2,6 +2,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
 import '../main.dart';
+import '../theme/FolkTheme.dart';
+import '../theme/FolkTokens.dart';
+import '../widgets/FolkPageBackground.dart';
+import '../widgets/FolkStatusBar.dart';
 import '../utils/ForceUpdateCheck.dart';
 import 'ForceUpdateScreen.dart';
 
@@ -118,65 +122,59 @@ class _SplashUI extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Stack(
-        children: [
+    final text = context.folkText;
+    final reduced = FolkMotion.reduced(context);
 
-          // 🌸 Gradient Background
-          Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  Color(0xFFF8E1FF),
-                  Color(0xFFE9D5FF),
-                  Color(0xFFD8B4FE),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-          ),
+    final tagline = SizedBox(
+      width: MediaQuery.of(context).size.width * 0.8,
+      child: Text(
+        "Let's Improve Our Sadhana Together !!",
+        textAlign: TextAlign.center,
+        style: text.topBarTitle.copyWith(fontSize: 22, height: 1.25),
+      ),
+    );
 
-          // ✨ Floating particles
-          const FloatingParticles(),
+    return FolkStatusBar(
+      child: Scaffold(
+        body: FolkPageBackground(
+          child: Stack(
+            children: [
+              // ✨ Floating particles
+              const FloatingParticles(),
 
-          // 🎬 Lottie + Text
-          Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Lottie.asset(
-                  'assets/emoji/splash_screen.json',
-                  width: 260,
-                ),
-
-                const SizedBox(height: 20),
-
-                Center(
-                  child: FadeTransition(
-                    opacity: fadeText,
-                    child: SlideTransition(
-                      position: slideText,
-                      child: SizedBox(
-                        width: MediaQuery.of(context).size.width * 0.8,
-                        child: const Text(
-                          "Let's Improve Our Sadhana Together !!",
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.black87,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
+              // 🎬 Lottie + Text
+              Center(
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Lottie.asset(
+                        'assets/emoji/splash_screen.json',
+                        width: 260,
+                        // Reduce animations: the first frame only.
+                        animate: !reduced,
                       ),
-                    ),
+
+                      const SizedBox(height: 20),
+
+                      Center(
+                        child: reduced
+                            ? tagline
+                            : FadeTransition(
+                                opacity: fadeText,
+                                child: SlideTransition(
+                                  position: slideText,
+                                  child: tagline,
+                                ),
+                              ),
+                      )
+                    ],
                   ),
-                )
-              ],
-            ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -201,7 +199,18 @@ class _FloatingParticlesState extends State<FloatingParticles>
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 6),
-    )..repeat();
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // The drifting dots stand still with "reduce animations" on.
+    if (FolkMotion.reduced(context)) {
+      _controller.stop();
+    } else if (!_controller.isAnimating) {
+      _controller.repeat();
+    }
   }
 
   @override
@@ -213,6 +222,7 @@ class _FloatingParticlesState extends State<FloatingParticles>
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size; // 🔥 OPTIMIZED
+    final colors = context.folk;
 
     return AnimatedBuilder(
       animation: _controller,
@@ -226,15 +236,14 @@ class _FloatingParticlesState extends State<FloatingParticles>
               left: size.width * (index / 15),
               top: size.height * (1 - progress),
 
-              child: Opacity(
-                opacity: 0.3,
-                child: Container(
-                  width: 6,
-                  height: 6,
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                  ),
+              // A translucent colour, not an `Opacity` layer around each of
+              // the 15 moving dots.
+              child: Container(
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  color: colors.mutedText.withValues(alpha: .3),
+                  shape: BoxShape.circle,
                 ),
               ),
             );

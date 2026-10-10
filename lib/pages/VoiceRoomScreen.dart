@@ -1,12 +1,16 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/SameGender.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
 import '../services/VoiceRoomService.dart';
-import '../utils/ColorProvider.dart';
-import '../utils/MalaLoading.dart';
+import '../theme/FolkColors.dart';
+import '../theme/FolkTheme.dart';
+import '../theme/FolkTokens.dart';
+import '../widgets/FolkScaffold.dart';
+import '../widgets/GhostPlaceholder.dart';
+import '../widgets/PressScale.dart';
 
 /// The live voice-room screen — join, see who's in it, toggle mic, leave.
 ///
@@ -251,162 +255,220 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ColorProvider>(
-      builder: (context, colorProvider, child) {
-        return Scaffold(
-          backgroundColor: Colors.grey.shade900,
-          appBar: AppBar(
-            backgroundColor: Colors.grey.shade900,
-            elevation: 0,
-            // Minimize — visually distinct from the red "Leave"/"End room"
-            // controls below (a plain chevron, not a call-ending icon),
-            // and functionally distinct too: see `_minimize()` and this
-            // class's own header for why this never disconnects the call.
-            leading: IconButton(
-              icon: const Icon(Icons.keyboard_arrow_down_rounded,
-                  color: Colors.white),
-              tooltip: 'Minimize',
-              onPressed: _minimize,
-            ),
-            title: const Text("Voice Room",
-                style: TextStyle(color: Colors.white)),
-          ),
-          body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-            stream: _roomStream,
-            builder: (context, roomSnap) {
-              if (!roomSnap.hasData || !roomSnap.data!.exists) {
-                return const Center(child: CustomLoader());
-              }
-              final room = roomSnap.data!.data()!;
-              final participantUids = (room['participantUids'] as List?)
-                      ?.map((e) => e.toString())
-                      .toList() ??
-                  [];
-              final isCreator = room['createdBy'] == widget.uid;
-              final roomCode = (room['roomCode'] ?? '').toString();
-              final ended = room['status'] == 'ended';
+    final colors = context.folk;
+    final text = context.folkText;
+    return FolkScaffold(
+      title: "Voice Room",
+      // Minimize — visually distinct from the red "Leave"/"End room"
+      // controls below (a plain chevron, not a call-ending icon), and
+      // functionally distinct too: see `_minimize()` and this class's own
+      // header for why this never disconnects the call.
+      backIcon: Icons.keyboard_arrow_down_rounded,
+      backLabel: 'Minimize',
+      onBack: _minimize,
+      body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: _roomStream,
+        builder: (context, roomSnap) {
+          if (!roomSnap.hasData || !roomSnap.data!.exists) {
+            // Ghost header and rows while the room document loads.
+            return const GhostScope(
+              child: Padding(
+                padding: EdgeInsets.all(FolkSpace.pagePadding),
+                child: Column(
+                  children: [
+                    GhostPlaceholder(
+                        width: double.infinity, height: 120, showBars: false),
+                    SizedBox(height: FolkSpace.cardGap),
+                    GhostPlaceholder(
+                        width: double.infinity,
+                        height: 64,
+                        radius: FolkShape.tileRadius,
+                        showBars: false),
+                    SizedBox(height: FolkSpace.cardGap),
+                    GhostPlaceholder(
+                        width: double.infinity,
+                        height: 64,
+                        radius: FolkShape.tileRadius,
+                        showBars: false),
+                  ],
+                ),
+              ),
+            );
+          }
+          final room = roomSnap.data!.data()!;
+          final participantUids = (room['participantUids'] as List?)
+                  ?.map((e) => e.toString())
+                  .toList() ??
+              [];
+          final isCreator = room['createdBy'] == widget.uid;
+          final roomCode = (room['roomCode'] ?? '').toString();
+          final ended = room['status'] == 'ended';
 
-              // The room ended REMOTELY (another device's explicit leave
-              // emptied it, or its creator ended it for everyone) — this
-              // device never went through `_leaveRoom`/`_endRoomForEveryone`
-              // itself, so `_leaving` must still be set here (same as
-              // those two methods do) or `dispose()` below would treat
-              // this pop as a mere minimize and leave the connection
-              // running with nowhere to be reopened from.
-              if (ended && !_leaving) {
-                WidgetsBinding.instance.addPostFrameCallback((_) async {
-                  if (!mounted) return;
-                  setState(() => _leaving = true);
-                  await _voice.leaveRoom();
-                  ActiveVoiceRoomSession.clear(widget.roomId);
-                  if (!context.mounted) return;
-                  Navigator.pop(context);
-                });
-              }
+          // The room ended REMOTELY (another device's explicit leave
+          // emptied it, or its creator ended it for everyone) — this
+          // device never went through `_leaveRoom`/`_endRoomForEveryone`
+          // itself, so `_leaving` must still be set here (same as
+          // those two methods do) or `dispose()` below would treat
+          // this pop as a mere minimize and leave the connection
+          // running with nowhere to be reopened from.
+          if (ended && !_leaving) {
+            WidgetsBinding.instance.addPostFrameCallback((_) async {
+              if (!mounted) return;
+              setState(() => _leaving = true);
+              await _voice.leaveRoom();
+              ActiveVoiceRoomSession.clear(widget.roomId);
+              if (!context.mounted) return;
+              Navigator.pop(context);
+            });
+          }
 
-              return Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Column(
-                      children: [
-                        Icon(
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(FolkSpace.pagePadding,
+                    FolkSpace.lg, FolkSpace.pagePadding, 0),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: colors.surface,
+                    borderRadius: BorderRadius.circular(FolkShape.cardRadius),
+                    boxShadow: colors.cardShadows,
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 56,
+                        height: 56,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient:
+                              _connection == VoiceConnectionState.connected
+                                  ? FolkGradients.green
+                                  : null,
+                          color: _connection == VoiceConnectionState.connected
+                              ? null
+                              : colors.surfaceSecondary,
+                        ),
+                        child: Icon(
                           _connection == VoiceConnectionState.connected
                               ? Icons.podcasts
                               : Icons.sync,
-                          color: Colors.white,
-                          size: 40,
+                          color: _connection == VoiceConnectionState.connected
+                              ? FolkColors.onGradient
+                              : colors.mutedText,
+                          size: 28,
                         ),
-                        const SizedBox(height: 10),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        _connection == VoiceConnectionState.connected
+                            ? "Connected"
+                            : "Connecting…",
+                        style: text.bodyStrong,
+                      ),
+                      if (roomCode.isNotEmpty) ...[
+                        const SizedBox(height: 6),
                         Text(
-                          _connection == VoiceConnectionState.connected
-                              ? "Connected"
-                              : "Connecting…",
-                          style: const TextStyle(color: Colors.white70),
+                          "Room code: $roomCode",
+                          style: text.small,
                         ),
-                        if (roomCode.isNotEmpty) ...[
-                          const SizedBox(height: 6),
-                          Text(
-                            "Room code: $roomCode",
-                            style: const TextStyle(
-                                color: Colors.white38, fontSize: 12),
-                          ),
-                        ],
                       ],
-                    ),
+                    ],
                   ),
-                  Expanded(
-                    child: FutureBuilder<List<Map<String, String>>>(
-                      future: _resolveNames(participantUids),
-                      builder: (context, nameSnap) {
-                        final people = nameSnap.data ?? [];
-                        return ListView.builder(
-                          padding: const EdgeInsets.symmetric(horizontal: 20),
-                          itemCount: people.length,
-                          itemBuilder: (context, i) {
-                            final p = people[i];
-                            return ListTile(
-                              leading: const CircleAvatar(
-                                backgroundColor: Colors.white24,
-                                child: Icon(Icons.person, color: Colors.white),
-                              ),
-                              title: Text(p['name'] ?? 'Student',
-                                  style: const TextStyle(color: Colors.white)),
-                              trailing: p['uid'] == room['createdBy']
-                                  ? const Text("Host",
-                                      style: TextStyle(color: Colors.white38))
-                                  : null,
-                            );
-                          },
+                ),
+              ),
+              Expanded(
+                child: FutureBuilder<List<Map<String, String>>>(
+                  future: _resolveNames(participantUids),
+                  builder: (context, nameSnap) {
+                    final people = nameSnap.data ?? [];
+                    return ListView.builder(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: FolkSpace.pagePadding,
+                          vertical: FolkSpace.md),
+                      itemCount: people.length,
+                      itemBuilder: (context, i) {
+                        final p = people[i];
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          decoration: BoxDecoration(
+                            color: colors.surface,
+                            borderRadius:
+                                BorderRadius.circular(FolkShape.tileRadius),
+                            boxShadow: colors.cardShadows,
+                          ),
+                          child: ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: colors.surfaceSecondary,
+                              child: Icon(Icons.person, color: colors.text),
+                            ),
+                            title: Text(p['name'] ?? 'Student',
+                                style: text.bodyStrong),
+                            trailing: p['uid'] == room['createdBy']
+                                ? Text("Host", style: text.small)
+                                : null,
+                          ),
                         );
                       },
-                    ),
-                  ),
-                  SafeArea(
-                    top: false,
-                    child: Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Column(
+                    );
+                  },
+                ),
+              ),
+              SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              _roundButton(
-                                icon: _micMuted ? Icons.mic_off : Icons.mic,
-                                color: _micMuted ? Colors.red : Colors.white24,
-                                onTap: _voice.toggleMic,
-                              ),
-                              const SizedBox(width: 20),
-                              _roundButton(
-                                icon: Icons.call_end,
-                                color: Colors.red,
-                                onTap: _leaving ? null : _leaveRoom,
-                              ),
-                            ],
+                          _roundButton(
+                            icon: _micMuted ? Icons.mic_off : Icons.mic,
+                            label: _micMuted ? 'Unmute' : 'Mute',
+                            color: _micMuted
+                                ? colors.calendarMissedBg
+                                : colors.surface,
+                            iconColor: _micMuted
+                                ? colors.calendarMissedText
+                                : colors.text,
+                            onTap: _voice.toggleMic,
                           ),
-                          if (isCreator) ...[
-                            const SizedBox(height: 14),
-                            TextButton(
-                              onPressed: _leaving
-                                  ? null
-                                  : () => _endRoomForEveryone(
-                                      room['createdBy'].toString()),
-                              child: const Text(
-                                "End room for everyone",
-                                style: TextStyle(color: Colors.white54),
-                              ),
-                            ),
-                          ],
+                          const SizedBox(width: 20),
+                          _roundButton(
+                            icon: Icons.call_end,
+                            label: 'Leave room',
+                            color: FolkCalendarTokens.legendMissed,
+                            iconColor: FolkColors.gradientPlayButton,
+                            onTap: _leaving ? null : _leaveRoom,
+                          ),
                         ],
                       ),
-                    ),
+                      if (isCreator) ...[
+                        const SizedBox(height: 14),
+                        TextButton(
+                          style: TextButton.styleFrom(
+                            minimumSize: const Size(
+                                FolkShape.touchTarget, FolkShape.touchTarget),
+                            foregroundColor: colors.calendarMissedText,
+                            textStyle: text.chip,
+                          ),
+                          onPressed: _leaving
+                              ? null
+                              : () => _endRoomForEveryone(
+                                  room['createdBy'].toString()),
+                          child: const Text("End room for everyone"),
+                        ),
+                      ],
+                    ],
                   ),
-                ],
-              );
-            },
-          ),
-        );
-      },
+                ),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 
@@ -418,7 +480,10 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
         .collection('users')
         .where(FieldPath.documentId, whereIn: uids.take(30).toList())
         .get();
+    // Only students of my gender are listed.
+    final directory = await GenderDirectory.forCurrentUser();
     return snap.docs
+        .where((d) => directory.sameByData(d.data()))
         .map((d) => {
               'uid': d.id,
               'name': (d.data()['name'] ?? 'Student').toString(),
@@ -428,17 +493,32 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
 
   Widget _roundButton({
     required IconData icon,
+    required String label,
     required Color color,
+    required Color iconColor,
     required VoidCallback? onTap,
   }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(30),
-      child: Container(
-        width: 58,
-        height: 58,
-        decoration: BoxDecoration(shape: BoxShape.circle, color: color),
-        child: Icon(icon, color: Colors.white),
+    return Semantics(
+      button: true,
+      label: label,
+      enabled: onTap != null,
+      excludeSemantics: true,
+      child: PressScale(
+        enabled: onTap != null,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(30),
+          child: Container(
+            width: 58,
+            height: 58,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: color,
+              boxShadow: context.folk.iconShadows,
+            ),
+            child: Icon(icon, color: iconColor),
+          ),
+        ),
       ),
     );
   }

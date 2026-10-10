@@ -1,8 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
-import '../utils/ColorProvider.dart';
+import '../theme/FolkTheme.dart';
+import '../theme/FolkTokens.dart';
+import '../widgets/Group2Widgets.dart';
+import '../widgets/FolkScaffold.dart';
+import '../widgets/GhostPlaceholder.dart';
 
 /// Which notifications this student wants to receive.
 ///
@@ -136,9 +139,9 @@ class _NotificationPreferencesPageState
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text("Could not save that just now"),
-            backgroundColor: Colors.red.shade600,
+          const SnackBar(
+            content: Text("Could not save that just now"),
+            backgroundColor: FolkCalendarTokens.legendMissed,
           ),
         );
       }
@@ -149,133 +152,78 @@ class _NotificationPreferencesPageState
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ColorProvider>(
-      builder: (context, colorProvider, child) {
-        return Scaffold(
-          backgroundColor: colorProvider.color,
-          appBar: AppBar(
-            elevation: 0,
-            backgroundColor: colorProvider.color,
-            iconTheme: IconThemeData(color: colorProvider.secondColor),
-            title: Text(
-              "Notifications",
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: colorProvider.secondColor,
-                fontSize: 20,
+    final text = context.folkText;
+    return FolkScaffold(
+      title: "Notifications",
+      body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        // Live, so the switches reflect the stored value rather than local
+        // state that could drift from Firestore.
+        stream: _userStream,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            // Ghost rows while the stored choices load.
+            return const GhostScope(
+              child: Padding(
+                padding: EdgeInsets.all(FolkSpace.pagePadding),
+                child: Column(
+                  children: [
+                    GhostPlaceholder(
+                        width: double.infinity,
+                        height: 76,
+                        radius: FolkShape.tileRadius,
+                        showBars: false),
+                    SizedBox(height: FolkSpace.cardGap),
+                    GhostPlaceholder(
+                        width: double.infinity,
+                        height: 76,
+                        radius: FolkShape.tileRadius,
+                        showBars: false),
+                    SizedBox(height: FolkSpace.cardGap),
+                    GhostPlaceholder(
+                        width: double.infinity,
+                        height: 76,
+                        radius: FolkShape.tileRadius,
+                        showBars: false),
+                  ],
+                ),
               ),
-            ),
-          ),
-          body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-            // Live, so the switches reflect the stored value rather than local
-            // state that could drift from Firestore.
-            stream: _userStream,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
+            );
+          }
 
-              final data = snapshot.data?.data();
+          final data = snapshot.data?.data();
 
-              return ListView(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 16),
-                    child: Text(
-                      "Choose what you would like to be notified about. "
-                      "Everything is on to begin with — turning something off "
-                      "stops it completely, so you will not hear about it at "
-                      "all until you turn it back on.",
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        height: 1.45,
-                        color: colorProvider.secondColor.withOpacity(.8),
-                      ),
-                    ),
-                  ),
-                  ..._kPrefs.map((item) {
-                    final on = _isOn(data, item.key);
-                    final busy = _saving.contains(item.key);
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(FolkSpace.pagePadding,
+                FolkSpace.md, FolkSpace.pagePadding, 28),
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: Text(
+                  "Choose what you would like to be notified about. "
+                  "Everything is on to begin with — turning something off "
+                  "stops it completely, so you will not hear about it at "
+                  "all until you turn it back on.",
+                  style: text.small.copyWith(height: 1.45),
+                ),
+              ),
+              ..._kPrefs.map((item) {
+                final on = _isOn(data, item.key);
+                final busy = _saving.contains(item.key);
 
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 10),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Colors.grey.shade200),
-                      ),
-                      // ⚠️ `Material` between the decorated Container and the
-                      // tile (added 2026-08-19). A `ListTile` paints its ink
-                      // splash onto the nearest `Material` ancestor. With only
-                      // this Container's `DecoratedBox` in between, the nearest
-                      // one was the Scaffold — *behind* the white fill — so
-                      // every tap's splash was drawn underneath an opaque
-                      // surface and never seen. Flutter logs exactly that
-                      // ("ListTile background color or ink splashes may be
-                      // invisible").
-                      //
-                      // `Colors.transparent` deliberately: an opaque Material
-                      // would paint its own square background over the
-                      // Container's 16px rounded corners. The same fix and the
-                      // same reasoning as `DevotionalServiceManager` in the
-                      // Guide app.
-                      //
-                      // Purely a feedback fix — the fill, border, radius,
-                      // margin and contentPadding are all untouched, so the row
-                      // looks identical.
-                      child: Material(
-                        color: Colors.transparent,
-                        borderRadius: BorderRadius.circular(16),
-                        child: SwitchListTile(
-                          value: on,
-                        // Ignore a tap already in flight for this key.
-                        onChanged:
-                            busy ? null : (next) => _set(item.key, next),
-                        activeColor: Colors.green.shade600,
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 4),
-                        title: Row(
-                          children: [
-                            Icon(item.icon,
-                                size: 18, color: Colors.grey.shade700),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                item.title,
-                                style: const TextStyle(
-                                  fontSize: 14.5,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                            if (busy)
-                              const SizedBox(
-                                width: 13,
-                                height: 13,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2),
-                              ),
-                          ],
-                        ),
-                        subtitle: Padding(
-                          padding: const EdgeInsets.only(top: 3),
-                          child: Text(
-                            item.subtitle,
-                            style: TextStyle(
-                                fontSize: 11.5, color: Colors.grey.shade600),
-                          ),
-                        ),
-                        ),
-                      ),
-                    );
-                  }),
-                ],
-              );
-            },
-          ),
-        );
-      },
+                return PrefSwitchTile(
+                  icon: item.icon,
+                  title: item.title,
+                  subtitle: item.subtitle,
+                  value: on,
+                  busy: busy,
+                  // Ignore a tap already in flight for this key.
+                  onChanged: busy ? null : (next) => _set(item.key, next),
+                );
+              }),
+            ],
+          );
+        },
+      ),
     );
   }
 }

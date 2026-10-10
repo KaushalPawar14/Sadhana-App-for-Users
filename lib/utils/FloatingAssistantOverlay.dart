@@ -1,11 +1,13 @@
-import 'dart:ui';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../pages/AssistantScreen.dart';
+import '../widgets/AttentionPulse.dart';
+import 'AssistantRouteVisibility.dart';
+import 'FloatingButtonInsets.dart';
+import 'MainAppReached.dart';
 import 'SeenMarkers.dart';
 import 'UnseenDot.dart';
 
@@ -36,6 +38,10 @@ import 'UnseenDot.dart';
 /// ---------------------------------------------------------------------------
 /// Visibility
 /// ---------------------------------------------------------------------------
+/// Hidden (kept mounted, so its position and unseen stream survive) while the
+/// assistant screen itself is the top route — see `AssistantRouteVisibility`.
+/// There it would only duplicate the screen and could cover its send button.
+///
 /// Shown only when a student is signed in (`userChanges()`), so it never
 /// appears over `SplashScreen`, `WelcomePage`, `CompleteProfilePage` or the
 /// sign-in flow — an assistant button before there is anyone to assist would
@@ -63,26 +69,54 @@ import 'UnseenDot.dart';
 /// smaller phone.
 ///
 /// **Default on first-ever launch: bottom-right**, inset from both edges and
-/// held clear of `CurvedNavigationBar`'s 60px bar plus its own upward bulge —
-/// see `_kBottomInset`. Every subsequent launch restores the student's own
-/// last position; dragging saves immediately, not only on app close, so a
-/// mid-session kill still remembers.
+/// held clear of the floating pill navigation — see
+/// `floatingButtonBottomInset` (`FloatingButtonInsets.dart`). Every
+/// subsequent launch restores the student's own last position; dragging saves
+/// immediately, not only on app close, so a mid-session kill still remembers.
 class FloatingAssistantOverlay extends StatelessWidget {
   final Widget child;
 
-  const FloatingAssistantOverlay({super.key, required this.child});
+  /// Tests hand in their own signed-in-user stream and button; the app never
+  /// sets these.
+  @visibleForTesting
+  final Stream<String?>? userIds;
+  @visibleForTesting
+  final Widget Function(String uid, bool hidden)? buttonBuilder;
+
+  const FloatingAssistantOverlay({
+    super.key,
+    required this.child,
+    this.userIds,
+    this.buttonBuilder,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
         child,
-        StreamBuilder<User?>(
-          stream: FirebaseAuth.instance.userChanges(),
+        StreamBuilder<String?>(
+          stream: userIds ??
+              FirebaseAuth.instance.userChanges().map((user) => user?.uid),
           builder: (context, snap) {
-            final user = snap.data;
-            if (user == null) return const SizedBox.shrink();
-            return _DraggableButton(uid: user.uid);
+            final uid = snap.data;
+            if (uid == null) return const SizedBox.shrink();
+            // Signed in is not enough: the button waits until the student
+            // has reached the main app (registration finished). See
+            // `MainAppReached`.
+            return ValueListenableBuilder<bool>(
+              valueListenable: MainAppReached.instance.reached,
+              builder: (context, reached, _) {
+                if (!reached) return const SizedBox.shrink();
+                return ValueListenableBuilder<bool>(
+                  valueListenable:
+                      AssistantRouteVisibility.instance.onAssistant,
+                  builder: (context, onAssistant, _) =>
+                      buttonBuilder?.call(uid, onAssistant) ??
+                      _DraggableButton(uid: uid, hidden: onAssistant),
+                );
+              },
+            );
           },
         ),
       ],
@@ -97,16 +131,16 @@ const String _kPrefsDy = 'assistant_button_dy_fraction';
 /// a restored or dragged position.
 const double _kButtonSize = 58;
 
-/// Clear of `CurvedNavigationBar`'s `height: 60` plus the curved bulge its
-/// selected icon rises into, plus breathing room above that.
-const double _kBottomInset = 96;
-
 const double _kSideInset = 14;
 
 class _DraggableButton extends StatefulWidget {
   final String uid;
 
-  const _DraggableButton({required this.uid});
+  /// True while the assistant screen is on top: the button stays in the tree
+  /// but is neither painted nor tappable.
+  final bool hidden;
+
+  const _DraggableButton({required this.uid, this.hidden = false});
 
   @override
   State<_DraggableButton> createState() => _DraggableButtonState();
@@ -169,15 +203,16 @@ class _DraggableButtonState extends State<_DraggableButton> {
     await prefs.setDouble(_kPrefsDy, fraction.dy);
   }
 
-  Offset _resolvePosition(Size screen) {
+  Offset _resolvePosition(Size screen, double bottomInset) {
     final maxX = screen.width - _kButtonSize - _kSideInset;
-    final maxY = screen.height - _kButtonSize - _kBottomInset;
+    final maxY = screen.height - _kButtonSize - bottomInset;
 
     if (_position != null) {
       // Already resolved this session — clamp only (screen size can't change
       // mid-session on a phone, but this is cheap insurance).
       return Offset(
-        _position!.dx.clamp(_kSideInset, maxX < _kSideInset ? _kSideInset : maxX),
+        _position!.dx
+            .clamp(_kSideInset, maxX < _kSideInset ? _kSideInset : maxX),
         _position!.dy.clamp(0, maxY < 0 ? 0 : maxY),
       );
     }
@@ -212,86 +247,99 @@ class _DraggableButtonState extends State<_DraggableButton> {
     if (!_loaded) return const SizedBox.shrink();
 
     final screen = MediaQuery.of(context).size;
-    final pos = _resolvePosition(screen);
+    final bottomInset = floatingButtonBottomInset(context);
+    final pos = _resolvePosition(screen, bottomInset);
 
     return Positioned(
       left: pos.dx,
       top: pos.dy,
-      child: GestureDetector(
-        onPanStart: (_) => setState(() => _dragging = true),
-        onPanUpdate: (details) {
-          setState(() {
-            _position = Offset(
-              (pos.dx + details.delta.dx)
-                  .clamp(_kSideInset, screen.width - _kButtonSize - _kSideInset),
-              (pos.dy + details.delta.dy)
-                  .clamp(0, screen.height - _kButtonSize - _kBottomInset),
-            );
-          });
-        },
-        onPanEnd: (_) {
-          setState(() => _dragging = false);
-          final p = _position ?? pos;
-          _persist(Offset(p.dx / screen.width, p.dy / screen.height));
-        },
-        // A plain tap (no drag) opens the assistant. Flutter's gesture arena
-        // disambiguates tap from pan by movement threshold on its own — no
-        // manual bookkeeping needed to tell them apart.
-        onTap: _openAssistant,
-        child: AnimatedScale(
-          scale: _dragging ? 1.08 : 1.0,
-          duration: const Duration(milliseconds: 120),
-          // Follow-up task, 2026-09-10, Part 3 — robot form, modern
-          // colouring, frosted glass. Only this visual subtree changed;
-          // the `GestureDetector`/`AnimatedScale`/`Positioned` above are
-          // untouched, so drag, tap and persisted position behave exactly
-          // as before (item 1/4).
-          child: StreamBuilder<bool>(
-            stream: _unseenStream,
-            builder: (context, snap) => UnseenBadge(
-              show: snap.data ?? false,
-              // Kept INSIDE the button's own bounds (not poking past the
-              // edge) so it is never clipped by a physical screen edge
-              // when the button is dragged to the very top or side of the
-              // screen (item 2) — the same restrained placement this
-              // app's other unseen dots already use.
-              offset: const Offset(6, 6),
-              // Robot form, modern colouring, frosted glass — Follow-up
-              // task, 2026-09-10, Part 3.
-              child: ClipOval(
-                child: BackdropFilter(
-                  // Frosted glass: blur whatever is behind the button,
-                  // then paint a translucent (not fully transparent) fill
-                  // over it — the blur alone would look like a lens, not
-                  // glass, without a tinted layer on top.
-                  filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                  child: Container(
-                    width: _kButtonSize,
-                    height: _kButtonSize,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: LinearGradient(
-                        colors: [
-                          const Color(0xFF6A5AE0).withOpacity(.55),
-                          const Color(0xFF17C3B2).withOpacity(.55),
-                        ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      border: Border.all(
-                        color: Colors.white.withOpacity(.35),
-                        width: 1.2,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(.22),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
+      child: Offstage(
+        offstage: widget.hidden,
+        child: TickerMode(
+          enabled: !widget.hidden,
+          child: GestureDetector(
+            onPanStart: (_) => setState(() => _dragging = true),
+            onPanUpdate: (details) {
+              setState(() {
+                _position = Offset(
+                  (pos.dx + details.delta.dx).clamp(
+                      _kSideInset, screen.width - _kButtonSize - _kSideInset),
+                  (pos.dy + details.delta.dy)
+                      .clamp(0, screen.height - _kButtonSize - bottomInset),
+                );
+              });
+            },
+            onPanEnd: (_) {
+              setState(() => _dragging = false);
+              final p = _position ?? pos;
+              _persist(Offset(p.dx / screen.width, p.dy / screen.height));
+            },
+            // A plain tap (no drag) opens the assistant. Flutter's gesture arena
+            // disambiguates tap from pan by movement threshold on its own — no
+            // manual bookkeeping needed to tell them apart.
+            onTap: _openAssistant,
+            child: AnimatedScale(
+              scale: _dragging ? 1.08 : 1.0,
+              duration: const Duration(milliseconds: 120),
+              // Follow-up task, 2026-09-10, Part 3 — robot form, modern
+              // colouring, frosted glass. Only this visual subtree changed;
+              // the `GestureDetector`/`AnimatedScale`/`Positioned` above are
+              // untouched, so drag, tap and persisted position behave exactly
+              // as before (item 1/4).
+              child: StreamBuilder<bool>(
+                stream: _unseenStream,
+                builder: (context, snap) => UnseenBadge(
+                  show: snap.data ?? false,
+                  // Kept INSIDE the button's own bounds (not poking past the
+                  // edge) so it is never clipped by a physical screen edge
+                  // when the button is dragged to the very top or side of the
+                  // screen (item 2) — the same restrained placement this
+                  // app's other unseen dots already use.
+                  offset: const Offset(6, 6),
+                  // Robot form, modern colouring, frosted glass — Follow-up
+                  // task, 2026-09-10, Part 3.
+                  // Smoothness pass: the live blur (`BackdropFilter`) is gone —
+                  // it re-blurred whatever scrolled behind the button every
+                  // frame. Same glass look from a flat translucent fill
+                  // (a touch more opaque, to hold up without the blur), and
+                  // its own repaint layer so it is not repainted with the page.
+                  // `AttentionPulse`: a soft ring pulse for ~1.2 s every ~6 s
+                  // (nothing runs between pulses; off in the background,
+                  // while hidden and with "reduce animations").
+                  child: AttentionPulse(
+                    size: _kButtonSize,
+                    child: RepaintBoundary(
+                      child: ClipOval(
+                        child: Container(
+                          width: _kButtonSize,
+                          height: _kButtonSize,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: LinearGradient(
+                              colors: [
+                                const Color(0xFF6A5AE0).withOpacity(.8),
+                                const Color(0xFF17C3B2).withOpacity(.8),
+                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            border: Border.all(
+                              color: Colors.white.withOpacity(.35),
+                              width: 1.2,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(.22),
+                                blurRadius: 12,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: const Icon(Icons.smart_toy_rounded,
+                              color: Colors.white, size: 28),
                         ),
-                      ],
+                      ),
                     ),
-                    child: const Icon(Icons.smart_toy_rounded,
-                        color: Colors.white, size: 28),
                   ),
                 ),
               ),

@@ -8,7 +8,19 @@ import 'package:just_audio/just_audio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vibration/vibration.dart';
 
+import '../theme/FolkColors.dart';
+import '../theme/FolkTheme.dart';
+import '../theme/FolkTokens.dart';
 import '../utils/SadhanaReportSource.dart';
+import '../widgets/EntryAnimation.dart';
+import '../widgets/FolkPageBackground.dart';
+import '../widgets/FolkStatusBar.dart';
+import '../widgets/DayHeatStrip.dart';
+import '../widgets/GhostPlaceholder.dart';
+import '../widgets/JapaTapCircle.dart';
+import '../widgets/PressScale.dart';
+import '../widgets/RoundIconButton.dart';
+import '../widgets/StatTile.dart';
 
 /// Japa counter. Replaces the previous `ChantingScreen.dart` entirely, in
 /// place (same file, same class name, same constructor), so the app's one
@@ -77,9 +89,6 @@ class ChantingScreen extends StatefulWidget {
 class _ChantingScreenState extends State<ChantingScreen>
     with WidgetsBindingObserver {
   static const int beadsPerRound = 108;
-
-  static const Color deepGreen = Color(0xFF1B5E20);
-  static const Color lightGreen = Color(0xFF66BB6A);
 
   // SharedPreferences keys — the first three unchanged from the previous
   // screen, so an in-progress session recorded by the old build is still
@@ -168,6 +177,10 @@ class _ChantingScreenState extends State<ChantingScreen>
   double _speed = 1.0;
   StreamSubscription<PositionDiscontinuity>? _loopSub;
 
+  /// Cosmetic only: false while the app is not in the foreground, so the tap
+  /// circle's idle pulse can stop. Never read by the counting code.
+  bool _foreground = true;
+
   @override
   void initState() {
     super.initState();
@@ -181,9 +194,15 @@ class _ChantingScreenState extends State<ChantingScreen>
     // doc comment. This ticker just repaints the live display roughly once
     // a second while a round is actually running; while it isn't, `.elapsed`
     // stays `Duration.zero` and the display simply keeps showing 00:00:00.
+    //
+    // Smoothness pass: it only rebuilds when the elapsed time has actually
+    // changed. While no round is running it is still zero, so the second-by-
+    // second rebuild of this whole screen no longer happens.
     _roundTicker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
-      setState(() => _roundElapsed = _roundStopwatch.elapsed);
+      final elapsed = _roundStopwatch.elapsed;
+      if (elapsed == _roundElapsed) return;
+      setState(() => _roundElapsed = elapsed);
     });
 
     // Part 3 item 5 — event-driven loop counting, not a polling `Timer`.
@@ -223,6 +242,9 @@ class _ChantingScreenState extends State<ChantingScreen>
   /// playing.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    final foreground = state == AppLifecycleState.resumed;
+    if (foreground != _foreground) setState(() => _foreground = foreground);
+
     if (state != AppLifecycleState.resumed && _player.playing) {
       _player.pause();
       if (mounted) setState(() {});
@@ -332,10 +354,8 @@ class _ChantingScreenState extends State<ChantingScreen>
   /// again after each completed round.
   Future<void> _refreshStats() async {
     try {
-      final userDoc = await _firestore
-          .collection('users')
-          .doc(widget.uid)
-          .get();
+      final userDoc =
+          await _firestore.collection('users').doc(widget.uid).get();
       final lifetimeRaw = userDoc.data()?['lifetimeRounds'];
       final lifetime = lifetimeRaw is num ? lifetimeRaw.toInt() : 0;
 
@@ -508,23 +528,45 @@ class _ChantingScreenState extends State<ChantingScreen>
   Future<void> _confirmAndResetDay() async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Reset today\'s count?'),
-        content: const Text(
-          "This clears today's rounds and beads on this device. It does not "
-          "change anything already saved to your sadhana report.",
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
+      builder: (dialogContext) {
+        final colors = dialogContext.folk;
+        final text = dialogContext.folkText;
+        return AlertDialog(
+          backgroundColor: colors.surface,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(FolkShape.cardRadius),
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Reset'),
+          title: Text('Reset today\'s count?', style: text.topBarTitle),
+          content: Text(
+            "This clears today's rounds and beads on this device. It does not "
+            "change anything already saved to your sadhana report.",
+            style: text.small.copyWith(height: 1.45, color: colors.text),
           ),
-        ],
-      ),
+          actions: [
+            TextButton(
+              style: TextButton.styleFrom(
+                minimumSize:
+                    const Size(FolkShape.touchTarget, FolkShape.touchTarget),
+                foregroundColor: colors.mutedText,
+                textStyle: text.chip,
+              ),
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(
+                minimumSize:
+                    const Size(FolkShape.touchTarget, FolkShape.touchTarget),
+                foregroundColor: colors.calendarMissedText,
+                textStyle: text.chip,
+              ),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Reset'),
+            ),
+          ],
+        );
+      },
     );
 
     if (confirmed == true) {
@@ -543,7 +585,24 @@ class _ChantingScreenState extends State<ChantingScreen>
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      backgroundColor: context.folk.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(FolkShape.cardRadius)),
+      ),
       builder: (sheetContext) {
+        final colors = sheetContext.folk;
+        final text = sheetContext.folkText;
+        InputDecoration field(String label) => InputDecoration(
+              labelText: label,
+              labelStyle: text.small,
+              filled: true,
+              fillColor: colors.surfaceSecondary,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(FolkShape.tileRadius),
+                borderSide: BorderSide.none,
+              ),
+            );
         return Padding(
           padding: EdgeInsets.only(
             left: 20,
@@ -555,10 +614,7 @@ class _ChantingScreenState extends State<ChantingScreen>
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Set rounds & beads',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
+              Text('Set rounds & beads', style: text.topBarTitle),
               const SizedBox(height: 16),
               Row(
                 children: [
@@ -566,10 +622,9 @@ class _ChantingScreenState extends State<ChantingScreen>
                     child: TextField(
                       controller: roundsController,
                       keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Rounds',
-                        border: OutlineInputBorder(),
-                      ),
+                      style: text.body,
+                      cursorColor: colors.text,
+                      decoration: field('Rounds'),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -577,10 +632,9 @@ class _ChantingScreenState extends State<ChantingScreen>
                     child: TextField(
                       controller: beadsController,
                       keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Beads (0-107)',
-                        border: OutlineInputBorder(),
-                      ),
+                      style: text.body,
+                      cursorColor: colors.text,
+                      decoration: field('Beads (0-107)'),
                     ),
                   ),
                 ],
@@ -590,13 +644,15 @@ class _ChantingScreenState extends State<ChantingScreen>
                 width: double.infinity,
                 child: ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: deepGreen,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    backgroundColor: colors.primaryBg,
+                    foregroundColor: colors.primaryFg,
+                    elevation: 0,
+                    shape: const StadiumBorder(),
+                    minimumSize: const Size.fromHeight(FolkShape.buttonHeight),
+                    textStyle: text.button,
                   ),
                   onPressed: () {
-                    final rounds =
-                        int.tryParse(roundsController.text.trim()) ??
+                    final rounds = int.tryParse(roundsController.text.trim()) ??
                         _sessionRounds;
                     final beads =
                         int.tryParse(beadsController.text.trim()) ?? _beads;
@@ -614,14 +670,16 @@ class _ChantingScreenState extends State<ChantingScreen>
                     Navigator.pop(sheetContext);
                     _confirmAndResetDay();
                   },
-                  icon: const Icon(Icons.delete_outline, color: Colors.red),
-                  label: const Text(
+                  icon: Icon(Icons.delete_outline,
+                      color: colors.calendarMissedText),
+                  label: Text(
                     'Reset Day',
-                    style: TextStyle(color: Colors.red),
+                    style: TextStyle(color: colors.calendarMissedText),
                   ),
                   style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: Colors.red),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    side: BorderSide(color: colors.calendarMissedText),
+                    shape: const StadiumBorder(),
+                    minimumSize: const Size.fromHeight(FolkShape.buttonHeight),
                   ),
                 ),
               ),
@@ -747,10 +805,10 @@ class _ChantingScreenState extends State<ChantingScreen>
   // ---------------------------------------------------------------------------
 
   static Color heatColor(int rounds) {
-    if (rounds >= 8) return const Color(0xFF1B5E20);
-    if (rounds >= 5) return const Color(0xFF388E3C);
-    if (rounds >= 3) return const Color(0xFF66BB6A);
-    if (rounds >= 1) return const Color(0xFFA5D6A7);
+    if (rounds >= 8) return FolkJapaTokens.heat8;
+    if (rounds >= 5) return FolkJapaTokens.heat5;
+    if (rounds >= 3) return FolkJapaTokens.heat3;
+    if (rounds >= 1) return FolkJapaTokens.heat1;
     return const Color(0xFFEEEEEE);
   }
 
@@ -795,164 +853,199 @@ class _ChantingScreenState extends State<ChantingScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: const Text(
-          "Japa Counter",
-          style: TextStyle(fontWeight: FontWeight.bold),
+    final colors = context.folk;
+    return FolkStatusBar(
+      child: Scaffold(
+        backgroundColor: colors.pageBackground,
+        body: FolkPageBackground(
+          child: SafeArea(
+            bottom: false,
+            child: Column(
+              children: [
+                EntryAnimation(index: 0, child: _buildTopBar()),
+                Expanded(
+                  child: SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(),
+                    padding: EdgeInsets.fromLTRB(
+                      FolkSpace.pagePadding,
+                      0,
+                      FolkSpace.pagePadding,
+                      30 + MediaQuery.paddingOf(context).bottom,
+                    ),
+                    // One scope: the ghosts on this screen pulse together, and it
+                    // only runs while one is showing.
+                    child: GhostScope(
+                      child: Column(
+                        children: [
+                          const SizedBox(height: 14),
+                          EntryAnimation(index: 1, child: _buildReadout()),
+                          const SizedBox(height: 14),
+                          EntryAnimation(index: 2, child: _buildTapArea()),
+                          const SizedBox(height: 16),
+                          EntryAnimation(index: 3, child: _buildUndoRow()),
+                          const SizedBox(height: 18),
+                          EntryAnimation(index: 4, child: _buildAudioPanel()),
+                          const SizedBox(height: 24),
+                          _buildSectionLabel("Today's Session"),
+                          _buildSessionSummary(),
+                          const SizedBox(height: 12),
+                          _buildRoundHistorySection(),
+                          const SizedBox(height: 24),
+                          _buildSectionLabel("Your Sadhana Reports"),
+                          Text(
+                            "What you submitted in your sadhana form — separate from "
+                            "this counter, which never writes to your report.",
+                            style:
+                                context.folkText.caption.copyWith(fontSize: 11),
+                          ),
+                          const SizedBox(height: 8),
+                          _buildHistory(),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
-        backgroundColor: deepGreen,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        actions: [
-          IconButton(
-            tooltip: 'Set / reset',
-            icon: const Icon(Icons.tune),
+      ),
+    );
+  }
+
+  /// Back, the title, and the set / reset button — in place of the AppBar.
+  Widget _buildTopBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+          FolkSpace.pagePadding, FolkSpace.xl, FolkSpace.pagePadding, 0),
+      child: Row(
+        children: [
+          RoundIconButton(
+            icon: Icons.chevron_left_rounded,
+            iconSize: 26,
+            semanticLabel: 'Back',
+            onPressed: () => Navigator.of(context).maybePop(),
+          ),
+          Expanded(
+            child: Text(
+              "Japa Counter",
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: context.folkText.topBarTitle,
+            ),
+          ),
+          RoundIconButton(
+            icon: Icons.tune,
+            semanticLabel: 'Set / reset',
             onPressed: _openManualSetSheet,
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
-        child: Column(
+    );
+  }
+
+  /// Part 2 item 1 — rounds and beads as one readout, "RRR:BBB". Shown as a
+  /// chip: the round you are on, with the exact readout beside it.
+  Widget _buildReadout() {
+    final colors = context.folk;
+    final text = context.folkText;
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+        decoration: BoxDecoration(
+          color: colors.surface,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: colors.iconShadows,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            const SizedBox(height: 20),
-            _buildReadout(),
-            const SizedBox(height: 8),
-            _buildRoundTimer(),
-            const SizedBox(height: 20),
-            _buildTapArea(),
-            const SizedBox(height: 12),
-            _buildUndoRow(),
-            const SizedBox(height: 28),
-            _buildSectionLabel("Chant with Prabhupada"),
-            _buildAudioPanel(),
-            const SizedBox(height: 28),
-            _buildSectionLabel("Today's Session"),
-            _buildSessionSummary(),
-            const SizedBox(height: 20),
-            _buildRoundHistorySection(),
-            const SizedBox(height: 28),
-            _buildSectionLabel("Your Sadhana Reports"),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Text(
-                "What you submitted in your sadhana form — separate from "
-                "this counter, which never writes to your report.",
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+            Text(
+              'Round ${_sessionRounds + 1}',
+              style: text.bodyStrong.copyWith(fontSize: 13),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '${_pad3(_sessionRounds)}:${_pad3(_beads)}',
+              style: text.caption.copyWith(
+                fontFeatures: const [FontFeature.tabularFigures()],
               ),
             ),
-            const SizedBox(height: 8),
-            _buildHistory(),
-            const SizedBox(height: 30),
           ],
         ),
       ),
     );
   }
 
-  /// Part 2 item 1 — rounds and beads as one readout, "RRR:BBB".
-  Widget _buildReadout() {
-    return Text(
-      '${_pad3(_sessionRounds)}:${_pad3(_beads)}',
-      style: const TextStyle(
-        fontSize: 64,
-        fontWeight: FontWeight.bold,
-        color: deepGreen,
-        height: 1.1,
-        letterSpacing: 1,
-      ),
-    );
-  }
-
   /// Part 2 item 3.
   Widget _buildRoundTimer() {
-    return Text(
-      _formatElapsed(_roundElapsed),
-      style: TextStyle(
-        fontSize: 16,
-        fontWeight: FontWeight.w600,
-        color: Colors.grey.shade600,
+    final colors = context.folk;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: colors.iconShadows,
+      ),
+      child: Text(
+        _formatElapsed(_roundElapsed),
+        style: context.folkText.topBarTitle.copyWith(
+          fontSize: 22,
+          fontFeatures: const [FontFeature.tabularFigures()],
+        ),
       ),
     );
   }
 
-  /// Part 2 item 4 — large, comfortable tap target: almost the full screen
-  /// width and a generous height, meant to be tapped by feel with the
-  /// phone in hand.
+  /// Part 2 item 4 — the tap target: the full width of the content area and
+  /// at least the full height of the circle. The count handler is the same one
+  /// as before (`_onBeadTap` -> `_advanceBead`); the circle only draws around
+  /// it and never sits between a tap and the count.
   Widget _buildTapArea() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Material(
-        color: deepGreen.withOpacity(.06),
-        borderRadius: BorderRadius.circular(24),
-        child: InkWell(
-          onTap: _onBeadTap,
-          borderRadius: BorderRadius.circular(24),
-          splashColor: lightGreen.withOpacity(.3),
-          child: Container(
-            height: 220,
-            width: double.infinity,
-            alignment: Alignment.center,
-            child: const Text(
-              "TAP TO COUNT",
-              style: TextStyle(
-                fontSize: 15,
-                letterSpacing: 4,
-                fontWeight: FontWeight.w700,
-                color: deepGreen,
-              ),
-            ),
-          ),
-        ),
-      ),
+    return JapaTapCircle(
+      beads: _beads,
+      rounds: _sessionRounds,
+      onTap: _onBeadTap,
+      // The idle pulse only runs while the app is in the foreground.
+      idleEnabled: _foreground,
+      beadsPerRound: beadsPerRound,
     );
   }
 
+  /// The round timer and the undo button, side by side.
   Widget _buildUndoRow() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: SizedBox(
-        width: double.infinity,
-        child: OutlinedButton.icon(
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _buildRoundTimer(),
+        const SizedBox(width: FolkSpace.md),
+        RoundIconButton(
+          icon: Icons.undo,
+          iconSize: 20,
+          semanticLabel: 'Undo last bead',
           onPressed: _undo,
-          icon: const Icon(Icons.undo, size: 18),
-          label: const Text("Undo last bead"),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: deepGreen,
-            side: const BorderSide(color: deepGreen),
-            padding: const EdgeInsets.symmetric(vertical: 14),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
         ),
-      ),
+      ],
     );
   }
 
   Widget _buildSectionLabel(String label) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        children: [
-          Expanded(child: Divider(color: Colors.grey.shade300)),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: Colors.grey.shade700,
-              ),
-            ),
-          ),
-          Expanded(child: Divider(color: Colors.grey.shade300)),
-        ],
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
+        child: Text(label.toUpperCase(), style: context.folkText.label),
       ),
+    );
+  }
+
+  BoxDecoration _cardDecoration() {
+    final colors = context.folk;
+    return BoxDecoration(
+      color: colors.surface,
+      borderRadius: BorderRadius.circular(FolkShape.cardRadius),
+      boxShadow: colors.cardShadows,
     );
   }
 
@@ -960,118 +1053,151 @@ class _ChantingScreenState extends State<ChantingScreen>
   /// throughout (no `Stack`), so there is no risk of the "Stack under an
   /// unconstrained parent" crash this app has already hit twice elsewhere.
   Widget _buildAudioPanel() {
+    final colors = context.folk;
+    final text = context.folkText;
     final playing = _player.playing;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: deepGreen.withOpacity(.05),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                IconButton.filled(
-                  style: IconButton.styleFrom(
-                    backgroundColor: _audioFailed ? Colors.grey : deepGreen,
+    return Container(
+      padding: const EdgeInsets.all(FolkSpace.lg),
+      decoration: _cardDecoration(),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Semantics(
+                button: true,
+                label: playing ? 'Pause mantra' : 'Play mantra',
+                enabled: !_audioFailed,
+                excludeSemantics: true,
+                child: PressScale(
+                  enabled: !_audioFailed,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _audioFailed ? null : _togglePlayback,
+                    child: Container(
+                      width: 52,
+                      height: 52,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: _audioFailed
+                            ? colors.disabledText
+                            : colors.primaryBg,
+                      ),
+                      child: Icon(
+                        playing ? Icons.pause : Icons.play_arrow,
+                        color: colors.primaryFg,
+                      ),
+                    ),
                   ),
-                  icon: Icon(
-                    playing ? Icons.pause : Icons.play_arrow,
-                    color: Colors.white,
-                  ),
-                  onPressed: _audioFailed ? null : _togglePlayback,
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    _audioFailed
-                        ? "Chanting audio unavailable"
-                        : playing
-                        ? "Playing — loops automatically"
-                        : "Tap play to loop the mantra",
-                    style: TextStyle(color: Colors.grey.shade700),
-                  ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("Chant with Prabhupada", style: text.bodyStrong),
+                    const SizedBox(height: 2),
+                    Text(
+                      _audioFailed
+                          ? "Chanting audio unavailable"
+                          : playing
+                              ? "Playing — loops automatically"
+                              : "Tap play to loop the mantra",
+                      style: text.small,
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Text("Speed", style: TextStyle(fontSize: 13)),
-                Expanded(
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              SizedBox(width: 52, child: Text("Speed", style: text.small)),
+              Expanded(
+                child: SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    trackHeight: 4,
+                    activeTrackColor: colors.primaryBg,
+                    inactiveTrackColor: colors.surfaceSecondary,
+                    thumbColor: colors.primaryBg,
+                    overlayColor: colors.primaryBg.withValues(alpha: .12),
+                    activeTickMarkColor: Colors.transparent,
+                    inactiveTickMarkColor: Colors.transparent,
+                    valueIndicatorColor: colors.primaryBg,
+                    valueIndicatorTextStyle:
+                        text.caption.copyWith(color: colors.primaryFg),
+                  ),
                   child: Slider(
                     value: _speed,
                     min: 0.5,
                     max: 2.0,
                     divisions: 6,
-                    activeColor: deepGreen,
                     label: '${_speed.toStringAsFixed(2)}x',
                     onChanged: (v) => _setSpeed(v),
                   ),
                 ),
-                Text(
-                  '${_speed.toStringAsFixed(2)}x',
-                  style: const TextStyle(fontSize: 13),
+              ),
+              Text(
+                '${_speed.toStringAsFixed(2)}x',
+                style: text.small.copyWith(fontWeight: FontWeight.w700),
+              ),
+            ],
+          ),
+          Row(
+            children: [
+              Expanded(
+                child: Text("Auto-count each loop",
+                    style: text.body.copyWith(fontSize: 14)),
+              ),
+              Switch(
+                value: _autoCountEnabled,
+                thumbColor: WidgetStatePropertyAll(
+                  _autoCountEnabled
+                      ? colors.primaryFg
+                      : (colors.isDark ? colors.mutedText : Colors.white),
                 ),
-              ],
-            ),
-            Row(
-              children: [
-                const Expanded(
-                  child: Text(
-                    "Auto-count each loop",
-                    style: TextStyle(fontSize: 14),
-                  ),
+                trackColor: WidgetStatePropertyAll(
+                  _autoCountEnabled ? colors.primaryBg : colors.switchOff,
                 ),
-                Switch(
-                  value: _autoCountEnabled,
-                  activeThumbColor: deepGreen,
-                  onChanged: (v) => setState(() => _autoCountEnabled = v),
-                ),
-              ],
-            ),
-          ],
-        ),
+                trackOutlineColor:
+                    const WidgetStatePropertyAll(Colors.transparent),
+                onChanged: (v) => setState(() => _autoCountEnabled = v),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
 
-  Widget _summaryTile(String label, String value) {
+  /// [countUp] counts the number up from 0 the FIRST time it is shown and
+  /// never again: a value that changes later (a round was just banked) is
+  /// shown at once, true. [ghost] shows a ghost bar in place of the number
+  /// while it is still loading.
+  Widget _summaryTile(String label, String value,
+      {required int countUp, bool ghost = false}) {
     return Expanded(
-      child: Column(
-        children: [
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 26,
-              fontWeight: FontWeight.bold,
-              color: deepGreen,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-          ),
-        ],
+      child: StatTile(
+        value: value,
+        label: label,
+        style: FolkGradientStyle.coral,
+        countUp: countUp,
+        valueGhost: ghost,
       ),
     );
   }
 
   Widget _buildSessionSummary() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 18, 16, 0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          _summaryTile("This session", '$_sessionRounds'),
-          _summaryTile("Lifetime", '$_lifetimeRounds'),
-        ],
-      ),
+    return Row(
+      children: [
+        _summaryTile("This session", '$_sessionRounds',
+            countUp: _sessionRounds),
+        const SizedBox(width: FolkSpace.cardGap),
+        _summaryTile("Lifetime", '$_lifetimeRounds',
+            countUp: _lifetimeRounds, ghost: _loadingStats),
+      ],
     );
   }
 
@@ -1094,47 +1220,47 @@ class _ChantingScreenState extends State<ChantingScreen>
   /// in this file — the height is a plain literal, not computed from the
   /// parent's own constraints.
   Widget _buildRoundHistorySection() {
+    final colors = context.folk;
+    final text = context.folkText;
     final count = _roundDurationsSeconds.length;
     final totalSeconds = _roundDurationsSeconds.fold<int>(0, (a, b) => a + b);
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border.all(color: Colors.grey.shade300),
-          borderRadius: BorderRadius.circular(14),
-        ),
-        // ExpansionTile paints its header (a ListTile internally) and its
-        // own ink splash via the nearest Material ancestor. Without one
-        // here, that ancestor is the Scaffold's own Material several
-        // widgets up, which triggers "ListTile background color or ink
-        // splashes may be invisible" — this exact warning has now recurred
-        // three times in this project (`AssistantHistoryScreen.dart`,
-        // `GuideCalendarPage.dart`'s end-date picker, and here); same fix
-        // each time: `clipBehavior` matches the Container's own rounded
-        // corners so the splash doesn't square off past them.
-        child: Material(
-          color: Colors.transparent,
-          borderRadius: BorderRadius.circular(14),
-          clipBehavior: Clip.antiAlias,
+    return Container(
+      decoration: _cardDecoration(),
+      // ExpansionTile paints its header (a ListTile internally) and its
+      // own ink splash via the nearest Material ancestor. Without one
+      // here, that ancestor is the Scaffold's own Material several
+      // widgets up, which triggers "ListTile background color or ink
+      // splashes may be invisible" — this exact warning has now recurred
+      // three times in this project (`AssistantHistoryScreen.dart`,
+      // `GuideCalendarPage.dart`'s end-date picker, and here); same fix
+      // each time: `clipBehavior` matches the Container's own rounded
+      // corners so the splash doesn't square off past them.
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(FolkShape.cardRadius),
+        clipBehavior: Clip.antiAlias,
+        child: Theme(
+          // No divider lines above and below the open tile.
+          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
           child: ExpansionTile(
-            title: const Text(
-              "Today's Round Times",
-              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
-            ),
+            iconColor: colors.text,
+            collapsedIconColor: colors.mutedText,
+            tilePadding: const EdgeInsets.symmetric(horizontal: 20),
+            title: Text("Today's Round Times", style: text.bodyStrong),
             subtitle: Text(
               count == 0
                   ? "No rounds completed yet today"
                   : "$count ${count == 1 ? 'round' : 'rounds'} · "
-                        "${_formatTotalDuration(Duration(seconds: totalSeconds))} total",
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                      "${_formatTotalDuration(Duration(seconds: totalSeconds))} total",
+              style: text.caption,
             ),
             children: [
               if (count == 0)
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  child: Text("Complete a round to see it listed here."),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                  child: Text("Complete a round to see it listed here.",
+                      style: text.small),
                 )
               else
                 SizedBox(
@@ -1146,13 +1272,13 @@ class _ChantingScreenState extends State<ChantingScreen>
                       final seconds = _roundDurationsSeconds[i];
                       return Padding(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
+                          horizontal: 20,
                           vertical: 8,
                         ),
                         child: Text(
                           'Round $roundNumber — '
                           '${_formatRoundDuration(Duration(seconds: seconds))}',
-                          style: const TextStyle(fontSize: 13),
+                          style: text.body.copyWith(fontSize: 13),
                         ),
                       );
                     },
@@ -1165,65 +1291,42 @@ class _ChantingScreenState extends State<ChantingScreen>
     );
   }
 
+  Color _heatFill(int rounds, FolkColors colors) =>
+      rounds <= 0 ? colors.surfaceSecondary : heatColor(rounds);
+
   Widget _buildHistory() {
-    if (_loadingStats) {
-      return const Padding(
-        padding: EdgeInsets.all(24),
-        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-      );
-    }
+    return GhostCrossFade(
+      loading: _loadingStats,
+      ghost: const DayHeatStripGhost(),
+      child: _historyContent(),
+    );
+  }
+
+  Widget _historyContent() {
+    final colors = context.folk;
+    final text = context.folkText;
 
     if (_historyData.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(20),
-        child: Text("No history available"),
+      return Padding(
+        padding: const EdgeInsets.all(20),
+        child: Text("No history available", style: text.body),
       );
     }
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.fromLTRB(16, 18, 16, 0),
-      child: Row(
-        children: _historyData.map((entry) {
-          final day = entry['date'] as DateTime;
-          final rounds = entry['rounds'] as int;
-
-          return Padding(
-            padding: const EdgeInsets.only(right: 6),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(6),
-              onTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    duration: const Duration(seconds: 2),
-                    content: Text(
-                      "${DateFormat('dd MMM yyyy').format(day)}: "
-                      "$rounds ${rounds == 1 ? 'round' : 'rounds'}",
-                    ),
-                  ),
-                );
-              },
-              child: Column(
-                children: [
-                  Container(
-                    width: 26,
-                    height: 26,
-                    decoration: BoxDecoration(
-                      color: heatColor(rounds),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${day.day}',
-                    style: TextStyle(fontSize: 9, color: Colors.grey.shade600),
-                  ),
-                ],
-              ),
+    return DayHeatStrip(
+      data: _historyData,
+      fillFor: (rounds) => _heatFill(rounds, colors),
+      onTapDay: (day, rounds) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 2),
+            content: Text(
+              "${DateFormat('dd MMM yyyy').format(day)}: "
+              "$rounds ${rounds == 1 ? 'round' : 'rounds'}",
             ),
-          );
-        }).toList(),
-      ),
+          ),
+        );
+      },
     );
   }
 }

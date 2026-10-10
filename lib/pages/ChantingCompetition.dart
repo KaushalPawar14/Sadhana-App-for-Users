@@ -1,13 +1,17 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/SameGender.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:provider/provider.dart';
 
-import '../utils/ColorProvider.dart';
-import '../utils/MalaLoading.dart';
+import '../theme/FolkTheme.dart';
+import '../theme/FolkTokens.dart';
+import '../widgets/Group2Widgets.dart';
+import '../widgets/FolkScaffold.dart';
+import '../widgets/GhostPlaceholder.dart';
+import '../widgets/PrimaryButton.dart';
 
 /// Chanting Competition — the student-facing view of the Guide app's
 /// "Chanting Challenge" feature (`chantingChallenges` /
@@ -109,6 +113,10 @@ class _ChantingCompetitionPageState extends State<ChantingCompetitionPage> {
   /// idle. Includes 'id' merged into the map alongside the doc's fields.
   Map<String, dynamic>? _trackedChallenge;
 
+  /// Who is of my gender: only those students are listed as contributors or
+  /// winners. Null until read (nothing is listed before then).
+  GenderDirectory? _directory;
+
   /// Set only while the winner card is on screen.
   bool _showWinner = false;
   Map<String, dynamic>? _winnerChallenge;
@@ -136,6 +144,12 @@ class _ChantingCompetitionPageState extends State<ChantingCompetitionPage> {
       return;
     }
     _uid = uid;
+
+    try {
+      _directory = await GenderDirectory.forCurrentUser();
+    } catch (_) {
+      // Without it no other student is listed: the screen fails closed.
+    }
 
     String guideId = '';
     try {
@@ -341,7 +355,11 @@ class _ChantingCompetitionPageState extends State<ChantingCompetitionPage> {
           .where('challengeId', isEqualTo: ended['id'])
           .get();
 
-      top = snap.docs.map((d) => d.data()).toList()
+      final directory = await GenderDirectory.forCurrentUser();
+      top = snap.docs
+          .map((d) => d.data())
+          .where((d) => directory.sameByName(d['studentName']?.toString()))
+          .toList()
         ..sort((a, b) {
           final ra = a['rounds'] is num ? (a['rounds'] as num).toInt() : 0;
           final rb = b['rounds'] is num ? (b['rounds'] as num).toInt() : 0;
@@ -401,67 +419,56 @@ class _ChantingCompetitionPageState extends State<ChantingCompetitionPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ColorProvider>(
-      builder: (context, colorProvider, child) {
-        return Scaffold(
-          backgroundColor: colorProvider.color,
-          appBar: AppBar(
-            title: Text(
-              "Chanting Competition",
-              style: TextStyle(
-                color: colorProvider.secondColor,
-                fontWeight: FontWeight.bold,
-                fontSize: 20,
+    return FolkScaffold(
+      title: "Chanting Competition",
+      onBack: () => Navigator.pop(context),
+      body: _loadingGuide
+          ? const GhostScope(
+              child: Padding(
+                padding: EdgeInsets.all(FolkSpace.pagePadding),
+                child: Column(
+                  children: [
+                    GhostPlaceholder(
+                        width: double.infinity,
+                        height: 170,
+                        showBars: false),
+                    SizedBox(height: FolkSpace.cardGap),
+                    GhostPlaceholder(
+                        width: double.infinity,
+                        height: 64,
+                        radius: FolkShape.tileRadius,
+                        showBars: false),
+                  ],
+                ),
               ),
-            ),
-            leading: IconButton(
-              icon: Icon(Icons.arrow_back, color: colorProvider.secondColor),
-              onPressed: () => Navigator.pop(context),
-            ),
-            backgroundColor: colorProvider.color,
-            elevation: 0,
-          ),
-          body: _loadingGuide
-              ? const CustomLoader()
-              : _showWinner
-                  ? _winnerCard(colorProvider)
-                  : (_trackedChallenge == null
-                      ? _idleState(colorProvider)
-                      : _activeState(colorProvider, _trackedChallenge!)),
-        );
-      },
+            )
+          : _showWinner
+              ? _winnerCard()
+              : (_trackedChallenge == null
+                  ? _idleState()
+                  : _activeState(_trackedChallenge!)),
     );
   }
 
-  Widget _idleState(ColorProvider colorProvider) {
+  Widget _idleState() {
+    final colors = context.folk;
+    final text = context.folkText;
     return Center(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.self_improvement,
-                size: 56, color: colorProvider.secondColor.withOpacity(.4)),
+            Icon(Icons.self_improvement, size: 56, color: colors.mutedText),
             const SizedBox(height: 18),
-            Text(
-              "No competition right now",
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: colorProvider.secondColor,
-              ),
-            ),
+            Text("No competition right now", style: text.bodyStrong),
             const SizedBox(height: 10),
             Text(
               "Your guide hasn't started a chanting competition yet. "
               "When one begins, it will show up here automatically — "
               "no need to check back constantly.",
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                height: 1.4,
-                color: colorProvider.secondColor.withOpacity(.7),
-              ),
+              style: text.small.copyWith(height: 1.4),
             ),
           ],
         ),
@@ -469,8 +476,8 @@ class _ChantingCompetitionPageState extends State<ChantingCompetitionPage> {
     );
   }
 
-  Widget _activeState(
-      ColorProvider colorProvider, Map<String, dynamic> challenge) {
+  Widget _activeState(Map<String, dynamic> challenge) {
+    final text = context.folkText;
     final name = (challenge['name'] ?? '').toString();
     final target = challenge['targetRounds'] is num
         ? (challenge['targetRounds'] as num).toInt()
@@ -485,91 +492,48 @@ class _ChantingCompetitionPageState extends State<ChantingCompetitionPage> {
         target <= 0 ? 0.0 : (total / target).clamp(0.0, 1.0);
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 28),
+      padding: const EdgeInsets.fromLTRB(FolkSpace.pagePadding, FolkSpace.lg,
+          FolkSpace.pagePadding, 28),
       children: [
-        Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: const Color(0xFF00695C),
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                name.isEmpty ? "Chanting Competition" : name,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: Colors.white,
-                ),
-              ),
-              if (dateText.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Text(
-                  dateText,
-                  style: TextStyle(fontSize: 12.5, color: Colors.white.withOpacity(.85)),
-                ),
-              ],
-              const SizedBox(height: 14),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
-                children: [
-                  Text(
-                    "$total",
-                    style: const TextStyle(
-                      fontSize: 26,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
-                    ),
-                  ),
-                  Text(
-                    " / $target rounds — together",
-                    style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(.85)),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: LinearProgressIndicator(
-                  value: collectiveFraction,
-                  minHeight: 8,
-                  backgroundColor: Colors.white.withOpacity(.25),
-                  valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                "Every student's own rounds add to this shared total. "
-                "This is a group goal, not a personal one.",
-                style: TextStyle(fontSize: 11, color: Colors.white.withOpacity(.75)),
-              ),
-            ],
-          ),
+        ChallengeSummaryCard(
+          name: name,
+          dateText: dateText,
+          total: total,
+          target: target,
+          fraction: collectiveFraction,
         ),
         const SizedBox(height: 20),
-        Text(
-          "Who's contributing",
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w700,
-            color: colorProvider.secondColor,
-          ),
-        ),
+        Text("Who's contributing", style: text.bodyStrong),
         const SizedBox(height: 10),
         StreamBuilder<QuerySnapshot>(
           stream: _contributionsStreamFor(challenge['id'] as String),
           builder: (context, snapshot) {
             if (!snapshot.hasData) {
-              return const Padding(
-                padding: EdgeInsets.symmetric(vertical: 24),
-                child: Center(child: CircularProgressIndicator()),
+              return const GhostScope(
+                child: Column(
+                  children: [
+                    GhostPlaceholder(
+                        width: double.infinity,
+                        height: 64,
+                        radius: FolkShape.tileRadius,
+                        showBars: false),
+                    SizedBox(height: 10),
+                    GhostPlaceholder(
+                        width: double.infinity,
+                        height: 64,
+                        radius: FolkShape.tileRadius,
+                        showBars: false),
+                  ],
+                ),
               );
             }
 
-            final rows = snapshot.data!.docs.map((d) {
+            final rows = snapshot.data!.docs.where((d) {
+              // Only students of my gender are listed.
+              final data = d.data() as Map<String, dynamic>;
+              return _directory?.sameByName(data['studentName']?.toString()) ??
+                  false;
+            }).map((d) {
               final data = d.data() as Map<String, dynamic>;
               final rounds =
                   data['rounds'] is num ? (data['rounds'] as num).toInt() : 0;
@@ -587,8 +551,7 @@ class _ChantingCompetitionPageState extends State<ChantingCompetitionPage> {
                 child: Text(
                   "No one has submitted rounds for this yet — be the first!",
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                      fontSize: 12.5, color: colorProvider.secondColor.withOpacity(.7)),
+                  style: text.small,
                 ),
               );
             }
@@ -596,7 +559,6 @@ class _ChantingCompetitionPageState extends State<ChantingCompetitionPage> {
             return Column(
               children: rows
                   .map((r) => _leaderboardRow(
-                        colorProvider,
                         r['name'] as String,
                         r['rounds'] as int,
                         target,
@@ -609,57 +571,13 @@ class _ChantingCompetitionPageState extends State<ChantingCompetitionPage> {
     );
   }
 
-  Widget _leaderboardRow(
-      ColorProvider colorProvider, String name, int rounds, int target) {
+  Widget _leaderboardRow(String name, int rounds, int target) {
     final fraction = target <= 0 ? 0.0 : (rounds / target).clamp(0.0, 1.0);
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(13),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  name.isEmpty ? "Unknown" : name,
-                  style: const TextStyle(
-                      fontSize: 13.5, fontWeight: FontWeight.w600),
-                ),
-              ),
-              Text(
-                "$rounds rounds",
-                style: const TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF00695C),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: LinearProgressIndicator(
-              value: fraction,
-              minHeight: 6,
-              backgroundColor: Colors.grey.shade200,
-              valueColor:
-                  const AlwaysStoppedAnimation<Color>(Color(0xFF00695C)),
-            ),
-          ),
-        ],
-      ),
-    );
+    return ContributionRow(name: name, rounds: rounds, fraction: fraction);
   }
 
-  Widget _winnerCard(ColorProvider colorProvider) {
+  Widget _winnerCard() {
     final challenge = _winnerChallenge ?? {};
     final name = (challenge['name'] ?? '').toString();
     final status = (challenge['status'] ?? '').toString();
@@ -684,94 +602,16 @@ class _ChantingCompetitionPageState extends State<ChantingCompetitionPage> {
         .toList();
 
     return Center(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
-        child: Container(
-          padding: const EdgeInsets.all(22),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(22),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(.08),
-                blurRadius: 18,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                achieved ? Icons.emoji_events : Icons.flag_outlined,
-                size: 46,
-                color: achieved ? Colors.amber.shade700 : Colors.grey.shade500,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                achieved ? "Target reached!" : "Competition closed",
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: colorProvider.secondColor,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                name.isEmpty ? "Chanting Competition" : name,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 13.5,
-                  color: colorProvider.secondColor.withOpacity(.75),
-                ),
-              ),
-              const SizedBox(height: 14),
-              Text(
-                "$total / $target rounds together",
-                style: const TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF00695C),
-                ),
-              ),
-              const SizedBox(height: 16),
-              if (topStudents.isNotEmpty) ...[
-                Text(
-                  topStudents.length == 1
-                      ? "Top contributor"
-                      : "Top contributors",
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: .4,
-                    color: colorProvider.secondColor.withOpacity(.6),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  "${topStudents.join(', ')} — $topRounds rounds",
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                      fontSize: 14, fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 18),
-              ],
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _dismissWinner,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF00695C),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: const Text("Continue"),
-                ),
-              ),
-            ],
-          ),
+        child: ChallengeResultCard(
+          achieved: achieved,
+          name: name,
+          total: total,
+          target: target,
+          topStudents: topStudents,
+          topRounds: topRounds,
+          action: PrimaryButton(label: "Continue", onPressed: _dismissWinner),
         ),
       ),
     );

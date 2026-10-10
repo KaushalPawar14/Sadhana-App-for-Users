@@ -1,24 +1,45 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:folk_app/HostelersPage/Sadhana.dart';
 import 'package:folk_app/pages/Questions.dart';
-import 'package:folk_app/utils/MalaLoading.dart';
-import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../utils/ColorProvider.dart';
+import '../theme/FolkTheme.dart';
+import '../theme/FolkTokens.dart';
+import '../widgets/EntryAnimation.dart';
+import '../widgets/GhostPlaceholder.dart';
+import '../widgets/MinHeightBox.dart' show ghostHeight;
+import '../widgets/FloatingPillNavBar.dart';
+import '../widgets/PrimaryButton.dart';
+import '../widgets/SadhanaDayCell.dart';
+import '../widgets/SadhanaDayDialog.dart';
 import '../utils/SadhanaReportSource.dart';
+import '../utils/SadhanaStats.dart';
+import '../widgets/SadhanaStatTile.dart';
 
 class CalendarPage extends StatefulWidget {
   final String username, role;
-  CalendarPage({required this.username, required this.role});
+
+  // Tests hand in their own dates stream and day read; the app never sets them.
+  @visibleForTesting
+  final Stream<Set<String>>? datesStream;
+  @visibleForTesting
+  final Future<Map<String, dynamic>?> Function(String name, String dateId)?
+      dayReader;
+
+  CalendarPage(
+      {required this.username,
+      required this.role,
+      this.datesStream,
+      this.dayReader});
 
   @override
   _CalendarPageState createState() => _CalendarPageState();
 }
 
-class _CalendarPageState extends State<CalendarPage>
-    with SingleTickerProviderStateMixin {
+class _CalendarPageState extends State<CalendarPage> {
   DateTime now = DateTime.now();
   late final Map<DateTime, Color> _selectedDayColors;
   DateTime _focusedDay = DateTime.now();
@@ -28,13 +49,6 @@ class _CalendarPageState extends State<CalendarPage>
   bool showWeekDot = false;
   late AnimationController _dotController; // for in/out animation
   late Stream<Set<String>> _datesStream;
-
-  // Floating button animation
-  late AnimationController _buttonController;
-  late Animation<double> _buttonAnimation;
-  Map<String, dynamic>? _selectedDayData;
-  bool _loadingDayData = false;
-  bool _datePressed = false;
 
   @override
   void initState() {
@@ -46,46 +60,23 @@ class _CalendarPageState extends State<CalendarPage>
     // Master Task 2026-09-11 — merged across both residence collections so
     // history filed before a residence switch still shows here. See
     // utils/SadhanaReportSource.dart's own header for the one-per-date rule.
-    _datesStream = mergedAvailableDatesStream(widget.username);
-
-    _buttonController = AnimationController(
-      vsync: this,
-      duration: Duration(seconds: 2),
-    );
-
-    _buttonAnimation = Tween<double>(begin: -6, end: 6).animate(
-      CurvedAnimation(parent: _buttonController, curve: Curves.easeInOut),
-    );
-
-    _buttonController.repeat(reverse: true);
-  }
-  @override
-  void dispose() {
-    _buttonController.dispose();
-    super.dispose();
+    _datesStream =
+        widget.datesStream ?? mergedAvailableDatesStream(widget.username);
   }
 
-  Future<void> _fetchSelectedDayData(DateTime selectedDay) async {
-    setState(() {
-      _loadingDayData = true;
-      _selectedDayData = null;
-      _datePressed = true;
-    });
-
-    try {
-      String formattedDate = _getFormattedDate(selectedDay);
-      final data = await fetchMergedDateReport(widget.username, formattedDate);
-
-      setState(() {
-        _selectedDayData = data ?? {};
-        _loadingDayData = false;
-      });
-    } catch (e) {
-      print('Error fetching day data: $e');
-      setState(() {
-        _selectedDayData = {};
-        _loadingDayData = false;
-      });
+  // A submitted day's details, in a dialog: the SAME read as before, the merged
+  // report for that date across both residence collections.
+  Future<void> _openDay(DateTime day) async {
+    final dateId = _getFormattedDate(day);
+    await SadhanaDayDialog.show(
+      context,
+      date: day,
+      load: () =>
+          (widget.dayReader ?? fetchMergedDateReport)(widget.username, dateId),
+    );
+    // Closed: let go of the day, so the Submit button is back.
+    if (mounted && isSameDay(_selectedDay, day)) {
+      setState(() => _selectedDay = null);
     }
   }
 
@@ -101,389 +92,334 @@ class _CalendarPageState extends State<CalendarPage>
     return Colors.red;
   }
 
-  Widget _selectedDayInfo() {
-
-    final colorProvider = Provider.of<ColorProvider>(context, listen: false);
-    if (!_datePressed) return SizedBox.shrink();
-
-    if (_loadingDayData) {
-      return const Center(child: CircularProgressIndicator());
+  /// Which of the five looks a day gets. The submitted / missed / future
+  /// decision is still made by [_getDayColor] — the existing "after now" test
+  /// and date-set membership, untouched — and only translated here from its
+  /// old colour into a state. Today is told apart first, by the same
+  /// `isSameDay(DateTime.now(), day)` test the old day tile used, and is
+  /// "submitted" by the same `_availableDates.contains(...)` membership test.
+  SadhanaDayState _dayState(DateTime day) {
+    if (isSameDay(DateTime.now(), day)) {
+      return _availableDates.contains(_getFormattedDate(day))
+          ? SadhanaDayState.todaySubmitted
+          : SadhanaDayState.today;
     }
+    final statusColor = _getDayColor(day);
+    if (statusColor == Colors.transparent) return SadhanaDayState.future;
+    if (statusColor == Colors.green) return SadhanaDayState.submitted;
+    return SadhanaDayState.missed;
+  }
 
-    if (_selectedDayData == null || _selectedDayData!.isEmpty) {
-      return Center(
-        child: Text(
-          'No data found ❌',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 16,
-          ),
-        ),
-      );
-    }
-
-    Map<String, dynamic> data = _selectedDayData!;
-    final stats = <Map<String, dynamic>>[
-      if (data.containsKey('chantRounds'))
-        {
-          'label': '📿 Chanting Rounds',
-          'value': data['chantRounds'],
-          'icon': Icons.bubble_chart
-        },
-
-      if (data.containsKey('bookReading'))
-        {
-          'label': '📚 Book Reading',
-          'value': data['bookReading'],
-          'icon': Icons.menu_book
-        },
-
-      if (data.containsKey('classHearing'))
-        {
-          'label': '🎧 Class Hearing',
-          'value': data['classHearing'],
-          'icon': Icons.headphones
-        },
-
-      if (data.containsKey('dailyServices'))
-        {
-          'label': '🛕 Daily Services',
-          'value': data['dailyServices'],
-          'icon': Icons.volunteer_activism
-        },
-
-      if (data.containsKey('templeEntry'))
-        {
-          'label': '🏛️ Temple Entry',
-          'value': data['templeEntry'],
-          'icon': Icons.temple_hindu
-        },
-
-      if (data.containsKey('finishTiming'))
-        {
-          'label': '⏰ Finish Timing',
-          'value': data['finishTiming'],
-          'icon': Icons.access_time
-        },
-    ];
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: colorProvider.color,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black12,
-            blurRadius: 12,
-            offset: Offset(0, 6),
-          ),
-        ],
-        border: Border.all(
-          color: colorProvider.secondColor,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+  /// The two tiles above the calendar, worked out from the same set of
+  /// submitted dates the calendar colours its days from: "N of M — days
+  /// submitted" for the month on show, and the current streak. Nothing is read
+  /// or stored for them.
+  Widget _statTiles() {
+    final today = DateTime.now();
+    final tally =
+        monthTally(dates: _availableDates, month: _focusedDay, today: today);
+    final streak = currentStreak(dates: _availableDates, today: today);
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            'Sadhana Stats',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: colorProvider.secondColor,
+          Expanded(
+            child: SadhanaStatTile(
+              style: FolkGradientStyle.saffron,
+              value: tally.submitted,
+              suffix: 'of ${tally.counted}',
+              caption: tally.isEmpty ? 'a fresh month begins' : 'days submitted',
+              friendly: tally.isEmpty ? 'Fresh start' : null,
+              semanticLabel: tally.isEmpty
+                  ? 'Nothing to count yet this month'
+                  : '${tally.submitted} of ${tally.counted} days submitted',
             ),
           ),
-          SizedBox(height: 12),
-          ...stats.map((stat) => Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6),
-            child: Row(
-              children: [
-                Container(
-                  padding: EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: colorProvider.secondColor.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(
-                    stat['icon'],
-                    color: colorProvider.secondColor,
-                    size: 20,
-                  ),
-                ),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    stat['label'],
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: colorProvider.secondColor,
-                    ),
-                  ),
-                ),
-                Text(
-                  stat['value'].toString(),
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: colorProvider.secondColor,
-                  ),
-                ),
-              ],
+          const SizedBox(width: FolkSpace.cardGap),
+          Expanded(
+            child: SadhanaStatTile(
+              style: FolkGradientStyle.green,
+              value: streak,
+              suffix: streak == 1 ? 'day' : 'days',
+              caption: 'current streak',
+              semanticLabel: 'Current streak: $streak '
+                  '${streak == 1 ? 'day' : 'days'}',
             ),
-          )),
+          ),
         ],
       ),
+    );
+  }
+
+  /// A 44 dp frosted round button for the month arrows.
+  Widget _chevron(IconData icon) {
+    final colors = context.folk;
+    return Container(
+      width: FolkShape.iconButtonSize,
+      height: FolkShape.iconButtonSize,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: colors.surfaceSecondary,
+      ),
+      child: Icon(icon, size: 22, color: colors.text),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
+    final colors = context.folk;
+    final text = context.folkText;
+    const chevronPadding = EdgeInsets.all(2); // 44 dp button in a 48 dp target
 
-    return Consumer<ColorProvider>(
-      builder: (context, colorProvider, child) {
-        return Scaffold(
-          backgroundColor: colorProvider.color,
-          body: StreamBuilder<Set<String>>(
-              stream: _datesStream,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const CustomLoader();
-                }
+    return Scaffold(
+      // The tab host paints the page background (with the top fade).
+      backgroundColor: Colors.transparent,
+      body: StreamBuilder<Set<String>>(
+          stream: _datesStream,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return _swap('ghost', _ghostBody());
+            }
 
-                if (snapshot.hasError) {
-                  return Center(child: Text("Error: ${snapshot.error}"));
-                }
+            if (snapshot.hasError) {
+              return _swap(
+                  'error',
+                  Center(
+                      child:
+                          Text("Error: ${snapshot.error}", style: text.body)));
+            }
 
-                // 🔥 UPDATE AVAILABLE DATES FROM STREAM
-                if (snapshot.hasData) {
-                  _availableDates = snapshot.data!;
-                }
+            // 🔥 UPDATE AVAILABLE DATES FROM STREAM
+            if (snapshot.hasData) {
+              _availableDates = snapshot.data!;
+            }
 
-                return SingleChildScrollView(
-                  physics: BouncingScrollPhysics(),
-                  padding: EdgeInsets.symmetric(
-                      horizontal: screenWidth * 0.04, vertical: 20),
-                  child: Column(
-                    children: [
-                      Container(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(20),
-                          color: colorProvider.color.withOpacity(0.95),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black12,
-                              blurRadius: 10,
-                              offset: Offset(0, 5),
-                            ),
-                          ],
-                        ),
-                        padding: EdgeInsets.all(12),
-                        child: TableCalendar(
-                          focusedDay: _focusedDay,
-                          selectedDayPredicate: (day) =>
-                              isSameDay(_selectedDay, day),
+            return _swap('real', SingleChildScrollView(
+              physics: BouncingScrollPhysics(),
+              // Bottom leaves room for the floating pill navigation.
+              padding: EdgeInsets.fromLTRB(
+                  FolkSpace.pagePadding,
+                  FolkSpace.sm,
+                  FolkSpace.pagePadding,
+                  // At least 24 dp clear of the pill, in the worst case (small
+                  // phone, large text) once scrolled to the end.
+                  FolkSpace.xxl + FloatingPillNavBar.reservedHeight(context)),
+              child: Column(
+                children: [
+                  EntryAnimation(index: 0, child: _statTiles()),
+                  const SizedBox(height: FolkSpace.cardGap),
+                  EntryAnimation(
+                    index: 1,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        borderRadius:
+                            BorderRadius.circular(FolkShape.cardRadius),
+                        color: colors.surface,
+                        boxShadow: colors.cardShadows,
+                      ),
+                      padding: EdgeInsets.all(FolkSpace.lg),
+                      child: Column(
+                        children: [
+                          TableCalendar(
+                            focusedDay: _focusedDay,
+                            selectedDayPredicate: (day) =>
+                                isSameDay(_selectedDay, day),
 
-                          onDaySelected: (selectedDay, focusedDay) {
-                            if (!isSameDay(_selectedDay, selectedDay)) {
-                              setState(() {
-                                _selectedDay = selectedDay;
-                                _focusedDay = focusedDay;
-                              });
-                              String formatted = _getFormattedDate(selectedDay);
+                            // The month on show drives "N of M".
+                            onPageChanged: (focused) =>
+                                setState(() => _focusedDay = focused),
 
-                              if (_availableDates.contains(formatted)) {
-                                _fetchSelectedDayData(selectedDay);
-                              } else {
+                            onDaySelected: (selectedDay, focusedDay) {
+                              // A submitted day opens its details every time it
+                              // is tapped; any other day is just selected, as
+                              // before.
+                              final submitted = _availableDates
+                                  .contains(_getFormattedDate(selectedDay));
+                              if (submitted ||
+                                  !isSameDay(_selectedDay, selectedDay)) {
                                 setState(() {
-                                  _selectedDayData = null;
+                                  _selectedDay = selectedDay;
+                                  _focusedDay = focusedDay;
                                 });
                               }
-                            }
-                          },
+                              if (submitted) _openDay(selectedDay);
+                            },
 
-                          firstDay: DateTime(now.year, now.month - 1, 1),
-                          lastDay: DateTime.now(),
+                            firstDay: DateTime(now.year, now.month - 1, 1),
+                            lastDay: DateTime.now(),
 
-                          rowHeight: MediaQuery.of(context).size.width * 0.12,
-                          // responsive
+                            rowHeight: MediaQuery.of(context).size.width * 0.12,
+                            // responsive
 
-                          daysOfWeekHeight: 30,
+                            daysOfWeekHeight: 30,
 
-                          calendarStyle: CalendarStyle(
-                            outsideDaysVisible: false,
-                            todayDecoration: BoxDecoration(
-                              color: Colors.blueAccent,
-                              shape: BoxShape.circle,
-                            ),
-                            selectedDecoration: BoxDecoration(
-                              color: Colors.deepPurple,
-                              shape: BoxShape.circle,
-                            ),
-                            defaultTextStyle: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
-                            weekendTextStyle: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.redAccent,
-                            ),
-                            cellMargin: EdgeInsets.all(4),
-                          ),
+                            // Months already slide sideways: table_calendar pages
+                            // them in a horizontal PageView (swipe or arrows,
+                            // 300 ms ease-out). Only "reduce animations" switches
+                            // that off.
+                            pageAnimationEnabled: !FolkMotion.reduced(context),
 
-                          daysOfWeekStyle: DaysOfWeekStyle(
-                            weekdayStyle: TextStyle(
-                              color: colorProvider.secondColor,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
+                            // Every day is drawn by the builder below.
+                            calendarStyle: CalendarStyle(
+                              outsideDaysVisible: false,
                             ),
-                            weekendStyle: TextStyle(
-                              color: Colors.redAccent,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
-                            ),
-                          ),
 
-                          headerStyle: HeaderStyle(
-                            titleCentered: true,
-                            formatButtonVisible: false,
-                            titleTextStyle: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: colorProvider.secondColor,
-                            ),
-                            leftChevronIcon: Container(
-                              padding: EdgeInsets.all(6),
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Colors.black12,
+                            daysOfWeekStyle: DaysOfWeekStyle(
+                              dowTextFormatter: (date, locale) =>
+                                  DateFormat.E(locale).format(date)[0],
+                              weekdayStyle: text.caption.copyWith(
+                                fontWeight: FontWeight.w700,
                               ),
-                              child: Icon(Icons.chevron_left, size: 20),
-                            ),
-                            rightChevronIcon: Container(
-                              padding: EdgeInsets.all(6),
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Colors.black12,
+                              weekendStyle: text.caption.copyWith(
+                                fontWeight: FontWeight.w700,
                               ),
-                              child: Icon(Icons.chevron_right, size: 20),
+                            ),
+
+                            headerStyle: HeaderStyle(
+                              titleCentered: true,
+                              formatButtonVisible: false,
+                              headerPadding:
+                                  EdgeInsets.only(bottom: FolkSpace.md),
+                              titleTextStyle:
+                                  text.topBarTitle.copyWith(fontSize: 19),
+                              leftChevronIcon: _chevron(Icons.chevron_left),
+                              rightChevronIcon: _chevron(Icons.chevron_right),
+                              leftChevronPadding: chevronPadding,
+                              rightChevronPadding: chevronPadding,
+                              leftChevronMargin: EdgeInsets.zero,
+                              rightChevronMargin: EdgeInsets.zero,
+                            ),
+                            // availableGestures: AvailableGestures.none,
+
+                            calendarBuilders: CalendarBuilders(
+                              prioritizedBuilder: (context, date, _) {
+                                return SadhanaDayCell(
+                                  day: date.day,
+                                  state: _dayState(date),
+                                  selected: isSameDay(_selectedDay, date),
+                                );
+                              },
                             ),
                           ),
-                          // availableGestures: AvailableGestures.none,
-
-                          calendarBuilders: CalendarBuilders(
-                            defaultBuilder: (context, date, _) {
-                              return _buildModernDay(context, date);
+                          const SizedBox(height: SadhanaCalendarGhost.legendGap),
+                          const SadhanaLegend(),
+                        ],
+                      ),
+                    ),
+                  ),
+                  // Normal card spacing, then the button: directly under the
+                  // calendar, at the content width, scrolling with the page. A
+                  // submitted day's details open in a dialog, so nothing grows
+                  // here.
+                  const SizedBox(height: FolkSpace.lg),
+                  if (_selectedDay == null ||
+                      !_availableDates
+                          .contains(_getFormattedDate(_selectedDay!)))
+                    Padding(
+                      padding: EdgeInsets.zero,
+                      // Was an endless up-and-down bob; now it arrives once
+                      // (fade and rise) and gives press feedback. It keeps its
+                      // size and the strongest colour on the page.
+                      child: EntryAnimation(
+                        index: 2,
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: PrimaryButton(
+                            // Violet in both modes; the text is always the ink
+                            // colour.
+                            gradient: FolkGradients.submitSadhana,
+                            label: "📿 Submit Sadhana",
+                            onPressed: () async {
+                              // Localites (Master Task, 2026-09-03) fill
+                              // the same hostel form, since their reports
+                              // go to the same hostel-sadhana collection.
+                              if (widget.role == 'Stay at Hostel' ||
+                                  widget.role == 'Stay at Localite') {
+                                await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                      builder: (context) => SadhanaPage()),
+                                );
+                              } else {
+                                await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                      builder: (context) =>
+                                          QuestionsPage()),
+                                );
+                              }
                             },
                           ),
                         ),
                       ),
-                      SizedBox(height: 20),
-                      _selectedDay != null &&
-                          _selectedDayData != null &&
-                          _selectedDayData!.isNotEmpty
-                          ? _selectedDayInfo()
-                          : SizedBox(height: 0),
-                      SizedBox(height: 20),
-                      if (_selectedDay == null ||
-                          !_availableDates
-                              .contains(_getFormattedDate(_selectedDay!)))
-                        Padding(
-                          padding: const EdgeInsets.only(top: 20),
-                          child: AnimatedBuilder(
-                            animation: _buttonAnimation,
-                            builder: (context, child) {
-                              return Transform.translate(
-                                offset: Offset(0, _buttonAnimation.value),
-                                child: child,
-                              );
-                            },
-                            child: SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton(
-                                onPressed: () async {
-                                  // Localites (Master Task, 2026-09-03) fill
-                                  // the same hostel form, since their reports
-                                  // go to the same hostel-sadhana collection.
-                                  if (widget.role == 'Stay at Hostel' ||
-                                      widget.role == 'Stay at Localite') {
-                                    await Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                          builder: (context) => SadhanaPage()),
-                                    );
-                                  } else {
-                                    await Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                          builder: (context) =>
-                                              QuestionsPage()),
-                                    );
-                                  }
-                                },
-                                style: ElevatedButton.styleFrom(
-                                  padding: EdgeInsets.symmetric(vertical: 16),
-                                  shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(50)),
-                                  elevation: 10,
-                                  backgroundColor: Color(0xFF835DF1),
-                                ),
-                                child: Text(
-                                  "Submit Sadhana",
-                                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                );
-              }),
-        );
-      },
+                    ),
+                ],
+              ),
+            ));
+          }),
     );
   }
 
-  Widget _buildModernDay(BuildContext context, DateTime day) {
-    Color statusColor = _getDayColor(day);
-
-    bool isSelected = isSameDay(_selectedDay, day);
-    bool isToday = isSameDay(DateTime.now(), day);
-
-    return Container(
-      margin: EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        color: statusColor == Colors.transparent
-            ? Colors.white
-            : statusColor.withOpacity(0.85), // full color background
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 4,
-          ),
-        ],
-        border: isSelected
-            ? Border.all(color: Colors.deepPurple, width: 2)
-            : isToday
-            ? Border.all(color: Colors.blue, width: 2)
-            : null,
+  /// Cross-fades between the ghost, an error and the calendar. All three fill
+  /// the same body, so nothing moves.
+  Widget _swap(String key, Widget child) {
+    return AnimatedSwitcher(
+      duration: FolkMotion.of(context, FolkMotion.ghostCrossFade),
+      layoutBuilder: (current, previous) => Stack(
+        fit: StackFit.expand,
+        children: [...previous, if (current != null) current],
       ),
-      child: Center(
-        child: Text(
-          '${day.day}',
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.bold,
-            color: statusColor == Colors.transparent
-                ? Colors.black87
-                : Colors.white, // white text on colored bg
-          ),
+      child: KeyedSubtree(key: ValueKey<String>(key), child: child),
+    );
+  }
+
+  /// Until the report dates have arrived: the calendar card and the submit
+  /// button as ghosts, at the exact size and place of the real ones (same
+  /// padding, same gaps). The stream that decides when this ends is unchanged.
+  Widget _ghostBody() {
+    final rowHeight = MediaQuery.of(context).size.width * 0.12;
+    return SingleChildScrollView(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: EdgeInsets.fromLTRB(
+          FolkSpace.pagePadding,
+          FolkSpace.sm,
+          FolkSpace.pagePadding,
+          FolkSpace.xxl + FloatingPillNavBar.reservedHeight(context)),
+      child: GhostScope(
+        child: Column(
+          children: [
+            // The two stat tiles, as ghosts of the same height.
+            SizedBox(
+              height: 28 +
+                  ghostHeight(context, 28 * 1.1) +
+                  2 +
+                  ghostHeight(context, 12 * 1.43),
+              child: const Row(
+                children: [
+                  Expanded(
+                      child: GhostPlaceholder(
+                          height: double.infinity,
+                          radius: 24,
+                          showBars: false)),
+                  SizedBox(width: FolkSpace.cardGap),
+                  Expanded(
+                      child: GhostPlaceholder(
+                          height: double.infinity,
+                          radius: 24,
+                          showBars: false)),
+                ],
+              ),
+            ),
+            const SizedBox(height: FolkSpace.cardGap),
+            SadhanaCalendarGhost(month: _focusedDay, rowHeight: rowHeight),
+            const SizedBox(height: FolkSpace.lg),
+            const GhostPlaceholder(
+              width: double.infinity,
+              height: FolkShape.buttonHeight,
+              radius: FolkShape.buttonRadius,
+              showBars: false,
+            ),
+          ],
         ),
       ),
     );

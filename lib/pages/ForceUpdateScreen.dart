@@ -1,6 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../theme/FolkColors.dart';
+import '../theme/FolkTheme.dart';
+import '../theme/FolkTokens.dart';
+import '../widgets/FolkPageBackground.dart';
+import '../widgets/FolkStatusBar.dart';
+import '../widgets/PrimaryButton.dart';
+
 /// Blocking "please update" screen — follow-up task, 2026-09-10.
 ///
 /// Reached only from `pages/SplashScreen.dart`, `pushReplacement`d in
@@ -38,51 +45,56 @@ class ForceUpdateScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.folk;
+    final text = context.folkText;
     return PopScope<Object?>(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
         // Absorbed, deliberately — see this class's own doc comment.
       },
-      child: Scaffold(
-        backgroundColor: const Color(0xFFF8E1FF),
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(28),
-            child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.system_update_alt,
-                      size: 72, color: Color(0xFF835DF1)),
-                  const SizedBox(height: 24),
-                  const Text(
-                    "Update required",
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    "A newer version of the FOLK app is required to continue. "
-                    "Please update from the Play Store to keep using the app.",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                        fontSize: 14.5, height: 1.5, color: Colors.grey.shade800),
-                  ),
-                  const SizedBox(height: 28),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: () => _openPlayStore(context),
-                      icon: const Icon(Icons.shop),
-                      label: const Text("Update now"),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF835DF1),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
+      child: FolkStatusBar(
+        child: Scaffold(
+          backgroundColor: colors.pageBackground,
+          body: FolkPageBackground(
+            child: SafeArea(
+              child: Center(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(28),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 104,
+                        height: 104,
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: FolkGradients.violet,
+                        ),
+                        child: const Icon(Icons.system_update_alt,
+                            size: 52, color: FolkColors.onGradient),
                       ),
-                    ),
+                      const SizedBox(height: 24),
+                      Text(
+                        "Update required",
+                        style: text.screenTitle.copyWith(fontSize: 28),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        "A newer version of the FOLK app is required to continue. "
+                        "Please update from the Play Store to keep using the app.",
+                        textAlign: TextAlign.center,
+                        style: text.body.copyWith(height: 1.5),
+                      ),
+                      const SizedBox(height: 28),
+                      PrimaryButton(
+                        label: "Update now",
+                        icon: Icons.shop,
+                        onPressed: () => _openPlayStore(context),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ),

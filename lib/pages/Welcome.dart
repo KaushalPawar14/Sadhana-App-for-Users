@@ -1,11 +1,16 @@
-import 'package:animate_do/animate_do.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:folk_app/services/PostAuthRouter.dart';
 import 'package:folk_app/utils/Snackbar.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:sizer/sizer.dart';
+
+import '../theme/FolkTheme.dart';
+import '../theme/FolkTokens.dart';
+import '../widgets/AuthButton.dart';
+import '../widgets/EntryAnimation.dart';
+import '../widgets/FolkPageBackground.dart';
+import '../widgets/FolkStatusBar.dart';
 
 import 'EmailSignIn.dart';
 
@@ -109,6 +114,8 @@ class _WelcomePageState extends State<WelcomePage> {
   /// where it does have a route to pop).
   @override
   Widget build(BuildContext context) {
+    final colors = context.folk;
+    final text = context.folkText;
     return PopScope<Object?>(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
@@ -123,208 +130,96 @@ class _WelcomePageState extends State<WelcomePage> {
           SystemNavigator.pop();
         }
       },
-      child: Scaffold(
-      body: SingleChildScrollView(
-        child: SafeArea(
-            child: Container(
-              color: Colors.white,
-              child: Column(
-                children: [
-                  FadeInDown(
-                    delay: const Duration(milliseconds: 800),
-                    duration: const Duration(milliseconds: 800),
-                    child: Container(
-                      margin: EdgeInsets.symmetric(horizontal: 2.w, vertical: 1.h),
+      child: FolkStatusBar(
+        child: Scaffold(
+          backgroundColor: colors.pageBackground,
+          body: FolkPageBackground(
+            child: SafeArea(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(FolkSpace.pagePadding,
+                    FolkSpace.md, FolkSpace.pagePadding, FolkSpace.xxl),
+                child: Column(
+                  children: [
+                    EntryAnimation(
+                      index: 0,
                       child: ClipRRect(
-                        borderRadius: BorderRadius.circular(20),
+                        borderRadius: BorderRadius.circular(FolkShape.cardRadius),
                         child: Image.asset(
                           'assets/images/img.png',
-                          width: 100.w,
-                          height: 50.h,
+                          width: double.infinity,
+                          height: MediaQuery.of(context).size.height * 0.4,
                           fit: BoxFit.cover,
+                          excludeFromSemantics: true,
                         ),
                       ),
                     ),
-                  ),
-                  Container(
-                    decoration: BoxDecoration(color: Colors.white),
-                    padding: EdgeInsets.symmetric(horizontal: 7.w, vertical: 2.h),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          padding: EdgeInsets.symmetric(horizontal: 1.6.w),
-                          child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                FadeInUp(
-                                  delay: const Duration(milliseconds: 700),
-                                  duration: const Duration(milliseconds: 800),
-                                  child: Text(
-                                    'Welcome to the FOLK Students App',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                        fontSize: 25.sp, fontWeight: FontWeight.w600),
-                                  ),
-                                ),
-                                SizedBox(
-                                  height: 1.h,
-                                ),
-                                FadeInUp(
-                                  delay: const Duration(milliseconds: 900),
-                                  duration: const Duration(milliseconds: 1000),
-                                  child: Text(
-                                    "Hare Krishna. \nNow it's easy to maintain your Sadhana report daily",
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                        fontSize: 15.sp, fontWeight: FontWeight.w400),
-                                  ),
-                                ),
-                              ]),
-                        ),
-                        SizedBox(
-                          height: 3.h,
-                        ),
-                        FadeInUp(
-                          delay: const Duration(milliseconds: 1000),
-                          duration: const Duration(milliseconds: 1100),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton(
-                                  onPressed: isLoading ? null : _signInWithGoogle,
-                                  style: OutlinedButton.styleFrom(
-                                      backgroundColor: Colors.white,
-                                      side: const BorderSide(color: Color(0xFFD2D2D4)),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      padding: EdgeInsets.symmetric(vertical: 14)),
-                                  child: isLoading
-                                      ? const SizedBox(
-                                          height: 20,
-                                          width: 20,
-                                          child: CircularProgressIndicator(strokeWidth: 2),
-                                        )
-                                      : FadeInUp(
-                                          delay: Duration(milliseconds: 1100),
-                                          duration: Duration(milliseconds: 1200),
-                                          child: Row(
-                                            mainAxisAlignment: MainAxisAlignment.center,
-                                            children: [
-                                              const _GoogleLogo(),
-                                              SizedBox(width: 3.w),
-                                              Text(
-                                                'Sign in with Google',
-                                                style: TextStyle(
-                                                  color: Colors.black87,
-                                                  fontSize: 16,
-                                                  fontWeight: FontWeight.w600,
-                                                  fontFamily: 'Satoshi',
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                ),
-                              )
-                            ],
+                    const SizedBox(height: FolkSpace.xxl),
+                    EntryAnimation(
+                      index: 1,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            'Welcome to the FOLK Students App',
+                            textAlign: TextAlign.center,
+                            style: text.screenTitle.copyWith(fontSize: 28),
                           ),
-                        ),
-                        SizedBox(height: 2.h),
-                        // "Sign in with email" — Master Task, 2026-09-14,
-                        // Part 1.1. Genuinely visible, not hidden behind a
-                        // gesture: Google Play's review team needs a
-                        // credential that bypasses Google's own device-
-                        // verification prompt, which no in-app setting can
-                        // disable, so this has to be a real, discoverable
-                        // option, not a workaround reviewers could read as
-                        // deceptive.
-                        //
-                        // Restyled (2026-09-15) to match the Google button
-                        // above byte-for-byte — same `OutlinedButton.
-                        // styleFrom` (background, border, shape, padding),
-                        // same `Expanded`-in-a-`Row` full-width layout, same
-                        // label TextStyle. Every value below is copied from
-                        // that button, not re-derived, so the two can never
-                        // silently drift apart in a future edit to one but
-                        // not the other. Only the icon and label text
-                        // differ, per this task's own instruction.
-                        FadeInUp(
-                          delay: const Duration(milliseconds: 1150),
-                          duration: const Duration(milliseconds: 1250),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton(
-                                  onPressed: isLoading
-                                      ? null
-                                      : () {
-                                          Navigator.push(
-                                            context,
-                                            MaterialPageRoute(
-                                              builder: (_) =>
-                                                  const EmailSignInPage(),
-                                            ),
-                                          );
-                                        },
-                                  style: OutlinedButton.styleFrom(
-                                      backgroundColor: Colors.white,
-                                      side: const BorderSide(
-                                          color: Color(0xFFD2D2D4)),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius:
-                                            BorderRadius.circular(12),
-                                      ),
-                                      padding:
-                                          EdgeInsets.symmetric(vertical: 14)),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      const Icon(
-                                        Icons.mail_outline_rounded,
-                                        size: 20,
-                                        color: Color(0xFF835DF1),
-                                      ),
-                                      SizedBox(width: 3.w),
-                                      Text(
-                                        'Sign in with email',
-                                        style: TextStyle(
-                                          color: Colors.black87,
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.w600,
-                                          fontFamily: 'Satoshi',
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
+                          const SizedBox(height: FolkSpace.sm),
+                          Text(
+                            "Hare Krishna. \nNow it's easy to maintain your Sadhana report daily",
+                            textAlign: TextAlign.center,
+                            style: text.body.copyWith(height: 1.4),
                           ),
-                        ),
-                        SizedBox(height: 0.8.h),
-                        // Subtle, small — a hint for reviewers, never
-                        // competing visually with either button above.
-                        Center(
-                          child: Text(
-                            'For app review access',
-                            style: TextStyle(
-                              color: Colors.grey.shade500,
-                              fontSize: 10.sp,
-                              fontWeight: FontWeight.w400,
-                              fontFamily: 'Satoshi',
-                            ),
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  )
-                ],
+                    const SizedBox(height: 28),
+                    EntryAnimation(
+                      index: 2,
+                      child: AuthButton(
+                        primary: true,
+                        label: 'Sign in with Google',
+                        leading: const _GoogleLogo(),
+                        loading: isLoading,
+                        onPressed: isLoading ? null : _signInWithGoogle,
+                      ),
+                    ),
+                    const SizedBox(height: FolkSpace.md),
+                    // "Sign in with email" — Master Task, 2026-09-14,
+                    // Part 1.1. Genuinely visible, not hidden behind a
+                    // gesture: Google Play's review team needs a
+                    // credential that bypasses Google's own device-
+                    // verification prompt, which no in-app setting can
+                    // disable, so this has to be a real, discoverable
+                    // option, not a workaround reviewers could read as
+                    // deceptive.
+                    EntryAnimation(
+                      index: 3,
+                      child: AuthButton(
+                        label: 'Sign in with email',
+                        leading: Icon(Icons.mail_outline_rounded,
+                            size: 20, color: colors.text),
+                        onPressed: isLoading
+                            ? null
+                            : () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const EmailSignInPage(),
+                                  ),
+                                );
+                              },
+                      ),
+                    ),
+                    const SizedBox(height: FolkSpace.sm),
+                    // Subtle, small — a hint for reviewers, never
+                    // competing visually with either button above.
+                  ],
+                ),
               ),
-            )),
-      ),
+            ),
+          ),
+        ),
       ),
     );
   }

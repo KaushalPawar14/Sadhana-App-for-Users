@@ -1,9 +1,14 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:provider/provider.dart';
 
-import '../utils/ColorProvider.dart';
+import '../theme/FolkTheme.dart';
+import '../theme/FolkTokens.dart';
+import '../widgets/EntryAnimation.dart';
+import '../widgets/Group2Widgets.dart';
+import '../widgets/FolkChip.dart';
+import '../widgets/FolkScaffold.dart';
+import '../widgets/ScoreWidgets.dart';
 import 'AssistantScreen.dart';
 
 /// Date-based chat history — Stage 6, built 2026-08-24.
@@ -217,111 +222,84 @@ class _AssistantHistoryListPageState extends State<AssistantHistoryListPage>
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ColorProvider>(
-      builder: (context, colorProvider, child) {
-        return Scaffold(
-          backgroundColor: colorProvider.color,
-          appBar: AppBar(
-            backgroundColor: colorProvider.color,
-            elevation: 0,
-            iconTheme: IconThemeData(color: colorProvider.secondColor),
-            title: Text(
-              "History",
-              style: TextStyle(
-                color: colorProvider.secondColor,
-                fontWeight: FontWeight.bold,
+    return FolkScaffold(
+      title: "History",
+      // Follow-up task, 2026-09-10, Part 2 — two categories, filterable via
+      // tabs rather than mixed into one list. The two tabs are chips that
+      // drive the same TabController the swipeable TabBarView uses.
+      bottom: Padding(
+        padding: const EdgeInsets.only(top: FolkSpace.lg),
+        child: AnimatedBuilder(
+          animation: _tabController.animation!,
+          builder: (context, _) {
+            final selectedIndex = _tabController.animation!.value.round();
+            const labels = ["Conversations", "Daily messages"];
+            return SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(
+                  horizontal: FolkSpace.pagePadding),
+              child: Row(
+                children: [
+                  for (var i = 0; i < labels.length; i++)
+                    Padding(
+                      padding: EdgeInsets.only(
+                          right: i == labels.length - 1 ? 0 : FolkSpace.sm),
+                      child: FolkChip(
+                        label: labels[i],
+                        selected: i == selectedIndex,
+                        large: true,
+                        onTap: () => _tabController.animateTo(i),
+                      ),
+                    ),
+                ],
               ),
-            ),
-            // Follow-up task, 2026-09-10, Part 2 — two categories,
-            // filterable via tabs rather than mixed into one list.
-            bottom: TabBar(
+            );
+          },
+        ),
+      ),
+      body: _loading
+          ? const LeaderboardGhost(rows: 4)
+          : TabBarView(
               controller: _tabController,
-              labelColor: colorProvider.secondColor,
-              unselectedLabelColor: colorProvider.secondColor.withOpacity(.55),
-              indicatorColor: colorProvider.secondColor,
-              tabs: const [
-                Tab(text: "Conversations"),
-                Tab(text: "Daily messages"),
+              children: [
+                _conversationsTab(),
+                _dailyMessagesTab(),
               ],
             ),
-          ),
-          body: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : TabBarView(
-                  controller: _tabController,
-                  children: [
-                    _conversationsTab(),
-                    _dailyMessagesTab(),
-                  ],
-                ),
-        );
-      },
     );
   }
 
   Widget _conversationsTab() {
+    final text = context.folkText;
     if (_sessions.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(32),
-          child: Text(
-            "No conversations yet.",
-            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-          ),
+          child: Text("No conversations yet.", style: text.small),
         ),
       );
     }
 
     return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+      padding: const EdgeInsets.fromLTRB(FolkSpace.pagePadding, FolkSpace.lg,
+          FolkSpace.pagePadding, 28),
       itemCount: _sessions.length,
       itemBuilder: (context, i) {
         final s = _sessions[i];
-        return Container(
-          margin: const EdgeInsets.only(bottom: 8),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Colors.grey.shade200),
-          ),
-          // ListTile paints its own background/ink splashes
-          // via the nearest Material ancestor. Without one
-          // here, that ancestor is the Scaffold's own
-          // Material several widgets up, so tapping a tile
-          // could ink-splash (or fail to) in the wrong
-          // place. clipBehavior matches the Container's own
-          // rounded corners so the splash doesn't square
-          // off past them.
-          child: Material(
-            color: Colors.transparent,
-            borderRadius: BorderRadius.circular(14),
-            clipBehavior: Clip.antiAlias,
-            child: ListTile(
-              leading: Icon(Icons.forum_outlined,
-                  color: Colors.blue.shade600),
-              title: Text(
-                _label(s),
-                style: const TextStyle(
-                    fontSize: 14, fontWeight: FontWeight.w600),
-              ),
-              subtitle: Text(
-                s.preview.isEmpty
-                    ? "${s.messageCount} message${s.messageCount == 1 ? '' : 's'}"
-                    : s.preview,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                    fontSize: 12, color: Colors.grey.shade600),
-              ),
-              trailing: const Icon(Icons.chevron_right, size: 20),
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => AssistantPastSessionPage(
-                    uid: widget.uid,
-                    sessionDate: s.sessionDate,
-                    dateLabel: _label(s),
-                  ),
+        return EntryAnimation(
+          index: i,
+          child: HistorySessionTile(
+            label: _label(s),
+            subtitle: s.preview.isEmpty
+                ? "${s.messageCount} message${s.messageCount == 1 ? '' : 's'}"
+                : s.preview,
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => AssistantPastSessionPage(
+                  uid: widget.uid,
+                  sessionDate: s.sessionDate,
+                  dateLabel: _label(s),
                 ),
               ),
             ),
@@ -337,54 +315,25 @@ class _AssistantHistoryListPageState extends State<AssistantHistoryListPage>
   /// same as the Conversations tab's own past-session viewer (Part 2 item
   /// 4 — nothing here ever writes to a student's own messages).
   Widget _dailyMessagesTab() {
+    final text = context.folkText;
     if (_dailyMessages.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(32),
-          child: Text(
-            "No daily messages yet.",
-            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-          ),
+          child: Text("No daily messages yet.", style: text.small),
         ),
       );
     }
 
     return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+      padding: const EdgeInsets.fromLTRB(FolkSpace.pagePadding, FolkSpace.lg,
+          FolkSpace.pagePadding, 28),
       itemCount: _dailyMessages.length,
       itemBuilder: (context, i) {
         final d = _dailyMessages[i];
-        return Container(
-          margin: const EdgeInsets.only(bottom: 8),
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Colors.grey.shade200),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(Icons.wb_sunny_outlined,
-                      size: 14, color: Colors.orange.shade700),
-                  const SizedBox(width: 6),
-                  Text(
-                    _dailyLabel(d),
-                    style: const TextStyle(
-                        fontSize: 13, fontWeight: FontWeight.w600),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text(
-                d.text,
-                style: TextStyle(
-                    fontSize: 13, height: 1.4, color: Colors.grey.shade800),
-              ),
-            ],
-          ),
+        return EntryAnimation(
+          index: i,
+          child: DailyHistoryCard(label: _dailyLabel(d), text: d.text),
         );
       },
     );
@@ -455,77 +404,73 @@ class _AssistantPastSessionPageState extends State<AssistantPastSessionPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ColorProvider>(
-      builder: (context, colorProvider, child) {
-        return Scaffold(
-          backgroundColor: colorProvider.color,
-          appBar: AppBar(
-            backgroundColor: colorProvider.color,
-            elevation: 0,
-            iconTheme: IconThemeData(color: colorProvider.secondColor),
-            title: Text(
-              widget.dateLabel,
-              style: TextStyle(
-                color: colorProvider.secondColor,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          body: SafeArea(
+    final colors = context.folk;
+    final text = context.folkText;
+    return FolkScaffold(
+      title: widget.dateLabel,
+      body: Column(
+        children: [
+          Container(
+            width: double.infinity,
+            color: colors.surfaceSecondary,
+            padding: const EdgeInsets.symmetric(
+                horizontal: FolkSpace.pagePadding, vertical: 8),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Container(
-                  width: double.infinity,
-                  color: Colors.blueGrey.shade50,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Row(
-                    children: [
-                      Icon(Icons.visibility_off_outlined,
-                          size: 14, color: Colors.blueGrey.shade700),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          "Viewing a past conversation — read only.",
-                          style: TextStyle(
-                              fontSize: 11, color: Colors.blueGrey.shade700),
-                        ),
+                Row(
+                  children: [
+                    Icon(Icons.visibility_off_outlined,
+                        size: 14, color: colors.mutedText),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        "Viewing a past conversation — read only.",
+                        style: text.caption,
                       ),
-                      TextButton(
-                        // Pops every screen this history browse pushed —
-                        // list, then this viewer — straight back to today's
-                        // live chat, however many were opened along the way.
-                        onPressed: () => Navigator.of(context)
-                            .popUntil(ModalRoute.withName(kAssistantRouteName)),
-                        child: const Text("Go to today's chat",
-                            style: TextStyle(fontSize: 11)),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-                Expanded(
-                  child: _loading
-                      ? const Center(child: CircularProgressIndicator())
-                      : _turns.isEmpty
-                          ? Center(
-                              child: Text(
-                                "No messages found for this day.",
-                                style: TextStyle(
-                                    fontSize: 13, color: Colors.grey.shade600),
-                              ),
-                            )
-                          : ListView.builder(
-                              padding: const EdgeInsets.fromLTRB(12, 16, 12, 16),
-                              itemCount: _turns.length,
-                              itemBuilder: (context, i) =>
-                                  chatBubble(context, _turns[i]),
-                            ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(
+                          FolkShape.touchTarget, FolkShape.touchTarget),
+                      foregroundColor: colors.text,
+                      textStyle: text.chip.copyWith(fontSize: 12),
+                    ),
+                    // Pops every screen this history browse pushed —
+                    // list, then this viewer — straight back to today's
+                    // live chat, however many were opened along the way.
+                    onPressed: () => Navigator.of(context)
+                        .popUntil(ModalRoute.withName(kAssistantRouteName)),
+                    child: const Text("Go to today's chat"),
+                  ),
                 ),
               ],
             ),
           ),
-        );
-      },
+          Expanded(
+            child: _loading
+                ? const LeaderboardGhost(rows: 4)
+                : _turns.isEmpty
+                    ? Center(
+                        child: Text(
+                          "No messages found for this day.",
+                          style: text.small,
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(
+                            FolkSpace.pagePadding, 16, FolkSpace.pagePadding, 24),
+                        itemCount: _turns.length,
+                        itemBuilder: (context, i) =>
+                            chatBubble(context, _turns[i]),
+                      ),
+          ),
+        ],
+      ),
     );
   }
 }

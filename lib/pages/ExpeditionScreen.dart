@@ -2,7 +2,14 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../theme/FolkColors.dart';
+import '../theme/FolkTheme.dart';
+import '../theme/FolkTokens.dart';
 import '../utils/SeenMarkers.dart';
+import '../widgets/FolkDialog.dart';
+import '../widgets/FolkScaffold.dart';
+import '../widgets/GhostPlaceholder.dart';
+import '../widgets/PrimaryButton.dart';
 
 /// Expeditions — pilgrimages and retreats.
 ///
@@ -28,9 +35,6 @@ class ExpeditionScreen extends StatefulWidget {
 }
 
 class _ExpeditionScreenState extends State<ExpeditionScreen> {
-  static const Color skyDark = Color(0xFF01579B);
-  static const Color skyLight = Color(0xFF0288D1);
-
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   String _guideId = '';
@@ -85,14 +89,15 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
     return DateFormat('dd MMM yyyy').format(value.toDate());
   }
 
-  static ({Color color, String label}) _statusStyle(String status) {
+  // Ongoing = saffron, completed = green, upcoming = violet.
+  static ({FolkGradientStyle style, String label}) _statusStyle(String status) {
     switch (status) {
       case 'ongoing':
-        return (color: Colors.orange, label: 'Ongoing');
+        return (style: FolkGradientStyle.saffron, label: 'Ongoing');
       case 'completed':
-        return (color: Colors.green, label: 'Completed');
+        return (style: FolkGradientStyle.green, label: 'Completed');
       default:
-        return (color: Colors.blue, label: 'Upcoming');
+        return (style: FolkGradientStyle.violet, label: 'Upcoming');
     }
   }
 
@@ -149,12 +154,13 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
       builder: (sheetContext) {
         return StatefulBuilder(
           builder: (context, setSheetState) {
+            final colors = context.folk;
+            final textStyles = context.folkText;
             Future<void> submit() async {
               if (text.trim().length < 50) {
                 ScaffoldMessenger.of(sheetContext).showSnackBar(
                   const SnackBar(
-                    content:
-                        Text("Please write at least 50 characters"),
+                    content: Text("Please write at least 50 characters"),
                   ),
                 );
                 return;
@@ -199,9 +205,10 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
               ),
               child: Container(
                 padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                decoration: BoxDecoration(
+                  color: colors.surface,
+                  borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(FolkShape.cardRadius)),
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -212,77 +219,45 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
                         width: 42,
                         height: 4,
                         decoration: BoxDecoration(
-                          color: Colors.grey.shade300,
+                          color: colors.surfaceSecondary,
                           borderRadius: BorderRadius.circular(4),
                         ),
                       ),
                     ),
                     const SizedBox(height: 18),
-                    const Text(
+                    Text(
                       "Write Reflection",
-                      style:
-                          TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                      style: textStyles.topBarTitle.copyWith(fontSize: 18),
                     ),
                     const SizedBox(height: 4),
-                    Text(
-                      tripTitle,
-                      style:
-                          TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                    ),
+                    Text(tripTitle, style: textStyles.small),
                     const SizedBox(height: 18),
                     TextFormField(
                       autofocus: true,
                       minLines: 3,
                       maxLines: 8,
                       onChanged: (v) => setSheetState(() => text = v),
-                      decoration: InputDecoration(
-                        hintText: "What did you experience?",
-                        alignLabelWithHint: true,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
+                      style: textStyles.body,
+                      cursorColor: colors.text,
+                      decoration: FolkDialog.field(context,
+                              hint: "What did you experience?")
+                          .copyWith(alignLabelWithHint: true),
                     ),
                     const SizedBox(height: 6),
                     Text(
                       "${text.trim().length} / 50 characters minimum",
-                      style: TextStyle(
+                      style: textStyles.caption.copyWith(
                         fontSize: 11,
                         color: text.trim().length >= 50
-                            ? Colors.green
-                            : Colors.grey.shade600,
+                            ? FolkCalendarTokens.legendSubmitted
+                            : colors.mutedText,
                       ),
                     ),
                     const SizedBox(height: 18),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 48,
-                      child: ElevatedButton(
-                        onPressed: saving ? null : submit,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: skyDark,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                        child: saving
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Text(
-                                "Submit",
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                      ),
+                    PrimaryButton(
+                      label: "Submit",
+                      loading: saving,
+                      onPressed: saving ? null : submit,
                     ),
                   ],
                 ),
@@ -299,55 +274,47 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
   // ---------------------------------------------------------------------------
 
   Widget _shell({required Widget child}) {
+    final colors = context.folk;
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: FolkSpace.cardGap),
+      padding: const EdgeInsets.all(FolkSpace.lg),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(.06),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          )
-        ],
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(FolkShape.tileRadius),
+        boxShadow: colors.cardShadows,
       ),
       child: child,
     );
   }
 
-  Widget _chip(String label, Color color) {
+  Widget _chip(String label, FolkGradientStyle style) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(.12),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(.4)),
+        gradient: FolkGradients.of(style),
+        borderRadius: BorderRadius.circular(14),
       ),
       child: Text(
         label,
-        style: TextStyle(
-          fontSize: 10,
+        style: context.folkText.caption.copyWith(
+          fontSize: 11,
           fontWeight: FontWeight.w700,
-          color: color,
+          color: FolkColors.onGradient,
         ),
       ),
     );
   }
 
   Widget _iconLine(IconData icon, String text) {
+    final colors = context.folk;
     return Padding(
       padding: const EdgeInsets.only(top: 4),
       child: Row(
         children: [
-          Icon(icon, size: 15, color: Colors.grey.shade600),
-          const SizedBox(width: 5),
+          Icon(icon, size: 16, color: colors.mutedText),
+          const SizedBox(width: 6),
           Expanded(
-            child: Text(
-              text,
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
-            ),
+            child: Text(text, style: context.folkText.small),
           ),
         ],
       ),
@@ -374,37 +341,32 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
               Expanded(
                 child: Text(
                   (trip['title'] ?? 'Untitled').toString(),
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 15,
-                  ),
+                  style: context.folkText.bodyStrong,
                 ),
               ),
-              if (isRegistered) _chip("Registered", Colors.green),
+              if (isRegistered) _chip("Registered", FolkGradientStyle.green),
             ],
           ),
           const SizedBox(height: 6),
-          _iconLine(Icons.place, (trip['location'] ?? 'No location').toString()),
+          _iconLine(
+              Icons.place, (trip['location'] ?? 'No location').toString()),
           _iconLine(Icons.event, _formatTs(trip['tripDate'])),
           _iconLine(
             Icons.how_to_reg,
             "Register by ${_formatTs(trip['registrationDeadline'])}",
           ),
           _iconLine(Icons.people, "$registeredCount$capacity registered"),
-
           if (description.isNotEmpty) ...[
             const SizedBox(height: 10),
             Text(
               description,
               maxLines: isOpen ? null : 2,
               overflow: isOpen ? null : TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 13,
-                height: 1.45,
-                color: Colors.grey.shade700,
-              ),
+              style:
+                  context.folkText.small.copyWith(fontSize: 13.5, height: 1.45),
             ),
             GestureDetector(
+              behavior: HitTestBehavior.opaque,
               onTap: () => setState(() {
                 if (isOpen) {
                   _expanded.remove(tripId);
@@ -412,39 +374,24 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
                   _expanded.add(tripId);
                 }
               }),
-              child: Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(
-                  isOpen ? "Show less" : "Read more",
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: skyDark,
+              child: ConstrainedBox(
+                constraints:
+                    const BoxConstraints(minHeight: FolkShape.touchTarget),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    isOpen ? "Show less" : "Read more",
+                    style: context.folkText.bodyStrong.copyWith(fontSize: 13),
                   ),
                 ),
               ),
             ),
           ],
-
           const SizedBox(height: 12),
-
           if (!isRegistered)
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => _register(tripId, trip),
-                style: ElevatedButton.styleFrom(
-                  elevation: 0,
-                  backgroundColor: skyDark,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-                child: const Text(
-                  "Register",
-                  style: TextStyle(color: Colors.white),
-                ),
-              ),
+            PrimaryButton(
+              label: "Register",
+              onPressed: () => _register(tripId, trip),
             ),
         ],
       ),
@@ -473,13 +420,10 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
               Expanded(
                 child: Text(
                   title,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 15,
-                  ),
+                  style: context.folkText.bodyStrong,
                 ),
               ),
-              _chip(style.label, style.color),
+              _chip(style.label, style.style),
             ],
           ),
           const SizedBox(height: 6),
@@ -488,50 +432,36 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
                 Icons.place, (trip['location'] ?? 'No location').toString()),
             _iconLine(Icons.event, _formatTs(trip['tripDate'])),
           ],
-
           if (hasReflected) ...[
             const SizedBox(height: 10),
             Row(
               children: [
-                _chip("Reflection submitted", Colors.green),
+                _chip("Reflection submitted", FolkGradientStyle.green),
               ],
             ),
             if (reflectionText.isNotEmpty) ...[
               const SizedBox(height: 8),
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.all(10),
+                padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.green.withOpacity(.06),
-                  borderRadius: BorderRadius.circular(10),
+                  color: context.folk.surfaceSecondary,
+                  borderRadius: BorderRadius.circular(16),
                 ),
                 child: Text(
                   reflectionText,
-                  style: const TextStyle(fontSize: 12, height: 1.45),
+                  style: context.folkText.body
+                      .copyWith(fontSize: 13, height: 1.45),
                 ),
               ),
             ],
           ],
-
           if (canReflect) ...[
             const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () => _openReflectionSheet(regId, title),
-                icon: const Icon(Icons.edit_note, size: 18, color: Colors.white),
-                label: const Text(
-                  "Write Reflection",
-                  style: TextStyle(color: Colors.white),
-                ),
-                style: ElevatedButton.styleFrom(
-                  elevation: 0,
-                  backgroundColor: skyDark,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-              ),
+            PrimaryButton(
+              label: "Write Reflection",
+              icon: Icons.edit_note,
+              onPressed: () => _openReflectionSheet(regId, title),
             ),
           ],
         ],
@@ -541,27 +471,23 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
 
   Widget _sectionHeading(String label) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Text(
-        label,
-        style: const TextStyle(
-          fontSize: 17,
-          fontWeight: FontWeight.bold,
-          color: skyDark,
-        ),
-      ),
+      padding: const EdgeInsets.only(bottom: FolkSpace.md),
+      child: Text(label,
+          style: context.folkText.topBarTitle.copyWith(fontSize: 18)),
     );
   }
 
   Widget _emptyCard(String message) {
+    final colors = context.folk;
     return Container(
       padding: const EdgeInsets.all(18),
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: FolkSpace.cardGap),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(FolkShape.tileRadius),
+        boxShadow: colors.cardShadows,
       ),
-      child: Text(message, style: TextStyle(color: Colors.grey.shade600)),
+      child: Text(message, style: context.folkText.small),
     );
   }
 
@@ -587,111 +513,108 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
         }
         Navigator.of(context).pop();
       },
-      child: Scaffold(
-      backgroundColor: const Color(0xFFFAFAFA),
-      appBar: AppBar(
-        elevation: 0,
-        title: const Text(
-          "Expeditions",
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
-        backgroundColor: skyDark,
-        iconTheme: const IconThemeData(color: Colors.white),
-        flexibleSpace: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [skyDark, skyLight],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-        ),
-      ),
-      // Trips and this student's registrations drive both sections; both
-      // streams are genuinely built once now, in initState() (see
-      // `_tripsStream`/`_registrationsStream`'s own doc comment).
-      body: StreamBuilder<QuerySnapshot>(
-        stream: _tripsStream,
-        builder: (context, tripSnap) {
-          if (tripSnap.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          final tripDocs = tripSnap.data?.docs ?? [];
-          final tripsById = <String, Map<String, dynamic>>{
-            for (final d in tripDocs) d.id: d.data() as Map<String, dynamic>
-          };
-
-          return StreamBuilder<QuerySnapshot>(
-            stream: _registrationsStream,
-            builder: (context, regSnap) {
-              final myRegs = regSnap.data?.docs ?? [];
-              final myTripIds = <String>{
-                for (final r in myRegs)
-                  ((r.data() as Map<String, dynamic>)['expeditionId'] ?? '')
-                      .toString()
-              };
-
-              // Upcoming trips, soonest first. Sorted client-side so no
-              // composite index is needed alongside the status filter.
-              final upcoming = tripDocs
-                  .where((d) =>
-                      ((d.data() as Map<String, dynamic>)['status'] ??
-                          'upcoming') ==
-                      'upcoming')
-                  .toList()
-                ..sort((a, b) {
-                  final aDate = (a.data() as Map<String, dynamic>)['tripDate'];
-                  final bDate = (b.data() as Map<String, dynamic>)['tripDate'];
-                  if (aDate is! Timestamp || bDate is! Timestamp) return 0;
-                  return aDate.compareTo(bDate);
-                });
-
-              return ListView(
-                padding: const EdgeInsets.all(16),
-                physics: const BouncingScrollPhysics(),
-                children: [
-                  _sectionHeading("Upcoming Trips"),
-                  if (upcoming.isEmpty)
-                    _emptyCard("No upcoming trips right now")
-                  else
-                    ...upcoming.map((doc) {
-                      final trip = doc.data() as Map<String, dynamic>;
-
-                      // Only this student's registrations are readable here,
-                      // so the count reflects their own row plus nothing else
-                      // unless the guide shares totals.
-                      final count = myTripIds.contains(doc.id) ? 1 : 0;
-
-                      return _upcomingCard(
-                        doc.id,
-                        trip,
-                        myTripIds.contains(doc.id),
-                        count,
-                      );
-                    }),
-
-                  const SizedBox(height: 26),
-
-                  _sectionHeading("My Trips"),
-                  if (myRegs.isEmpty)
-                    _emptyCard("You have not registered for any trips yet")
-                  else
-                    ...myRegs.map((reg) {
-                      final data = reg.data() as Map<String, dynamic>;
-                      final expId =
-                          (data['expeditionId'] ?? '').toString();
-
-                      return _myTripCard(reg.id, data, tripsById[expId]);
-                    }),
-
-                  const SizedBox(height: 20),
-                ],
+      child: FolkScaffold(
+        title: "Expeditions",
+        // Trips and this student's registrations drive both sections; both
+        // streams are genuinely built once now, in initState() (see
+        // `_tripsStream`/`_registrationsStream`'s own doc comment).
+        body: StreamBuilder<QuerySnapshot>(
+          stream: _tripsStream,
+          builder: (context, tripSnap) {
+            if (tripSnap.connectionState == ConnectionState.waiting) {
+              // Ghost trip cards while the trips load.
+              return GhostScope(
+                child: ListView(
+                  physics: const NeverScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(FolkSpace.pagePadding),
+                  children: [
+                    for (var i = 0; i < 3; i++)
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: FolkSpace.cardGap),
+                        child: GhostPlaceholder(
+                          width: double.infinity,
+                          height: 180,
+                          radius: FolkShape.tileRadius,
+                        ),
+                      ),
+                  ],
+                ),
               );
-            },
-          );
-        },
-      ),
+            }
+
+            final tripDocs = tripSnap.data?.docs ?? [];
+            final tripsById = <String, Map<String, dynamic>>{
+              for (final d in tripDocs) d.id: d.data() as Map<String, dynamic>
+            };
+
+            return StreamBuilder<QuerySnapshot>(
+              stream: _registrationsStream,
+              builder: (context, regSnap) {
+                final myRegs = regSnap.data?.docs ?? [];
+                final myTripIds = <String>{
+                  for (final r in myRegs)
+                    ((r.data() as Map<String, dynamic>)['expeditionId'] ?? '')
+                        .toString()
+                };
+
+                // Upcoming trips, soonest first. Sorted client-side so no
+                // composite index is needed alongside the status filter.
+                final upcoming = tripDocs
+                    .where((d) =>
+                        ((d.data() as Map<String, dynamic>)['status'] ??
+                            'upcoming') ==
+                        'upcoming')
+                    .toList()
+                  ..sort((a, b) {
+                    final aDate =
+                        (a.data() as Map<String, dynamic>)['tripDate'];
+                    final bDate =
+                        (b.data() as Map<String, dynamic>)['tripDate'];
+                    if (aDate is! Timestamp || bDate is! Timestamp) return 0;
+                    return aDate.compareTo(bDate);
+                  });
+
+                return ListView(
+                  padding: const EdgeInsets.all(FolkSpace.pagePadding),
+                  physics: const BouncingScrollPhysics(),
+                  children: [
+                    _sectionHeading("Upcoming Trips"),
+                    if (upcoming.isEmpty)
+                      _emptyCard("No upcoming trips right now")
+                    else
+                      ...upcoming.map((doc) {
+                        final trip = doc.data() as Map<String, dynamic>;
+
+                        // Only this student's registrations are readable here,
+                        // so the count reflects their own row plus nothing else
+                        // unless the guide shares totals.
+                        final count = myTripIds.contains(doc.id) ? 1 : 0;
+
+                        return _upcomingCard(
+                          doc.id,
+                          trip,
+                          myTripIds.contains(doc.id),
+                          count,
+                        );
+                      }),
+                    const SizedBox(height: 26),
+                    _sectionHeading("My Trips"),
+                    if (myRegs.isEmpty)
+                      _emptyCard("You have not registered for any trips yet")
+                    else
+                      ...myRegs.map((reg) {
+                        final data = reg.data() as Map<String, dynamic>;
+                        final expId = (data['expeditionId'] ?? '').toString();
+
+                        return _myTripCard(reg.id, data, tripsById[expId]);
+                      }),
+                    const SizedBox(height: 20),
+                  ],
+                );
+              },
+            );
+          },
+        ),
       ),
     );
   }

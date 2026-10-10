@@ -2,7 +2,14 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../theme/FolkColors.dart';
+import '../theme/FolkTheme.dart';
+import '../theme/FolkTokens.dart';
 import '../utils/SeenMarkers.dart';
+import '../widgets/FolkDialog.dart';
+import '../widgets/FolkScaffold.dart';
+import '../widgets/GhostPlaceholder.dart';
+import '../widgets/PrimaryButton.dart';
 
 /// Association — meeting requests between a student and their guide.
 ///
@@ -28,9 +35,6 @@ class AssociationScreen extends StatefulWidget {
 }
 
 class _AssociationScreenState extends State<AssociationScreen> {
-  static const Color saffronDark = Color(0xFFE65100);
-  static const Color saffronLight = Color(0xFFFF8F00);
-
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   String _guideId = '';
@@ -103,6 +107,8 @@ class _AssociationScreenState extends State<AssociationScreen> {
       builder: (sheetContext) {
         return StatefulBuilder(
           builder: (context, setSheetState) {
+            final colors = context.folk;
+            final textStyles = context.folkText;
             Future<void> submit() async {
               if (pickedDate == null || pickedTime == null) {
                 ScaffoldMessenger.of(sheetContext).showSnackBar(
@@ -165,9 +171,10 @@ class _AssociationScreenState extends State<AssociationScreen> {
               ),
               child: Container(
                 padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                decoration: BoxDecoration(
+                  color: colors.surface,
+                  borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(FolkShape.cardRadius)),
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -178,25 +185,19 @@ class _AssociationScreenState extends State<AssociationScreen> {
                         width: 42,
                         height: 4,
                         decoration: BoxDecoration(
-                          color: Colors.grey.shade300,
+                          color: colors.surfaceSecondary,
                           borderRadius: BorderRadius.circular(4),
                         ),
                       ),
                     ),
                     const SizedBox(height: 18),
-                    const Text(
+                    Text(
                       "Request a Meeting",
-                      style:
-                          TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                      style: textStyles.topBarTitle.copyWith(fontSize: 18),
                     ),
                     const SizedBox(height: 4),
-                    Text(
-                      "With $_guideId",
-                      style:
-                          TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                    ),
+                    Text("With $_guideId", style: textStyles.small),
                     const SizedBox(height: 20),
-
                     _pickerRow(
                       icon: Icons.calendar_today,
                       label: "Preferred date",
@@ -216,9 +217,7 @@ class _AssociationScreenState extends State<AssociationScreen> {
                         }
                       },
                     ),
-
                     const SizedBox(height: 10),
-
                     _pickerRow(
                       icon: Icons.access_time,
                       label: "Preferred time",
@@ -235,52 +234,21 @@ class _AssociationScreenState extends State<AssociationScreen> {
                         }
                       },
                     ),
-
                     const SizedBox(height: 16),
-
                     TextFormField(
                       maxLines: 3,
                       onChanged: (v) => notes = v,
-                      decoration: InputDecoration(
-                        labelText: "Reason / Message (optional)",
-                        alignLabelWithHint: true,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
+                      style: textStyles.body,
+                      cursorColor: colors.text,
+                      decoration: FolkDialog.field(context,
+                              label: "Reason / Message (optional)")
+                          .copyWith(alignLabelWithHint: true),
                     ),
-
                     const SizedBox(height: 20),
-
-                    SizedBox(
-                      width: double.infinity,
-                      height: 48,
-                      child: ElevatedButton(
-                        onPressed: saving ? null : submit,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: saffronDark,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                        child: saving
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Text(
-                                "Submit Request",
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                      ),
+                    PrimaryButton(
+                      label: "Submit Request",
+                      loading: saving,
+                      onPressed: saving ? null : submit,
                     ),
                   ],
                 ),
@@ -298,29 +266,29 @@ class _AssociationScreenState extends State<AssociationScreen> {
     required String value,
     required VoidCallback onTap,
   }) {
+    final colors = context.folk;
+    final text = context.folkText;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(FolkShape.tileRadius),
       child: Container(
+        constraints: const BoxConstraints(minHeight: FolkShape.touchTarget),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          border: Border.all(color: Colors.grey.shade300),
-          borderRadius: BorderRadius.circular(12),
+          color: colors.surfaceSecondary,
+          borderRadius: BorderRadius.circular(FolkShape.tileRadius),
         ),
         child: Row(
           children: [
-            Icon(icon, size: 18, color: Colors.grey.shade600),
+            Icon(icon, size: 18, color: colors.mutedText),
             const SizedBox(width: 12),
             Expanded(
-              child: Text(
-                label,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
+              child: Text(label, style: text.bodyStrong),
             ),
             Text(
               value,
-              style: TextStyle(
-                color: value == "Not set" ? Colors.grey.shade500 : Colors.black87,
+              style: text.body.copyWith(
+                color: value == "Not set" ? colors.mutedText : colors.text,
                 fontWeight:
                     value == "Not set" ? FontWeight.normal : FontWeight.w600,
               ),
@@ -335,16 +303,17 @@ class _AssociationScreenState extends State<AssociationScreen> {
   // Meeting list
   // ---------------------------------------------------------------------------
 
-  static ({Color color, String label}) _statusStyle(String status) {
+  // Confirmed = green, cancelled = coral, completed = violet, pending = saffron.
+  static ({FolkGradientStyle style, String label}) _statusStyle(String status) {
     switch (status) {
       case 'confirmed':
-        return (color: Colors.green, label: 'Confirmed');
+        return (style: FolkGradientStyle.green, label: 'Confirmed');
       case 'cancelled':
-        return (color: Colors.red, label: 'Cancelled');
+        return (style: FolkGradientStyle.coral, label: 'Cancelled');
       case 'completed':
-        return (color: Colors.blue, label: 'Completed');
+        return (style: FolkGradientStyle.violet, label: 'Completed');
       default:
-        return (color: Colors.orange, label: 'Pending');
+        return (style: FolkGradientStyle.saffron, label: 'Pending');
     }
   }
 
@@ -372,19 +341,16 @@ class _AssociationScreenState extends State<AssociationScreen> {
         (data['requestedBy'] ?? '').toString() == 'guide' &&
         !isCounter;
 
+    final colors = context.folk;
+    final text = context.folkText;
+
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: FolkSpace.cardGap),
+      padding: const EdgeInsets.all(FolkSpace.lg),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(.06),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          )
-        ],
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(FolkShape.tileRadius),
+        boxShadow: colors.cardShadows,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -397,26 +363,22 @@ class _AssociationScreenState extends State<AssociationScreen> {
                       ? "Date not set"
                       : DateFormat('dd MMM yyyy, hh:mm a')
                           .format(shown.toDate()),
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 15,
-                  ),
+                  style: text.bodyStrong,
                 ),
               ),
               Container(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                 decoration: BoxDecoration(
-                  color: style.color.withOpacity(.12),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: style.color.withOpacity(.4)),
+                  gradient: FolkGradients.of(style.style),
+                  borderRadius: BorderRadius.circular(14),
                 ),
                 child: Text(
                   style.label,
-                  style: TextStyle(
-                    fontSize: 10,
+                  style: text.caption.copyWith(
+                    fontSize: 11,
                     fontWeight: FontWeight.w700,
-                    color: style.color,
+                    color: FolkColors.onGradient,
                   ),
                 ),
               ),
@@ -427,42 +389,35 @@ class _AssociationScreenState extends State<AssociationScreen> {
             Text(
               "Requested: "
               "${DateFormat('dd MMM yyyy, hh:mm a').format(preferred.toDate())}",
-              style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+              style: text.caption.copyWith(fontSize: 11),
             ),
           ],
           if (guideId.isNotEmpty) ...[
             const SizedBox(height: 8),
             Row(
               children: [
-                Icon(Icons.person_outline,
-                    size: 15, color: Colors.grey.shade600),
+                Icon(Icons.person_outline, size: 16, color: colors.mutedText),
                 const SizedBox(width: 5),
-                Text(
-                  guideId,
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
-                ),
+                Text(guideId, style: text.small),
               ],
             ),
           ],
           if (studentNotes.isNotEmpty) ...[
             const SizedBox(height: 10),
-            Text(
-              "Your message: $studentNotes",
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
-            ),
+            Text("Your message: $studentNotes", style: text.small),
           ],
           if (guideNotes.isNotEmpty) ...[
             const SizedBox(height: 10),
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.blue.withOpacity(.06),
-                borderRadius: BorderRadius.circular(10),
+                color: colors.surfaceSecondary,
+                borderRadius: BorderRadius.circular(16),
               ),
               child: Text(
                 "Guide's notes: $guideNotes",
-                style: const TextStyle(fontSize: 12, color: Colors.black87),
+                style: text.body.copyWith(fontSize: 13),
               ),
             ),
           ],
@@ -472,10 +427,10 @@ class _AssociationScreenState extends State<AssociationScreen> {
             const SizedBox(height: 10),
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.purple.withOpacity(.06),
-                borderRadius: BorderRadius.circular(10),
+                gradient: FolkGradients.violet,
+                borderRadius: BorderRadius.circular(16),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -483,14 +438,14 @@ class _AssociationScreenState extends State<AssociationScreen> {
                   Row(
                     children: [
                       const Icon(Icons.swap_horiz,
-                          size: 14, color: Colors.purple),
+                          size: 16, color: FolkColors.onGradient),
                       const SizedBox(width: 5),
-                      const Text(
+                      Text(
                         "Counter-proposal sent",
-                        style: TextStyle(
-                          fontSize: 11,
+                        style: text.caption.copyWith(
+                          fontSize: 12,
                           fontWeight: FontWeight.w700,
-                          color: Colors.purple,
+                          color: FolkColors.onGradient,
                         ),
                       ),
                     ],
@@ -500,15 +455,15 @@ class _AssociationScreenState extends State<AssociationScreen> {
                     Text(
                       "You proposed: "
                       "${DateFormat('dd MMM yyyy, hh:mm a').format(counterDate.toDate())}",
-                      style: const TextStyle(fontSize: 12),
+                      style: text.body
+                          .copyWith(fontSize: 13, color: FolkColors.onGradient),
                     ),
                   ],
                   if (counterNote.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Text(
                       counterNote,
-                      style:
-                          TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                      style: text.onGradientSmall,
                     ),
                   ],
                 ],
@@ -524,16 +479,15 @@ class _AssociationScreenState extends State<AssociationScreen> {
                 Expanded(
                   child: ElevatedButton(
                     onPressed: () => _confirmGuideMeeting(docId, data),
-                    style: ElevatedButton.styleFrom(
-                      elevation: 0,
-                      backgroundColor: Colors.green,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
+                    style: FolkDialog.primaryButton(colors, text).copyWith(
+                      minimumSize: const WidgetStatePropertyAll(
+                          Size.fromHeight(FolkShape.touchTarget)),
+                      padding: const WidgetStatePropertyAll(
+                          EdgeInsets.symmetric(horizontal: 8)),
                     ),
                     child: const Text(
                       "Confirm Meeting",
-                      style: TextStyle(color: Colors.white, fontSize: 13),
+                      textAlign: TextAlign.center,
                     ),
                   ),
                 ),
@@ -542,15 +496,16 @@ class _AssociationScreenState extends State<AssociationScreen> {
                   child: OutlinedButton(
                     onPressed: () => _openCounterProposalSheet(docId, data),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: saffronDark,
-                      side: const BorderSide(color: saffronDark),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
+                      minimumSize: const Size.fromHeight(FolkShape.touchTarget),
+                      foregroundColor: colors.text,
+                      side: BorderSide(color: colors.mutedText),
+                      shape: const StadiumBorder(),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      textStyle: text.chip,
                     ),
                     child: const Text(
                       "Propose New Time",
-                      style: TextStyle(fontSize: 13),
+                      textAlign: TextAlign.center,
                     ),
                   ),
                 ),
@@ -614,6 +569,8 @@ class _AssociationScreenState extends State<AssociationScreen> {
       builder: (sheetContext) {
         return StatefulBuilder(
           builder: (context, setSheetState) {
+            final colors = context.folk;
+            final textStyles = context.folkText;
             Future<void> submit() async {
               if (reason.trim().isEmpty) {
                 ScaffoldMessenger.of(sheetContext).showSnackBar(
@@ -625,7 +582,8 @@ class _AssociationScreenState extends State<AssociationScreen> {
               }
               if (pickedDate == null || pickedTime == null) {
                 ScaffoldMessenger.of(sheetContext).showSnackBar(
-                  const SnackBar(content: Text("Please choose a date and time")),
+                  const SnackBar(
+                      content: Text("Please choose a date and time")),
                 );
                 return;
               }
@@ -676,9 +634,10 @@ class _AssociationScreenState extends State<AssociationScreen> {
               ),
               child: Container(
                 padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                decoration: BoxDecoration(
+                  color: colors.surface,
+                  borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(FolkShape.cardRadius)),
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -689,34 +648,28 @@ class _AssociationScreenState extends State<AssociationScreen> {
                         width: 42,
                         height: 4,
                         decoration: BoxDecoration(
-                          color: Colors.grey.shade300,
+                          color: colors.surfaceSecondary,
                           borderRadius: BorderRadius.circular(4),
                         ),
                       ),
                     ),
                     const SizedBox(height: 18),
-                    const Text(
+                    Text(
                       "Propose a New Time",
-                      style:
-                          TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                      style: textStyles.topBarTitle.copyWith(fontSize: 18),
                     ),
                     const SizedBox(height: 20),
-
                     TextFormField(
                       autofocus: true,
                       maxLines: 2,
                       onChanged: (v) => reason = v,
-                      decoration: InputDecoration(
-                        labelText: "Reason for change *",
-                        alignLabelWithHint: true,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
+                      style: textStyles.body,
+                      cursorColor: colors.text,
+                      decoration: FolkDialog.field(context,
+                              label: "Reason for change *")
+                          .copyWith(alignLabelWithHint: true),
                     ),
-
                     const SizedBox(height: 14),
-
                     _pickerRow(
                       icon: Icons.calendar_today,
                       label: "New date",
@@ -736,9 +689,7 @@ class _AssociationScreenState extends State<AssociationScreen> {
                         }
                       },
                     ),
-
                     const SizedBox(height: 10),
-
                     _pickerRow(
                       icon: Icons.access_time,
                       label: "New time",
@@ -755,38 +706,11 @@ class _AssociationScreenState extends State<AssociationScreen> {
                         }
                       },
                     ),
-
                     const SizedBox(height: 20),
-
-                    SizedBox(
-                      width: double.infinity,
-                      height: 48,
-                      child: ElevatedButton(
-                        onPressed: saving ? null : submit,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: saffronDark,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                        child: saving
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Text(
-                                "Send Proposal",
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                      ),
+                    PrimaryButton(
+                      label: "Send Proposal",
+                      loading: saving,
+                      onPressed: saving ? null : submit,
                     ),
                   ],
                 ),
@@ -803,9 +727,21 @@ class _AssociationScreenState extends State<AssociationScreen> {
       stream: _meetingsStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Padding(
-            padding: EdgeInsets.all(24),
-            child: Center(child: CircularProgressIndicator()),
+          // Ghost meeting cards while the list loads.
+          return const GhostScope(
+            child: Column(
+              children: [
+                GhostPlaceholder(
+                    width: double.infinity,
+                    height: 110,
+                    radius: FolkShape.tileRadius),
+                SizedBox(height: FolkSpace.cardGap),
+                GhostPlaceholder(
+                    width: double.infinity,
+                    height: 110,
+                    radius: FolkShape.tileRadius),
+              ],
+            ),
           );
         }
 
@@ -815,13 +751,11 @@ class _AssociationScreenState extends State<AssociationScreen> {
           return Container(
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
+              color: context.folk.surface,
+              borderRadius: BorderRadius.circular(FolkShape.tileRadius),
+              boxShadow: context.folk.cardShadows,
             ),
-            child: Text(
-              "No meetings yet",
-              style: TextStyle(color: Colors.grey.shade600),
-            ),
+            child: Text("No meetings yet", style: context.folkText.small),
           );
         }
 
@@ -868,67 +802,25 @@ class _AssociationScreenState extends State<AssociationScreen> {
         }
         Navigator.of(context).pop();
       },
-      child: Scaffold(
-      backgroundColor: const Color(0xFFFAFAFA),
-      appBar: AppBar(
-        elevation: 0,
-        title: const Text(
-          "Association",
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
-        backgroundColor: saffronDark,
-        iconTheme: const IconThemeData(color: Colors.white),
-        flexibleSpace: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [saffronDark, saffronLight],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-        ),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        physics: const BouncingScrollPhysics(),
-        children: [
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: ElevatedButton.icon(
+      child: FolkScaffold(
+        title: "Association",
+        body: ListView(
+          padding: const EdgeInsets.all(FolkSpace.pagePadding),
+          physics: const BouncingScrollPhysics(),
+          children: [
+            PrimaryButton(
+              label: "Request Meeting with Guide",
+              icon: Icons.event_available,
               onPressed: _openRequestSheet,
-              icon: const Icon(Icons.event_available, color: Colors.white),
-              label: const Text(
-                "Request Meeting with Guide",
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: saffronDark,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
             ),
-          ),
-          const SizedBox(height: 26),
-          const Text(
-            "My Meetings",
-            style: TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.bold,
-              color: saffronDark,
-            ),
-          ),
-          const SizedBox(height: 12),
-          _buildMeetings(),
-          const SizedBox(height: 20),
-        ],
-      ),
+            const SizedBox(height: 26),
+            Text("My Meetings",
+                style: context.folkText.topBarTitle.copyWith(fontSize: 18)),
+            const SizedBox(height: FolkSpace.md),
+            _buildMeetings(),
+            const SizedBox(height: 20),
+          ],
+        ),
       ),
     );
   }

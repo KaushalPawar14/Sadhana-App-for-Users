@@ -5,6 +5,12 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import '../utils/NotificationRouter.dart';
 
+// Called by Firebase Messaging from native code, in its own isolate, when a message
+// arrives with the app in the background or closed. It must be a top-level function
+// AND carry this pragma: a release (AOT) build removes every function nothing in Dart
+// refers to, and the native side cannot find an unannotated one
+// ("To closurize ... from native code, it must be annotated").
+@pragma('vm:entry-point')
 Future<void> handleBG(RemoteMessage message) async {
   // Handling background notifications
   print("Background notification received: ${message.notification?.title}");

@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:provider/provider.dart';
 
-import '../utils/ColorProvider.dart';
+import '../theme/FolkColors.dart';
+import '../theme/FolkTheme.dart';
+import '../theme/FolkTokens.dart';
+import '../widgets/FolkScaffold.dart';
+import '../widgets/GhostPlaceholder.dart';
+import '../widgets/PressScale.dart';
 
 class AssignedTasks extends StatefulWidget {
   final String uid;
@@ -26,26 +30,19 @@ class AssignedTasksState extends State<AssignedTasks> {
   }
 
   Widget questionTile(String level, String qKey, Map data) {
+    final colors = context.folk;
+    final text = context.folkText;
     bool completed = data["completed"];
 
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
+      duration: FolkMotion.of(context, const Duration(milliseconds: 300)),
       margin: const EdgeInsets.symmetric(vertical: 8),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        gradient: completed
-            ? const LinearGradient(
-                colors: [Color(0xffe8f5e9), Color(0xffc8e6c9)])
-            : const LinearGradient(
-                colors: [Color(0xfff5f5f5), Color(0xffeeeeee)]),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          )
-        ],
+        borderRadius: BorderRadius.circular(FolkShape.tileRadius),
+        color: colors.surface,
+        gradient: completed ? FolkGradients.green : null,
+        boxShadow: colors.cardShadows,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -55,13 +52,12 @@ class AssignedTasksState extends State<AssignedTasks> {
               Expanded(
                 child: Text(
                   data["question"],
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: text.bodyStrong.copyWith(
+                      color: completed ? FolkColors.onGradient : colors.text),
                 ),
               ),
-              if (completed) const Icon(Icons.check_circle, color: Colors.green)
+              if (completed)
+                const Icon(Icons.check_circle, color: FolkColors.onGradient)
             ],
           ),
           const SizedBox(height: 14),
@@ -73,9 +69,12 @@ class AssignedTasksState extends State<AssignedTasks> {
                     updateAnswer(level, qKey, true);
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10)),
+                    minimumSize: const Size.fromHeight(FolkShape.touchTarget),
+                    elevation: 0,
+                    backgroundColor: colors.primaryBg,
+                    foregroundColor: colors.primaryFg,
+                    textStyle: text.button,
+                    shape: const StadiumBorder(),
                   ),
                   child: const Text("YES"),
                 ),
@@ -87,9 +86,12 @@ class AssignedTasksState extends State<AssignedTasks> {
                     updateAnswer(level, qKey, false);
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.grey.shade700,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10)),
+                    minimumSize: const Size.fromHeight(FolkShape.touchTarget),
+                    elevation: 0,
+                    backgroundColor: colors.surfaceSecondary,
+                    foregroundColor: colors.text,
+                    textStyle: text.button.copyWith(color: colors.text),
+                    shape: const StadiumBorder(),
                   ),
                   child: const Text("NO"),
                 ),
@@ -111,18 +113,24 @@ class AssignedTasksState extends State<AssignedTasks> {
           .snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
+          return const GhostPlaceholder(
+              width: double.infinity,
+              height: 88,
+              radius: FolkShape.cardRadius,
+              showBars: false);
         }
 
         Map<String, dynamic> data =
             snapshot.data!.data() as Map<String, dynamic>;
 
         return ExpansionTile(
+          iconColor: context.folk.text,
+          collapsedIconColor: context.folk.mutedText,
           tilePadding: const EdgeInsets.symmetric(horizontal: 16),
           childrenPadding: const EdgeInsets.symmetric(horizontal: 16),
           title: Text(
             level.toUpperCase(),
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            style: context.folkText.topBarTitle,
           ),
           children: data.entries.map((entry) {
             return questionTile(level, entry.key, entry.value);
@@ -134,42 +142,24 @@ class AssignedTasksState extends State<AssignedTasks> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ColorProvider>(builder: (context, colorProvider, child) {
-      return Scaffold(
-        backgroundColor: colorProvider.color,
-        appBar: AppBar(
-          leading: IconButton(
-              onPressed: () {
-                Navigator.pop(context);
-              },
-              icon: Icon(
-                Icons.arrow_back_outlined,
-                color: colorProvider.secondColor,
-              )),
-          backgroundColor: colorProvider.color,
-          elevation: 0,
-          centerTitle: true,
-          title: Text(
-            "Knowledge Assessment",
-            style: TextStyle(
-              color: colorProvider.secondColor,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-        body: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 10, 20, 30),
-          children: const [
-            SizedBox(height: 10),
-            _LevelWidget(level: "level-1"),
-            _LevelWidget(level: "level-2"),
-            _LevelWidget(level: "level-3"),
-            _LevelWidget(level: "level-4"),
-            _LevelWidget(level: "level-5"),
-          ],
-        ),
-      );
-    });
+    return FolkScaffold(
+      title: "Knowledge Assessment",
+      onBack: () {
+        Navigator.pop(context);
+      },
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(
+            FolkSpace.pagePadding, 10, FolkSpace.pagePadding, 30),
+        children: const [
+          SizedBox(height: 10),
+          _LevelWidget(level: "level-1"),
+          _LevelWidget(level: "level-2"),
+          _LevelWidget(level: "level-3"),
+          _LevelWidget(level: "level-4"),
+          _LevelWidget(level: "level-5"),
+        ],
+      ),
+    );
   }
 }
 
@@ -181,7 +171,8 @@ class _LevelWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final firestore = FirebaseFirestore.instance;
-    final colorProvider = Provider.of<ColorProvider>(context, listen: false);
+    final colors = context.folk;
+    final text = context.folkText;
     final uid =
         (context.findAncestorStateOfType<AssignedTasksState>()!).widget.uid;
 
@@ -194,13 +185,20 @@ class _LevelWidget extends StatelessWidget {
           .snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 10),
+            child: GhostPlaceholder(
+                width: double.infinity,
+                height: 88,
+                radius: FolkShape.cardRadius,
+                showBars: false),
+          );
         }
 
         final data = snapshot.data?.data() as Map<String, dynamic>?;
 
         if (data == null) {
-          return const Center(child: Text("No questions found"));
+          return Center(child: Text("No questions found", style: text.body));
         }
 
         int total = data.length;
@@ -210,134 +208,138 @@ class _LevelWidget extends StatelessWidget {
         return Container(
           margin: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(18),
-            boxShadow: [
-              BoxShadow(
-                blurRadius: 18,
-                offset: const Offset(0, 6),
-                color: Colors.black.withOpacity(0.05),
-              )
-            ],
+            color: colors.surface,
+            borderRadius: BorderRadius.circular(FolkShape.cardRadius),
+            boxShadow: colors.cardShadows,
           ),
           // ExpansionTile paints its header/ink via the nearest Material
-          // ancestor — without one here, the Container's own `color:
-          // white` above sits between it and the Scaffold's Material,
-          // triggering "ListTile background color or ink splashes may be
-          // invisible" (recurred three times in this project already —
-          // same fix each time).
+          // ancestor — without one here, the Container's own colour above
+          // sits between it and the Scaffold's Material, triggering
+          // "ListTile background color or ink splashes may be invisible"
+          // (recurred three times in this project already — same fix each
+          // time).
           child: Material(
             color: Colors.transparent,
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(FolkShape.cardRadius),
             clipBehavior: Clip.antiAlias,
-            child: ExpansionTile(
-              tilePadding:
-                  const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
-              childrenPadding: const EdgeInsets.only(bottom: 16),
-              title: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        level.toUpperCase(),
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      Text(
-                        "$completed / $total",
-                        style: TextStyle(
-                          color: Colors.grey.shade600,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      )
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(6),
-                    child: LinearProgressIndicator(
-                      value: progress,
-                      minHeight: 6,
-                      backgroundColor: Colors.grey.shade200,
-                      valueColor:
-                          const AlwaysStoppedAnimation<Color>(Colors.green),
-                    ),
-                  ),
-                ],
-              ),
-              children: data.entries.map((entry) {
-                bool completed = entry.value["completed"];
-
-                return InkWell(
-                  borderRadius: BorderRadius.circular(12),
-                  onTap: () {
-                    firestore
-                        .collection("users")
-                        .doc(uid)
-                        .collection("questions")
-                        .doc(level)
-                        .update({"${entry.key}.completed": !completed});
-                  },
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    margin:
-                        const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: completed
-                          ? Colors.green.shade50
-                          : Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: completed ? Colors.green : Colors.grey.shade300,
-                      ),
-                    ),
-                    child: Row(
+            child: Theme(
+              data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                iconColor: colors.text,
+                collapsedIconColor: colors.mutedText,
+                tilePadding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+                childrenPadding: const EdgeInsets.only(bottom: 16),
+                title: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          height: 22,
-                          width: 22,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(
-                              color: completed ? Colors.green : Colors.grey,
-                              width: 2,
-                            ),
-                            color:
-                                completed ? Colors.green : Colors.transparent,
-                          ),
-                          child: completed
-                              ? const Icon(
-                                  Icons.check,
-                                  size: 16,
-                                  color: Colors.white,
-                                )
-                              : null,
+                        Text(
+                          level.toUpperCase(),
+                          style: text.topBarTitle.copyWith(fontSize: 17),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            entry.value["question"],
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w500,
-                              decoration:
-                                  completed ? TextDecoration.lineThrough : null,
-                              color: completed ? Colors.black54 : Colors.black,
-                            ),
-                          ),
-                        ),
+                        Text(
+                          "$completed / $total",
+                          style: text.small
+                              .copyWith(fontWeight: FontWeight.w500),
+                        )
                       ],
                     ),
-                  ),
-                );
-              }).toList(),
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: LinearProgressIndicator(
+                        value: progress,
+                        minHeight: 6,
+                        backgroundColor: colors.surfaceSecondary,
+                        valueColor: const AlwaysStoppedAnimation<Color>(
+                            FolkCalendarTokens.legendSubmitted),
+                      ),
+                    ),
+                  ],
+                ),
+                children: data.entries.map((entry) {
+                  bool completed = entry.value["completed"];
+
+                  return PressScale(
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(FolkShape.tileRadius),
+                      onTap: () {
+                        firestore
+                            .collection("users")
+                            .doc(uid)
+                            .collection("questions")
+                            .doc(level)
+                            .update({"${entry.key}.completed": !completed});
+                      },
+                      child: AnimatedContainer(
+                        duration: FolkMotion.of(context, const Duration(milliseconds: 200)),
+                        constraints: const BoxConstraints(
+                            minHeight: FolkShape.touchTarget),
+                        margin: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: colors.surfaceSecondary,
+                          borderRadius:
+                              BorderRadius.circular(FolkShape.tileRadius),
+                          border: Border.all(
+                            color: completed
+                                ? FolkCalendarTokens.legendSubmitted
+                                : Colors.transparent,
+                            width: 2,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            AnimatedContainer(
+                              duration: FolkMotion.of(context, const Duration(milliseconds: 200)),
+                              height: 24,
+                              width: 24,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: completed
+                                      ? FolkCalendarTokens.legendSubmitted
+                                      : colors.disabledText,
+                                  width: 2,
+                                ),
+                                color: completed
+                                    ? FolkCalendarTokens.legendSubmitted
+                                    : Colors.transparent,
+                              ),
+                              child: completed
+                                  ? const Icon(
+                                      Icons.check,
+                                      size: 16,
+                                      color: FolkColors.onGradient,
+                                    )
+                                  : null,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                entry.value["question"],
+                                style: text.body.copyWith(
+                                  fontWeight: FontWeight.w500,
+                                  decoration: completed
+                                      ? TextDecoration.lineThrough
+                                      : null,
+                                  color:
+                                      completed ? colors.mutedText : colors.text,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
             ),
           ),
         );

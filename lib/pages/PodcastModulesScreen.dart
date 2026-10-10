@@ -1,10 +1,24 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:provider/provider.dart';
 
-import '../utils/ColorProvider.dart';
+import '../theme/FolkColors.dart';
+import '../theme/FolkTheme.dart';
+import '../theme/FolkTokens.dart';
+import '../utils/ReadingLanguages.dart';
+import '../widgets/EntryAnimation.dart';
+import '../widgets/EpisodeTile.dart';
+import '../widgets/MinHeightBox.dart';
+import '../widgets/FolkChip.dart';
+import '../widgets/FolkPageBackground.dart';
+import '../widgets/LanguageButton.dart';
+import '../widgets/PodcastLoadingGhost.dart';
+import '../widgets/MotionHelpers.dart';
+import '../widgets/PlayPauseIcon.dart';
+import '../widgets/PressScale.dart';
+import '../widgets/RoundIconButton.dart';
 
 /// FOLK-2/4/8/12/16 — audiobook / podcast modules.
 ///
@@ -60,6 +74,15 @@ class _PodcastModulesScreenState extends State<PodcastModulesScreen>
 
   late final TabController _tabController;
 
+  /// UI only: true while the student drags the seek slider, so the progress
+  /// bar follows the finger exactly instead of easing.
+  bool _scrubbing = false;
+
+  /// One key per level chip, so the chip row can scroll the selected chip into
+  /// view when the tab changes by swiping.
+  final List<GlobalKey> _chipKeys =
+      List.generate(levels.length, (_) => GlobalKey());
+
   /// One player for the whole screen. A player per row would let two episodes
   /// play over each other, which is the single worst bug an audio list can have.
   final AudioPlayer _player = AudioPlayer();
@@ -92,12 +115,7 @@ class _PodcastModulesScreenState extends State<PodcastModulesScreen>
   /// `kSupportedLanguages` and the Guide app's `PodcastLinkManager.dart` /
   /// `BookLinkManager.dart` (no shared package between the two apps to
   /// hold one copy).
-  static const Map<String, String> kSupportedLanguages = {
-    'en': 'English',
-    'hi': 'हिन्दी',
-    'gu': 'ગુજરાતી',
-    'te': 'తెలుగు',
-  };
+  static const Map<String, String> kSupportedLanguages = kReadingLanguages;
 
   /// Document that holds the URLs for a given category and reading
   /// language — identical convention to `PodcastLinkManager.dart`'s own
@@ -112,6 +130,7 @@ class _PodcastModulesScreenState extends State<PodcastModulesScreen>
     // initialIndex 0 == F2. See the class doc for why this is not the
     // student's own level.
     _tabController = TabController(length: levels.length, vsync: this);
+    _tabController.addListener(_keepSelectedChipVisible);
     _modulesStream =
         FirebaseFirestore.instance.collection('podcastModules').snapshots();
     _loadLanguagePref();
@@ -160,6 +179,7 @@ class _PodcastModulesScreenState extends State<PodcastModulesScreen>
     // Releases the Android player; without this, audio keeps playing after the
     // screen is popped.
     _player.dispose();
+    _tabController.removeListener(_keepSelectedChipVisible);
     _tabController.dispose();
     super.dispose();
   }
@@ -250,52 +270,88 @@ class _PodcastModulesScreenState extends State<PodcastModulesScreen>
   // UI
   // ---------------------------------------------------------------------------
 
-  /// Same language-chip pattern `BookPageList.dart`'s reader uses, adapted
-  /// to this screen's own plain white-card look rather than that screen's
-  /// purple banner (there is no equivalent banner here to match).
-  Widget _languageSelector() {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+  /// Keeps the selected level chip on screen when the tab changes by swiping.
+  void _keepSelectedChipVisible() {
+    if (_tabController.indexIsChanging) return;
+    final chipContext = _chipKeys[_tabController.index].currentContext;
+    if (chipContext == null) return;
+    Scrollable.ensureVisible(
+      chipContext,
+      alignment: .5,
+      duration: FolkMotion.of(chipContext, FolkMotion.navMorph),
+      curve: FolkMotion.standard,
+    );
+  }
+
+  /// Round back button, centred title, and a spacer the same width as the
+  /// button so the title stays centred. Replaces the AppBar; "back" is the
+  /// same pop the AppBar's own back arrow did.
+  Widget _topBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+          FolkSpace.pagePadding, FolkSpace.xl, FolkSpace.pagePadding, 0),
+      child: Row(
         children: [
-          Text(
-            "Listening language",
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: Colors.grey.shade600,
+          RoundIconButton(
+            icon: Icons.chevron_left_rounded,
+            iconSize: 26,
+            semanticLabel: 'Back',
+            onPressed: () => Navigator.of(context).maybePop(),
+          ),
+          Expanded(
+            child: Text(
+              "Podcast Modules",
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: context.folkText.topBarTitle,
             ),
           ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: kSupportedLanguages.entries.map((entry) {
-              final selected = _language == entry.key;
-              return ChoiceChip(
-                label: Text(entry.value),
-                selected: selected,
-                onSelected: (_) => _setLanguage(entry.key),
-                selectedColor: const Color(0xFF00695C).withOpacity(.18),
-                labelStyle: TextStyle(
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.normal,
-                  color:
-                      selected ? const Color(0xFF00695C) : Colors.black87,
-                ),
-              );
-            }).toList(),
-          ),
+          // One compact button: shows the language (EN, हि, ગુ, తె) and moves to
+          // the next one on each tap; the same `_setLanguage` write as before.
+          LanguageButton(language: _language, onChanged: _setLanguage),
         ],
       ),
     );
   }
+
+  /// The five level chips. They drive the same [TabController] the swipeable
+  /// [TabBarView] uses, so tapping a chip and swiping stay in step. Every chip
+  /// is enabled — no lock icons, no disabled states.
+  Widget _levelChips() {
+    return Padding(
+      padding: const EdgeInsets.only(top: FolkSpace.lg),
+      child: AnimatedBuilder(
+        animation: _tabController.animation!,
+        builder: (context, _) {
+          final selectedIndex = _tabController.animation!.value.round();
+          return SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding:
+                const EdgeInsets.symmetric(horizontal: FolkSpace.pagePadding),
+            child: Row(
+              children: [
+                for (var i = 0; i < levels.length; i++)
+                  Padding(
+                    padding: EdgeInsets.only(
+                        right: i == levels.length - 1 ? 0 : FolkSpace.sm),
+                    child: FolkChip(
+                      key: _chipKeys[i],
+                      label: levelLabels[levels[i]] ?? levels[i],
+                      selected: i == selectedIndex,
+                      large: true,
+                      onTap: () => _tabController.animateTo(i),
+                    ),
+                  ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  static const double _countLabelHeight = PodcastLoadingGhost.countLabelHeight;
 
   Widget _episodeTile({
     required String level,
@@ -306,142 +362,56 @@ class _PodcastModulesScreenState extends State<PodcastModulesScreen>
   }) {
     final key = "$level#$number";
     final isCurrent = _currentKey == key;
-    final isPlaying = isCurrent && _player.playing;
-    final failed = _errorKey == key;
     final hasAudio = url.trim().isNotEmpty;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: isCurrent ? const Color(0xFF00695C) : Colors.grey.shade200,
-          width: isCurrent ? 1.6 : 1,
-        ),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(14),
-          // An episode with no link yet is not tappable. Better than a tap that
-          // appears to do nothing.
-          onTap: hasAudio
-              ? () => _playEpisode(key: key, title: title, url: url)
-              : null,
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Row(
-              children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: hasAudio
-                        ? const Color(0xFF00695C).withOpacity(.10)
-                        : Colors.grey.shade100,
-                  ),
-                  child: Center(
-                    child: isCurrent && _loading
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : Icon(
-                            !hasAudio
-                                ? Icons.hourglass_empty
-                                : isPlaying
-                                    ? Icons.pause
-                                    : Icons.play_arrow,
-                            color: hasAudio
-                                ? const Color(0xFF00695C)
-                                : Colors.grey.shade500,
-                          ),
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: const TextStyle(
-                          fontSize: 14.5,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Icon(Icons.schedule,
-                              size: 12, color: Colors.grey.shade600),
-                          const SizedBox(width: 4),
-                          // Duration is visible BEFORE playback, per spec.
-                          Text(
-                            duration.trim().isEmpty ? "—" : duration.trim(),
-                            style: TextStyle(
-                                fontSize: 12, color: Colors.grey.shade700),
-                          ),
-                          if (!hasAudio) ...[
-                            const SizedBox(width: 8),
-                            Text(
-                              "not uploaded yet",
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontStyle: FontStyle.italic,
-                                color: Colors.grey.shade600,
-                              ),
-                            ),
-                          ],
-                          if (failed) ...[
-                            const SizedBox(width: 8),
-                            Text(
-                              "could not play — try again",
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: Colors.red.shade400,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+    return EpisodeTile(
+      title: title,
+      duration: duration,
+      hasAudio: hasAudio,
+      isCurrent: isCurrent,
+      isPlaying: isCurrent && _player.playing,
+      isLoading: isCurrent && _loading,
+      failed: _errorKey == key,
+      onTap: hasAudio
+          ? () => _playEpisode(key: key, title: title, url: url)
+          : null,
     );
   }
 
-  /// The now-playing bar. Only rendered once something is loaded, so the list
-  /// is not permanently shortened by an empty player.
+  /// The now-playing bar: a floating pill over the list. Only rendered once
+  /// something is loaded. Play/pause, the title, position / length, Stop and
+  /// the draggable seek slider all work exactly as before.
   Widget _playerBar() {
+    final colors = context.folk;
+    final text = context.folkText;
+    final foreground = colors.primaryFg;
+    final fill = FolkGradients.saffron.colors.last;
+
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+      height: FolkShape.miniPlayerHeight,
+      padding: const EdgeInsets.only(left: 10, right: 4),
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: Colors.grey.shade200)),
+        color: colors.primaryBg,
+        borderRadius: BorderRadius.circular(FolkShape.miniPlayerRadius),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(.06),
-            blurRadius: 10,
-            offset: const Offset(0, -3),
-          )
+            color:
+                colors.navShadow.withValues(alpha: colors.navShadow.a * 1.25),
+            blurRadius: 32,
+            offset: const Offset(0, 12),
+          ),
         ],
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
         children: [
-          Row(
-            children: [
-              IconButton(
-                onPressed: () async {
+          Semantics(
+            button: true,
+            label: _player.playing ? 'Pause' : 'Play',
+            excludeSemantics: true,
+            child: PressScale(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () async {
                   if (_player.playing) {
                     await _player.pause();
                   } else {
@@ -449,90 +419,168 @@ class _PodcastModulesScreenState extends State<PodcastModulesScreen>
                   }
                   if (mounted) setState(() {});
                 },
-                icon: Icon(
-                  _player.playing ? Icons.pause_circle : Icons.play_circle,
-                  size: 38,
-                  color: const Color(0xFF00695C),
+                child: SizedBox(
+                  width: FolkShape.touchTarget,
+                  height: FolkShape.touchTarget,
+                  child: Center(
+                    child: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: FolkGradients.saffron,
+                      ),
+                      child: PlayPauseIcon(
+                        playing: _player.playing,
+                        color: FolkColors.onGradient,
+                      ),
+                    ),
+                  ),
                 ),
               ),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
+            ),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: SizedBox(
+              height: FolkShape.miniPlayerHeight,
+              child: Stack(
+                children: [
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    top: 9,
+                    child: Text(
                       _currentTitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w600,
-                      ),
+                      style: text.bodyStrong
+                          .copyWith(fontSize: 14, color: foreground),
                     ),
-                    // Position and duration both come from the player, not from
-                    // the typed `episode_N_duration` string — the typed value is
-                    // a human's label and can be wrong; this is the real file.
-                    StreamBuilder<Duration>(
+                  ),
+                  // The seek slider keeps a full 48 dp tall drag zone; the
+                  // title above it is not interactive, so they may overlap.
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    height: FolkShape.touchTarget,
+                    child: StreamBuilder<Duration>(
                       stream: _player.positionStream,
                       builder: (context, snapshot) {
-                        final position = snapshot.data ?? Duration.zero;
                         final total = _player.duration ?? Duration.zero;
-                        return Text(
-                          "${_fmt(position)} / ${_fmt(total)}",
-                          style: TextStyle(
-                              fontSize: 11.5, color: Colors.grey.shade600),
+                        final position = snapshot.data ?? Duration.zero;
+
+                        // Clamped because a position can briefly exceed the
+                        // reported duration while a stream is still
+                        // resolving, and Slider throws if value > max.
+                        final maxMs = total.inMilliseconds.toDouble();
+                        final valueMs = position.inMilliseconds
+                            .clamp(0, total.inMilliseconds);
+
+                        return SliderTheme(
+                          data: SliderTheme.of(context).copyWith(
+                            trackHeight: 4,
+                            activeTrackColor: fill,
+                            inactiveTrackColor: FolkColors.miniPlayerTrack,
+                            thumbColor: fill,
+                            overlayColor: fill.withValues(alpha: .2),
+                            thumbShape: const RoundSliderThumbShape(
+                                enabledThumbRadius: 6),
+                            overlayShape: const RoundSliderOverlayShape(
+                                overlayRadius: 16),
+                          ),
+                          // The position arrives a few times a second; the bar
+                          // eases between those readings. While the student
+                          // drags, it follows the finger with no easing.
+                          child: EasedProgress(
+                            value: maxMs == 0 ? 0 : valueMs.toDouble(),
+                            following: _scrubbing,
+                            builder: (context, shown) => Slider(
+                              value: maxMs == 0
+                                  ? 0
+                                  : shown.clamp(0.0, maxMs).toDouble(),
+                              max: maxMs == 0 ? 1 : maxMs,
+                              onChangeStart: (_) =>
+                                  setState(() => _scrubbing = true),
+                              onChangeEnd: (_) =>
+                                  setState(() => _scrubbing = false),
+                              onChanged: maxMs == 0
+                                  ? null
+                                  : (value) => _player.seek(
+                                      Duration(milliseconds: value.round())),
+                            ),
+                          ),
                         );
                       },
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-              IconButton(
-                tooltip: "Stop",
-                onPressed: () async {
-                  await _player.stop();
-                  if (!mounted) return;
-                  setState(() {
-                    _currentKey = null;
-                    _currentTitle = '';
-                  });
-                },
-                icon: Icon(Icons.close, color: Colors.grey.shade600),
-              ),
-            ],
+            ),
           ),
+          const SizedBox(width: 4),
+          // Position and duration both come from the player, not from the
+          // typed `episode_N_duration` string — the typed value is a human's
+          // label and can be wrong; this is the real file.
           StreamBuilder<Duration>(
             stream: _player.positionStream,
             builder: (context, snapshot) {
-              final total = _player.duration ?? Duration.zero;
               final position = snapshot.data ?? Duration.zero;
-
-              // Clamped because a position can briefly exceed the reported
-              // duration while a stream is still resolving, and Slider throws
-              // if value > max.
-              final maxMs = total.inMilliseconds.toDouble();
-              final valueMs =
-                  position.inMilliseconds.clamp(0, total.inMilliseconds);
-
-              return SliderTheme(
-                data: SliderTheme.of(context).copyWith(
-                  trackHeight: 3,
-                  thumbShape:
-                      const RoundSliderThumbShape(enabledThumbRadius: 7),
-                ),
-                child: Slider(
-                  value: maxMs == 0 ? 0 : valueMs.toDouble(),
-                  max: maxMs == 0 ? 1 : maxMs,
-                  activeColor: const Color(0xFF00695C),
-                  inactiveColor: Colors.grey.shade300,
-                  onChanged: maxMs == 0
-                      ? null
-                      : (value) =>
-                          _player.seek(Duration(milliseconds: value.round())),
+              final total = _player.duration ?? Duration.zero;
+              return Semantics(
+                label: "${_fmt(position)} of ${_fmt(total)}",
+                excludeSemantics: true,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      _fmt(position),
+                      style: text.caption.copyWith(
+                        color: foreground,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      _fmt(total),
+                      style: text.caption.copyWith(
+                        fontSize: 11,
+                        color: foreground.withValues(alpha: .7),
+                      ),
+                    ),
+                  ],
                 ),
               );
             },
           ),
+          IconButton(
+            tooltip: "Stop",
+            onPressed: () async {
+              await _player.stop();
+              if (!mounted) return;
+              setState(() {
+                _currentKey = null;
+                _currentTitle = '';
+              });
+            },
+            icon: Icon(Icons.close,
+                size: 20, color: foreground.withValues(alpha: .7)),
+          ),
         ],
+      ),
+    );
+  }
+
+  /// The mini-player's place at the bottom. It slides up (and fades in) when an
+  /// episode is loaded and slides back down when it is stopped.
+  Widget _playerSlot() {
+    return Positioned(
+      left: FolkSpace.pagePadding,
+      right: FolkSpace.pagePadding,
+      bottom: 24 + MediaQuery.paddingOf(context).bottom,
+      child: SlideUpSwitcher(
+        child: _currentKey != null ? _playerBar() : null,
       ),
     );
   }
@@ -541,7 +589,10 @@ class _PodcastModulesScreenState extends State<PodcastModulesScreen>
     required String level,
     required Map<String, dynamic>? episodesData,
     required Map<String, dynamic>? linksData,
+    required double bottomPadding,
   }) {
+    final colors = context.folk;
+    final text = context.folkText;
     final numbers = _episodeNumbers(episodesData);
 
     if (numbers.isEmpty) {
@@ -552,18 +603,18 @@ class _PodcastModulesScreenState extends State<PodcastModulesScreen>
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(Icons.headphones_outlined,
-                  size: 46, color: Colors.grey.shade400),
+                  size: 46, color: colors.disabledText),
               const SizedBox(height: 16),
               Text(
                 "No episodes in ${levelLabels[level] ?? level} yet",
-                style: const TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.w600),
+                textAlign: TextAlign.center,
+                style: text.bodyStrong,
               ),
               const SizedBox(height: 8),
               Text(
                 "New audio is added by your guide. Try another module above.",
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+                style: text.small,
               ),
             ],
           ),
@@ -572,110 +623,145 @@ class _PodcastModulesScreenState extends State<PodcastModulesScreen>
     }
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+      padding: EdgeInsets.fromLTRB(
+          FolkSpace.pagePadding, 0, FolkSpace.pagePadding, bottomPadding),
       children: [
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: Text(
-            numbers.length == 1 ? "1 episode" : "${numbers.length} episodes",
-            style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+        EntryAnimation(
+          index: 3,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 18, bottom: 10),
+            child: MinHeightBox(
+              minHeight: _countLabelHeight,
+              child: Text(
+                (numbers.length == 1
+                        ? "1 episode"
+                        : "${numbers.length} episodes")
+                    .toUpperCase(),
+                style: text.label,
+              ),
+            ),
           ),
         ),
-        ...numbers.map(
-          (n) => _episodeTile(
-            level: level,
-            number: n,
-            title: (episodesData?['episode_${n}_title'] ?? '').toString(),
-            duration: (episodesData?['episode_${n}_duration'] ?? '').toString(),
-            url: (linksData?['episode_$n'] ?? '').toString(),
+        for (var i = 0; i < numbers.length; i++)
+          EntryAnimation(
+            key: ValueKey("$level#${numbers[i]}"),
+            index: 4 + i,
+            child: _episodeTile(
+              level: level,
+              number: numbers[i],
+              title: (episodesData?['episode_${numbers[i]}_title'] ?? '')
+                  .toString(),
+              duration: (episodesData?['episode_${numbers[i]}_duration'] ?? '')
+                  .toString(),
+              url: (linksData?['episode_${numbers[i]}'] ?? '').toString(),
+            ),
           ),
-        ),
       ],
+    );
+  }
+
+  /// Cross-fades between the ghost, an error and the real list. All three fill
+  /// the same body, so nothing moves.
+  Widget _swap(String key, Widget child) {
+    return AnimatedSwitcher(
+      duration: FolkMotion.of(context, FolkMotion.ghostCrossFade),
+      layoutBuilder: (current, previous) => Stack(
+        fit: StackFit.expand,
+        children: [...previous, if (current != null) current],
+      ),
+      child: KeyedSubtree(key: ValueKey<String>(key), child: child),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ColorProvider>(
-      builder: (context, colorProvider, child) {
-        return Scaffold(
-          backgroundColor: colorProvider.color,
-          appBar: AppBar(
-            elevation: 0,
-            backgroundColor: colorProvider.color,
-            iconTheme: IconThemeData(color: colorProvider.secondColor),
-            title: Text(
-              "Podcast Modules",
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: colorProvider.secondColor,
-                fontSize: 20,
-              ),
-            ),
-            bottom: TabBar(
-              controller: _tabController,
-              isScrollable: true,
-              tabAlignment: TabAlignment.start,
-              labelColor: const Color(0xFF00695C),
-              unselectedLabelColor: colorProvider.secondColor.withOpacity(.7),
-              indicatorColor: const Color(0xFF00695C),
-              labelStyle: const TextStyle(
-                  fontSize: 13.5, fontWeight: FontWeight.w700),
-              // Every tab is enabled. No lock icons, no disabled states.
-              tabs: levels
-                  .map((l) => Tab(text: levelLabels[l] ?? l))
-                  .toList(),
+    final colors = context.folk;
+    final text = context.folkText;
+    final safeBottom = MediaQuery.paddingOf(context).bottom;
+    // Room under the last episode so the floating player never covers it.
+    final listBottom = _currentKey != null
+        ? FolkShape.miniPlayerHeight + 24 + safeBottom + FolkSpace.lg
+        : 24 + safeBottom;
+
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: (colors.isDark
+              ? SystemUiOverlayStyle.light
+              : SystemUiOverlayStyle.dark)
+          .copyWith(statusBarColor: Colors.transparent),
+      child: Scaffold(
+        backgroundColor: colors.pageBackground,
+        body: FolkPageBackground(
+          child: SafeArea(
+            bottom: false,
+            child: Column(
+              children: [
+                EntryAnimation(index: 0, child: _topBar()),
+                EntryAnimation(index: 1, child: _levelChips()),
+                Expanded(
+                  child: StreamBuilder<QuerySnapshot>(
+                    // One stream over the whole collection — ten small
+                    // documents, so ten listeners would be worse. Mirrors the
+                    // Guide app's manager.
+                    stream: _modulesStream,
+                    builder: (context, snapshot) {
+                      if (snapshot.hasError) {
+                        return _swap(
+                          'error',
+                          Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Text(
+                                "Could not load the modules just now.",
+                                style: text.body,
+                              ),
+                            ),
+                          ),
+                        );
+                      }
+
+                      if (!snapshot.hasData) {
+                        return _swap('ghost', const PodcastLoadingGhost());
+                      }
+
+                      final docs = <String, Map<String, dynamic>>{};
+                      for (final doc in snapshot.data!.docs) {
+                        final data = doc.data();
+                        if (data is Map<String, dynamic>) docs[doc.id] = data;
+                      }
+
+                      return _swap(
+                          'real',
+                          Stack(
+                            children: [
+                              Column(
+                                children: [
+                                  Expanded(
+                                    child: TabBarView(
+                                      controller: _tabController,
+                                      children: levels
+                                          .map((level) => _levelTab(
+                                                level: level,
+                                                episodesData: docs[level],
+                                                linksData: docs[linksDocId(
+                                                    level, _language)],
+                                                bottomPadding: listBottom,
+                                              ))
+                                          .toList(),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              _playerSlot(),
+                            ],
+                          ));
+                    },
+                  ),
+                ),
+              ],
             ),
           ),
-          body: StreamBuilder<QuerySnapshot>(
-            // One stream over the whole collection — ten small documents, so
-            // ten listeners would be worse. Mirrors the Guide app's manager.
-            stream: _modulesStream,
-            builder: (context, snapshot) {
-              if (snapshot.hasError) {
-                return Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(
-                      "Could not load the modules just now.",
-                      style: TextStyle(color: colorProvider.secondColor),
-                    ),
-                  ),
-                );
-              }
-
-              if (!snapshot.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-
-              final docs = <String, Map<String, dynamic>>{};
-              for (final doc in snapshot.data!.docs) {
-                final data = doc.data();
-                if (data is Map<String, dynamic>) docs[doc.id] = data;
-              }
-
-              return Column(
-                children: [
-                  _languageSelector(),
-                  Expanded(
-                    child: TabBarView(
-                      controller: _tabController,
-                      children: levels
-                          .map((level) => _levelTab(
-                                level: level,
-                                episodesData: docs[level],
-                                linksData: docs[linksDocId(level, _language)],
-                              ))
-                          .toList(),
-                    ),
-                  ),
-                  if (_currentKey != null) _playerBar(),
-                ],
-              );
-            },
-          ),
-        );
-      },
+        ),
+      ),
     );
   }
 }

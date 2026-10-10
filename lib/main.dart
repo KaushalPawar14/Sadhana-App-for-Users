@@ -1,19 +1,22 @@
- import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
  import 'package:flutter/material.dart';
+ import 'package:flutter/services.dart';
  import 'package:folk_app/pages/CompleteProfile.dart';
 import 'package:folk_app/pages/SplashScreen.dart';
  import 'package:folk_app/pages/Welcome.dart';
-import 'package:folk_app/services/DeleteEveryMonthSadhana.dart';
 import 'package:folk_app/services/QuestionsSeed.dart';
  import 'package:folk_app/services/PushNotification.dart';
  import 'package:folk_app/services/UpdateToken.dart';
  import 'package:folk_app/utils/BottomNavBar.dart';
+ import 'package:folk_app/theme/FolkTheme.dart';
+ import 'package:folk_app/theme/FolkTokens.dart';
+ import 'package:folk_app/theme/ThemeModeController.dart';
  import 'package:folk_app/utils/ColorProvider.dart';
+ import 'package:folk_app/utils/AssistantRouteVisibility.dart';
  import 'package:folk_app/utils/FloatingAssistantOverlay.dart';
  import 'package:folk_app/utils/VoiceRoomOverlay.dart';
 import 'package:folk_app/utils/NotificationRouter.dart';
-import 'package:folk_app/utils/MalaLoading.dart';
+import 'package:folk_app/widgets/StartupWaiting.dart';
  import 'package:provider/provider.dart';
  import 'package:sizer/sizer.dart';
  import 'package:firebase_auth/firebase_auth.dart';
@@ -35,16 +38,35 @@ import 'models/CompetitionResults.dart';
 
  void main() async {
    WidgetsFlutterBinding.ensureInitialized();
+   // Portrait only (the manifest locks it too, so there is no rotation flash
+   // before Flutter starts).
+   await SystemChrome.setPreferredOrientations(
+       const [DeviceOrientation.portraitUp]);
    await Firebase.initializeApp();
+   final themeController = await ThemeModeController.load();
 
    runApp(
-     ChangeNotifierProvider(
-       create: (_) => ColorProvider(),
+     MultiProvider(
+       providers: [
+         ChangeNotifierProvider<ThemeModeController>.value(
+           value: themeController,
+         ),
+         // Follows the Light/Dark/Auto setting, so every screen that still
+         // reads ColorProvider changes with it.
+         ChangeNotifierProvider<ColorProvider>(
+           create: (context) => ColorProvider(loadLegacyPrefs: false)
+             ..bindTo(context.read<ThemeModeController>()),
+         ),
+       ],
        child: Sizer(
          builder: (context, orientation, deviceType) {
            return MaterialApp(
              debugShowCheckedModeBanner: false,
-             theme: ThemeData(fontFamily: 'Satoshi'),
+             theme: FolkTheme.light,
+             darkTheme: FolkTheme.dark,
+             themeMode: context.watch<ThemeModeController>().themeMode,
+             themeAnimationDuration:
+                 FolkMotion.of(context, FolkMotion.theme),
              home: const SplashScreen(), // 👈 Start with splash
            );
          },
@@ -69,14 +91,8 @@ import 'models/CompetitionResults.dart';
      if (user != null) {
        await initializeQuestionsIfNeeded(user.uid);
      }
-     runMonthlyDeleteInBackground();
+     // Monthly sadhana/scorecard cleanup now runs server-side (monthlySadhanaRetention).
    });
- }
-
- void runMonthlyDeleteInBackground() {
-   unawaited(deletePreviousToPreviousMonthData('sadhana-reports'));
-   unawaited(deletePreviousToPreviousMonthData('hostel-sadhana'));
-   unawaited(deleteScorecard());
  }
 
  // ⚠️ `initializeNotifications()` (a second, separate call to
@@ -107,11 +123,18 @@ import 'models/CompetitionResults.dart';
  class _AnimatedLoginState extends State<AnimatedLogin> {
    User? currentUser;
    String role = '';
+   late final Future<bool?> _dataComplete;
 
    @override
    void initState() {
      super.initState();
      checkSignInStatus();
+     // Asked ONCE. `build()` used to call `isUserDataComplete()` inline, so
+     // every rebuild (the Light/Dark/Auto switch rebuilds this widget through
+     // `context.watch<ThemeModeController>()`) handed the FutureBuilder a new
+     // future; it dropped back to "waiting", showed the loader, and re-created
+     // `CurvedNavBar` on its default tab.
+     _dataComplete = isUserDataComplete();
      // Splash-race fix (Master Task, 2026-09-10 — Part 1/2) — see
      // `markAppReady()`'s own doc comment in `utils/NotificationRouter.dart`
      // for exactly why a post-frame callback here, rather than a call from
@@ -160,8 +183,14 @@ import 'models/CompetitionResults.dart';
      return Sizer(
        builder: (context, orientation, deviceType) => MaterialApp(
          navigatorKey: studentNavigatorKey,
+         // Lets the floating assistant button hide while the assistant screen
+         // itself is on top.
+         navigatorObservers: [AssistantRouteVisibility.instance],
          debugShowCheckedModeBanner: false,
-         theme: ThemeData(fontFamily: 'Satoshi'),
+         theme: FolkTheme.light,
+         darkTheme: FolkTheme.dark,
+         themeMode: context.watch<ThemeModeController>().themeMode,
+         themeAnimationDuration: FolkMotion.of(context, FolkMotion.theme),
          // Floating assistant button (Stage 5, 2026-08-24) and the RDUA
          // Friends "who's in the room" icon (same root level, same reason —
          // see FloatingAssistantOverlay.dart / VoiceRoomOverlay.dart) both
@@ -176,12 +205,12 @@ import 'models/CompetitionResults.dart';
          ),
          home: currentUser != null
              ? FutureBuilder<bool?>(
-           future: isUserDataComplete(),
+           future: _dataComplete,
            builder: (context, snapshot) {
              if (snapshot.connectionState == ConnectionState.waiting) {
-               return const Scaffold(
-                 body: CustomLoader()
-               );
+               // No spinner: the tab host's own ghost frame from the first
+               // frame (see `widgets/StartupWaiting.dart`).
+               return StartupWaiting(signedIn: currentUser != null);
              } else if (snapshot.hasData) {
                if (snapshot.data == null) {
                  // Name missing → WelcomePage

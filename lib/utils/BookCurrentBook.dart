@@ -29,3 +29,54 @@ bool resolvedIsCurrentBook({
   if (hasEndDate) return false;
   return requestedIsCurrentBook;
 }
+
+/// A book is COMPLETED when it has a real `endDate`, or was marked finished
+/// by the student (`finishedViaButton`, written by the reader's Finish button)
+/// or by the guide (`endedBy`, written with `endDate` by the Guide app's
+/// "Mark finished"). Every one of those writes also sets `endDate`; the flags
+/// are read as well so a half-written or hand-edited doc is still treated as
+/// completed.
+bool isBookCompleted(Map<String, dynamic>? entry) {
+  if (entry == null) return false;
+  final endDate = entry['endDate'];
+  if (endDate != null && endDate.toString().trim().isNotEmpty) return true;
+  if (entry['finishedViaButton'] == true) return true;
+  final endedBy = entry['endedBy'];
+  return endedBy != null && endedBy.toString().trim().isNotEmpty;
+}
+
+/// The only definition of "Current Book" any screen may use: flagged current
+/// AND not completed. A completed book is never a current book, whatever the
+/// stored `isCurrentBook` says.
+bool isCurrentBookEntry(Map<String, dynamic>? entry) =>
+    entry != null && entry['isCurrentBook'] == true && !isBookCompleted(entry);
+
+/// The fields written when a student marks a book "already completed", or null
+/// when nothing should be written because the book already is completed (an
+/// existing end date is never overwritten).
+///
+/// One write: `endDate` = [today] and `isCurrentBook: false` together (the shape
+/// of the update sheet's completion write), plus the identifying fields a book
+/// record always carries. A record with no `startDate` gets today as its start
+/// date — what the guide's "Mark finished" writes for a book never started; an
+/// existing `startDate` is kept.
+Map<String, Object?>? alreadyCompletedFields({
+  required Map<String, dynamic>? latest,
+  required String uid,
+  required String level,
+  required String bookKey,
+  required String title,
+  required String today,
+}) {
+  if (isBookCompleted(latest)) return null;
+  final hasStart = (latest?['startDate'] as String?)?.trim().isNotEmpty == true;
+  return {
+    'uid': uid,
+    'level': level,
+    'bookKey': bookKey,
+    'bookTitle': title,
+    'endDate': today,
+    'isCurrentBook': false,
+    if (!hasStart) 'startDate': today,
+  };
+}

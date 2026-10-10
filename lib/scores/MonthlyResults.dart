@@ -1,11 +1,15 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:folk_app/utils/SameGender.dart';
 import 'package:folk_app/scores/TopMonthResults.dart';
-import 'package:provider/provider.dart';
 import '../services/PercentageServices.dart';
-import '../utils/ColorProvider.dart';
-import '../utils/MalaLoading.dart';
+import '../theme/FolkTheme.dart';
+import '../theme/FolkTokens.dart';
+import '../widgets/FolkCard.dart';
+import '../widgets/FolkScaffold.dart';
+import '../widgets/GradientCard.dart';
+import '../widgets/ScoreWidgets.dart';
 import 'TopWeekResults.dart';
 
 class MonthlyResultsPage extends StatefulWidget {
@@ -19,8 +23,6 @@ class _MonthlyResultsPageState extends State<MonthlyResultsPage> with TickerProv
 
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
-  late AnimationController _floatController;
-  late Animation<double> _floatAnimation;
   Map<String, double> percentageChanges = {};
   bool isLoadingPercentage = true;
   bool isLoading = true;
@@ -40,6 +42,9 @@ class _MonthlyResultsPageState extends State<MonthlyResultsPage> with TickerProv
   late final Stream<QuerySnapshot<Map<String, dynamic>>> _leaderboardStream;
   Stream<DocumentSnapshot<Map<String, dynamic>>>? _myRankStream;
 
+  /// Who is of my gender (read once per student): your position counts only them.
+  final Future<GenderDirectory> _genderDirectory = GenderDirectory.forCurrentUser();
+
   @override
   void initState() {
     super.initState();
@@ -55,28 +60,18 @@ class _MonthlyResultsPageState extends State<MonthlyResultsPage> with TickerProv
         parent: _controller,
         curve: Curves.easeInOut,
     );
-    // 🔹 Floating animation for Last Week button
-    _floatController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2),
-    )..repeat(reverse: true);
-
-    _floatAnimation = Tween<double>(begin: 0, end: 12).animate(
-      CurvedAnimation(parent: _floatController, curve: Curves.easeInOut),
-    );
   }
 
   @override
   void dispose() {
     _controller.dispose();
-    _floatController.dispose();
     super.dispose();
   }
 
   Widget animatedWrapper(Widget child, double value) {
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0.75, end: 1.0),
-      duration: const Duration(milliseconds: 4000),
+      duration: FolkMotion.of(context, const Duration(milliseconds: 4000)),
       curve: Curves.easeOutBack,
       builder: (context, scale, _) {
         return Transform.scale(
@@ -98,43 +93,10 @@ class _MonthlyResultsPageState extends State<MonthlyResultsPage> with TickerProv
 
     double percent = percentageChanges[key] ?? 0;
 
-    Color glowColor = percent > 0
-        ? Colors.green.withOpacity(0.3)
-        : percent < 0
-        ? Colors.red.withOpacity(0.3)
-        : Colors.transparent;
-
     return animatedWrapper(
-        AnimatedContainer(
-          duration: const Duration(milliseconds: 500),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Colors.white, Colors.grey.shade100],
-            ),
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: glowColor,
-                blurRadius: 12,
-                spreadRadius: 1,
-              ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                "$label: $display",
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 4),
-              percentageText(key),
-            ],
-          ),
+        ScoreStatTile(
+          label: "$label: $display",
+          footer: percentageText(key),
         ),
         percent);
   }
@@ -146,7 +108,8 @@ class _MonthlyResultsPageState extends State<MonthlyResultsPage> with TickerProv
       return SizedBox(
         height: 12,
         width: 12,
-        child: CircularProgressIndicator(strokeWidth: 2),
+        child: CircularProgressIndicator(
+            strokeWidth: 2, color: context.folk.text),
       );
     }
 
@@ -156,20 +119,20 @@ class _MonthlyResultsPageState extends State<MonthlyResultsPage> with TickerProv
 
     if (value > 0) {
       icon = Icons.arrow_upward;
-      color = Colors.green;
+      color = FolkCalendarTokens.legendSubmitted;
       text = "+${value.toStringAsFixed(1)}%";
     } else if (value < 0) {
       icon = Icons.arrow_downward;
-      color = Colors.redAccent;
+      color = FolkCalendarTokens.legendMissed;
       text = "-${value.abs().toStringAsFixed(1)}%";
     } else {
       icon = Icons.remove;
-      color = Colors.grey;
+      color = context.folk.mutedText;
       text = "0%";
     }
 
     return TweenAnimationBuilder<double>(
-      duration: const Duration(milliseconds: 2000),
+      duration: FolkMotion.of(context, const Duration(milliseconds: 2000)),
       tween: Tween(begin: 0, end: value.abs()),
       builder: (context, animatedValue, child) {
         return Row(
@@ -181,10 +144,10 @@ class _MonthlyResultsPageState extends State<MonthlyResultsPage> with TickerProv
               value == 0
                   ? "0%"
                   : "${value > 0 ? "+" : "-"}${animatedValue.toStringAsFixed(1)}%",
-              style: TextStyle(
-                fontSize: 11,
+              style: context.folkText.caption.copyWith(
+                fontSize: 12,
                 fontWeight: FontWeight.bold,
-                color: color,
+                color: context.folk.text,
               ),
             ),
           ],
@@ -236,8 +199,13 @@ class _MonthlyResultsPageState extends State<MonthlyResultsPage> with TickerProv
   }
 
   Widget buildCurrentRank() {
-
-    return StreamBuilder<QuerySnapshot>(
+    // Your place is worked out among students of your own gender only.
+    return FutureBuilder<GenderDirectory>(
+      future: _genderDirectory,
+      builder: (context, directorySnapshot) {
+        if (!directorySnapshot.hasData) return const SizedBox();
+        final directory = directorySnapshot.data!;
+        return StreamBuilder<QuerySnapshot>(
       stream: _leaderboardStream,
       builder: (context, snapshot) {
 
@@ -247,195 +215,161 @@ class _MonthlyResultsPageState extends State<MonthlyResultsPage> with TickerProv
 
         final docs = snapshot.data!.docs;
 
-        List<Map<String, dynamic>> users = docs.map((doc) {
-          final data = doc.data() as Map<String, dynamic>;
+        final place = positionAmongSameGender(
+          directory,
+          [
+            for (final doc in docs)
+              (
+                name: ((doc.data() as Map<String, dynamic>)["Name"] ?? '').toString(),
+                score: (((doc.data() as Map<String, dynamic>)["monthly.total_score"] ?? 0) as num)
+                    .toDouble(),
+              ),
+          ],
+          username ?? '',
+        );
+        int rank = place.rank;
+        int totalUsers = place.outOf;
 
-          return {
-            "name": data["Name"],
-            "score": (data["monthly.total_score"] ?? 0).toDouble()
-          };
-        }).toList();
-
-        // 🔹 Sort by score (highest first)
-        users.sort((a, b) => b["score"].compareTo(a["score"]));
-
-        // 🔹 Find current user rank
-        int rank = users.indexWhere((u) => u["name"] == username) + 1;
-        final colorProvider = Provider.of<ColorProvider>(context, listen: false);
-        int totalUsers = users.length;
-
-        return Container(
-          margin: const EdgeInsets.symmetric(vertical: 20),
+        return FolkCard(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-          decoration: BoxDecoration(
-            color: colorProvider.color,
-            borderRadius: BorderRadius.circular(18),
-            boxShadow: [
-              BoxShadow(
-                blurRadius: 10,
-                color: Colors.black.withOpacity(0.08),
-              )
-            ],
-          ),
           child: Text(
             "📊 Your position: #$rank out of $totalUsers",
             textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.bold,
-              color: colorProvider.secondColor
-            ),
+            style: context.folkText.topBarTitle.copyWith(fontSize: 17),
           ),
         );
+      },
+    );
       },
     );
   }
 
   Widget buildUserCard(Map<String, dynamic> user, int rank) {
-    return ScaleTransition(
-        scale: _scaleAnimation,
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Colors.white, Colors.grey],
-              begin: Alignment.topRight,
-              end: Alignment.bottomLeft,
-            ),
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.08),
-                blurRadius: 12,
-                offset: const Offset(0, 6),
+    final colors = context.folk;
+    final text = context.folkText;
+    final card = FolkCard(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 🔹 Header: Name + Score
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Your Score till now : ',
+                  style: text.topBarTitle,
+                ),
               ),
+              Text(
+                user['score'].toStringAsFixed(2),
+                style: text.stat.copyWith(color: colors.text),
+              )
             ],
           ),
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+
+          const SizedBox(height: 20),
+
+          // 🔹 Performance Chips
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              infoChip("💻 SB Class", user['bhagavatam'],
+                  "monthly.bhagavatam_class"),
+              infoChip("🛕 Service", user['dailyService'],
+                  "monthly.daily_service"),
+              infoChip("📿 Chanting", user['chanting'],
+                  "monthly.chanting_rounds"),
+              infoChip("📚 Reading", user['bookReading'],
+                  "monthly.book_reading"),
+              infoChip("🎧 Lecture", user['extraLecture'],
+                  "monthly.extra_lecture"),
+              infoChip("📅 Days", user['days'], "monthly.days_count"),
+            ],
+          ),
+
+          const SizedBox(height: 24),
+
+          // 🔹 Multipliers Section
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: colors.surfaceSecondary,
+              borderRadius: BorderRadius.circular(FolkShape.tileRadius),
+            ),
+            child: Wrap(
+              spacing: 16, // horizontal spacing between items
+              runSpacing: 8, // vertical spacing if items wrap
               children: [
-                // 🔹 Header: Name + Score
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Your Score till now : ',
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    Text(
-                      user['score'].toStringAsFixed(2),
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.blue,
-                      ),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 20),
-
-                // 🔹 Weekly Performance Chips
-                Wrap(
-                  spacing: 15,
-                  runSpacing: 20,
-                  children: [
-                    infoChip("💻 SB Class", user['bhagavatam'], "monthly.bhagavatam_class"),
-                    infoChip("🛕 Service", user['dailyService'], "monthly.daily_service"),
-                    infoChip("📿 Chanting", user['chanting'], "monthly.chanting_rounds"),
-                    infoChip("📚 Reading", user['bookReading'], "monthly.book_reading"),
-                    infoChip("🎧 Lecture", user['extraLecture'], "monthly.extra_lecture"),
-                    infoChip("📅 Days", user['days'], "monthly.days_count"),
-                  ],
-                ),
-
-                const SizedBox(height: 26),
-
-                // 🔹 Multipliers Section
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white54,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Wrap(
-                    spacing: 16, // horizontal spacing between items
-                    runSpacing: 8, // vertical spacing if items wrap
-                    children: [
-                      Text("🛕 Temple x ${user['templeMultiplier']}  ", style: TextStyle(fontWeight: FontWeight.bold),),
-                      Text("📿 Japa x ${user['japaMultiplier']}  ",style: TextStyle(fontWeight: FontWeight.bold),),
-                      Text("😴 Sleep x ${user['sleepMultiplier']}",style: TextStyle(fontWeight: FontWeight.bold),),
-                    ],
-                  ),
-                ),
+                Text("🛕 Temple x ${user['templeMultiplier']}  ",
+                    style: text.bodyStrong),
+                Text("📿 Japa x ${user['japaMultiplier']}  ",
+                    style: text.bodyStrong),
+                Text("😴 Sleep x ${user['sleepMultiplier']}",
+                    style: text.bodyStrong),
               ],
             ),
           ),
-        )
+        ],
+      ),
     );
+    if (FolkMotion.reduced(context)) return card;
+    return ScaleTransition(scale: _scaleAnimation, child: card);
   }
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ColorProvider>(builder: (context, colorProvider, child) {
-      return Scaffold(
-          backgroundColor: colorProvider.color,
-          appBar: AppBar(
-            title: Text(
-              'Your This Month Results',
-              style: TextStyle(
-                  color: colorProvider.secondColor, fontWeight: FontWeight.bold),
-            ),
-            leading: IconButton(
-              icon: Icon(Icons.arrow_back, color: colorProvider.secondColor),
-              onPressed: () => Navigator.pop(context),
-            ),
-            backgroundColor: colorProvider.color,
-          ),
-          body: isLoading
-              ? const Center(
-            child: CustomLoader(),
-          )
-              : SingleChildScrollView(
-            child: Column(
-              children: [
-                SizedBox(height: 30),
-                Center(
-                  child: username == null
-                      ? CustomLoader()
-                      : StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                    stream: _myRankStream,
-                    builder: (context, snapshot) {
-                      // 🔹 1. Loading state
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return Center(child: CustomLoader());
-                      }
+    final text = context.folkText;
+    return FolkScaffold(
+      title: 'Your This Month Results',
+      onBack: () => Navigator.pop(context),
+      body: isLoading
+          ? const LeaderboardGhost(rows: 3)
+          : SingleChildScrollView(
+              child: Column(
+                children: [
+                  const SizedBox(height: 12),
+                  Center(
+                    child: username == null
+                        ? const LeaderboardGhost(rows: 2)
+                        : StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                            stream: _myRankStream,
+                            builder: (context, snapshot) {
+                              // 🔹 1. Loading state
+                              if (snapshot.connectionState ==
+                                  ConnectionState.waiting) {
+                                return const LeaderboardGhost(rows: 2);
+                              }
 
-                      // 🔹 2. No snapshot data
-                      if (!snapshot.hasData || snapshot.data == null) {
-                        return Center(child: Text("No data available"));
-                      }
+                              // 🔹 2. No snapshot data
+                              if (!snapshot.hasData || snapshot.data == null) {
+                                return Center(
+                                    child: Text("No data available",
+                                        style: text.body));
+                              }
 
-                      // 🔹 3. Document not found
-                      if (!snapshot.data!.exists) {
-                        return Center(child: Text("No monthly data available."));
-                      }
+                              // 🔹 3. Document not found
+                              if (!snapshot.data!.exists) {
+                                return Center(
+                                    child: Text("No monthly data available.",
+                                        style: text.body));
+                              }
 
-                      // 🔹 4. Safe extraction
-                      final data = snapshot.data!.data();
+                              // 🔹 4. Safe extraction
+                              final data = snapshot.data!.data();
 
-                      if (data == null) {
-                        return Center(child: Text("Empty data"));
-                      }
+                              if (data == null) {
+                                return Center(
+                                    child:
+                                        Text("Empty data", style: text.body));
+                              }
 
-                      // 🔹 5. Safe values
-                      final userData = {
+                              // 🔹 5. Safe values
+                              final userData = {
                         "name": data['Name'] ?? "Unknown",
                         "score": (data['monthly.total_score'] ?? 0).toDouble(),
                         "bhagavatam": (data['monthly.bhagavatam_class'] ?? 0).toDouble(),
@@ -449,29 +383,24 @@ class _MonthlyResultsPageState extends State<MonthlyResultsPage> with TickerProv
                         "days": (data['monthly.days_count'] ?? 0).toInt(),
                       };
 
-                      // ✅ Replace ListView with Column for proper scroll
-                      return Column(
-                        children: [
-                          buildUserCard(userData, 1),
-                        ],
-                      );
-                    },
+                              return Column(
+                                children: [
+                                  buildUserCard(userData, 1),
+                                ],
+                              );
+                            },
+                          ),
                   ),
-                ),
-                SizedBox(height: 20),
-                AnimatedBuilder(
-                  animation: _floatAnimation,
-                  builder: (context, child) {
-                    return Transform.translate(
-                      offset: Offset(0, -_floatAnimation.value),
-                      child: child,
-                    );
-                  },
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(20),
-                      onTap: () {
+                  const SizedBox(height: 8),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                        FolkSpace.pagePadding, 0, FolkSpace.pagePadding, 0),
+                    child: IdleFloat(
+                      dy: 12,
+                      child: GradientCard(
+                        style: FolkGradientStyle.saffron,
+                        semanticLabel: "🏆 Last Month Performance",
+                        onTap: () {
                         if (username != null) {
                           Navigator.push(
                             context,
@@ -483,59 +412,21 @@ class _MonthlyResultsPageState extends State<MonthlyResultsPage> with TickerProv
                           );
                         }
                       },
-                      child: Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          Container(
-                            margin: const EdgeInsets.all(16),
-                            padding: const EdgeInsets.all(20),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  Colors.deepPurple.shade900,
-                                  Colors.deepPurple.shade400
-                                ],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                              borderRadius: BorderRadius.circular(20),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.green.withOpacity(0.3),
-                                  blurRadius: 12,
-                                  offset: const Offset(0, 6),
-                                ),
-                              ],
-                              border: Border.all(
-                                width: 2.9,
-                                color: colorProvider.secondColor,
-                              ),
-                            ),
-                            child: Center(
-                              child: Text(
-                                "🏆 Last Month Performance",
-                                style: TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                            ),
+                        child: Center(
+                          child: Text(
+                            "🏆 Last Month Performance",
+                            style: text.cardTitle,
+                            textAlign: TextAlign.center,
                           ),
-                        ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-                buildCurrentRank(),
-              ],
+                  buildCurrentRank(),
+                  const SizedBox(height: 24),
+                ],
+              ),
             ),
-          )
-      );
-    });
+    );
   }
 }
-
-
-

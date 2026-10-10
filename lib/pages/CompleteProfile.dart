@@ -1,15 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/ResidenceRule.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:folk_app/utils/BottomNavBar.dart';
 import 'package:folk_app/utils/Snackbar.dart';
 import 'package:intl/intl.dart';
-import 'package:sizer/sizer.dart';
 
-import '../utils/MalaLoading.dart';
+import '../theme/FolkTheme.dart';
+import '../theme/FolkTokens.dart';
 import '../utils/ManualEntryMatch.dart';
 import '../utils/StudentNameGuard.dart';
+import '../widgets/FolkChip.dart';
+import '../widgets/FolkDialog.dart';
+import '../widgets/FolkPageBackground.dart';
+import '../widgets/FolkStatusBar.dart';
+import '../widgets/GhostPlaceholder.dart';
+import '../widgets/PrimaryButton.dart';
+import '../widgets/SadhanaFormWidgets.dart';
 
 /// Registration's second step — reworked around mobile verification
 /// (Master Task, 2026-09-11, Part 2).
@@ -107,6 +115,11 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
   bool nameAlreadySaved = false;
   bool mobileAlreadySaved = false;
 
+  // Same save-once pattern as name: asked only when unsaved, locked after Confirm.
+  bool genderAlreadySaved = false;
+  bool genderLocked = false;
+  String? selectedGender;
+
   /// Non-null only once resolved (freshly, or from resuming a
   /// mobile-already-saved-but-role-still-missing state) — null means "not a
   /// manual-entry match," never "not yet checked," by the time [confirmed]
@@ -158,6 +171,12 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
         if (existingMobile.isNotEmpty) {
           mobileController.text = existingMobile;
           mobileAlreadySaved = true;
+        }
+
+        final existingGender = (userData['gender'] ?? '').toString();
+        if (existingGender == 'male' || existingGender == 'female') {
+          selectedGender = existingGender;
+          genderAlreadySaved = true;
         }
 
         _existingRole = (userData['role'] ?? '').toString();
@@ -223,6 +242,12 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
   Future<bool> _confirmNameAndMobile() async {
     setState(() => nameError = null);
 
+    if (!genderAlreadySaved && selectedGender == null) {
+      showSnackbar(context, 'Select Male or Female', Colors.redAccent,
+          Icons.error);
+      return false;
+    }
+
     var normalizedName = nameController.text;
     if (!nameAlreadySaved) {
       normalizedName = normalizeStudentName(nameController.text);
@@ -268,6 +293,7 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
     if (!nameAlreadySaved) nameController.text = normalizedName;
     setState(() {
       confirmed = true;
+      genderLocked = true;
     });
     return true;
   }
@@ -277,18 +303,24 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Confirm your mobile number'),
+        final colors = dialogContext.folk;
+        final text = dialogContext.folkText;
+        return FolkDialog.alert(
+          dialogContext,
+          title: 'Confirm your mobile number',
           content: Text(
             'You entered "$mobile". This cannot be changed once you '
             'continue. Is this correct?',
+            style: text.small,
           ),
           actions: [
             TextButton(
+              style: FolkDialog.quietButton(colors, text),
               onPressed: () => Navigator.of(dialogContext).pop(false),
               child: const Text('Edit'),
             ),
-            TextButton(
+            ElevatedButton(
+              style: FolkDialog.primaryButton(colors, text),
               onPressed: () => Navigator.of(dialogContext).pop(true),
               child: const Text('Confirm'),
             ),
@@ -323,8 +355,28 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
 
   Future<void> _submitForm() async {
     if (!_formKey.currentState!.validate()) return;
+    if (!genderAlreadySaved && selectedGender == null) {
+      showSnackbar(context, 'Select Male or Female', Colors.redAccent,
+          Icons.error);
+      return;
+    }
     if (showResidenceField && (selectedResidence ?? '').isEmpty) {
       showSnackbar(context, 'Select FOLK, Hostel or Localite', Colors.redAccent,
+          Icons.error);
+      return;
+    }
+
+    // "Stay at FOLK" is for boys only. Whether a girl picked it or a guide's entry
+    // assigned it, that combination is never written: stop here, before anything
+    // is saved.
+    final residenceToWrite = roleAlreadyLocked
+        ? null
+        : (isMatched ? matchedRole : selectedResidence);
+    if (folkForbidden(selectedGender, residenceToWrite)) {
+      showSnackbar(
+          context,
+          isMatched ? kContactGuideToRegister : kFolkBoysOnlyNote,
+          Colors.redAccent,
           Icons.error);
       return;
     }
@@ -355,6 +407,7 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
           .doc(currentUser.uid)
           .set({
         if (!nameAlreadySaved) 'name': nameController.text,
+        if (!genderAlreadySaved) 'gender': selectedGender,
         if (!mobileAlreadySaved) 'mobileNumber': mobileController.text,
         if (roleToWrite != null && roleToWrite.isNotEmpty)
           'role': roleToWrite,
@@ -398,8 +451,57 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
   /// silently do nothing there instead of exiting the app — the correct,
   /// pre-existing behaviour for a root screen once the keyboard is already
   /// closed. `Navigator.canPop()` tells the two cases apart at pop-time.
+  // A small label above a field.
+  Widget _label(String text) =>
+      Text(text, style: context.folkText.bodyStrong);
+
+  Widget _formGhost() {
+    return const GhostScope(
+      child: Padding(
+        padding: EdgeInsets.all(FolkSpace.pagePadding),
+        child: Column(
+          children: [
+            GhostPlaceholder(
+                width: double.infinity, height: 40, radius: 12, showBars: false),
+            SizedBox(height: FolkSpace.xxl),
+            GhostPlaceholder(
+                width: double.infinity,
+                height: 56,
+                radius: FolkShape.tileRadius,
+                showBars: false),
+            SizedBox(height: FolkSpace.lg),
+            GhostPlaceholder(
+                width: double.infinity,
+                height: 56,
+                radius: FolkShape.tileRadius,
+                showBars: false),
+            SizedBox(height: FolkSpace.lg),
+            GhostPlaceholder(
+                width: double.infinity,
+                height: 56,
+                radius: FolkShape.tileRadius,
+                showBars: false),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final colors = context.folk;
+    final text = context.folkText;
+    // A locked (already saved or just confirmed) field keeps its value but is
+    // muted and carries a lock.
+    InputDecoration lockedAware(String hint, {String? errorText, required bool locked}) =>
+        sadhanaFieldDecoration(
+          context,
+          hint: hint,
+          errorText: errorText,
+          suffixIcon: locked
+              ? Icon(Icons.lock_outline_rounded, size: 18, color: colors.mutedText)
+              : null,
+        );
     return PopScope<Object?>(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
@@ -414,244 +516,242 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
           SystemNavigator.pop();
         }
       },
-      child: Scaffold(
-      body: isLoading
-          ? CustomLoader()
-          : SafeArea(
-        child: SingleChildScrollView(
-          padding: EdgeInsets.symmetric(horizontal: 7.w, vertical: 4.h),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Complete Your Profile',
-                    style: TextStyle(
-                        fontSize: 24.sp, fontWeight: FontWeight.bold)),
-                SizedBox(height: 4.h),
+      child: FolkStatusBar(
+        child: Scaffold(
+          backgroundColor: colors.pageBackground,
+          body: FolkPageBackground(
+            child: isLoading
+                ? SafeArea(child: _formGhost())
+                : SafeArea(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(FolkSpace.pagePadding,
+                          FolkSpace.xxl, FolkSpace.pagePadding, 40),
+                      child: Form(
+                        key: _formKey,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Complete Your Profile',
+                                style: text.screenTitle),
+                            const SizedBox(height: FolkSpace.xxl),
 
-                // Full name
-                Text('Full Name',
-                    style: TextStyle(
-                        fontSize: 16.sp, fontWeight: FontWeight.w600)),
-                SizedBox(height: 1.h),
-                TextFormField(
-                  controller: nameController,
-                  enabled: !confirmed && !nameAlreadySaved,
-                  decoration: InputDecoration(
-                    hintText: 'Enter your full name',
-                    errorText: nameError,
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                    contentPadding: EdgeInsets.symmetric(
-                        horizontal: 5.w, vertical: 1.5.h),
-                  ),
-                  validator: (val) => (val == null || val.trim().isEmpty)
-                      ? 'Full name is required'
-                      : null,
-                ),
-
-                SizedBox(height: 2.h),
-
-                // Mobile number
-                Text('Mobile Number',
-                    style: TextStyle(
-                        fontSize: 16.sp, fontWeight: FontWeight.w600)),
-                SizedBox(height: 1.h),
-                TextFormField(
-                  controller: mobileController,
-                  keyboardType: TextInputType.phone,
-                  enabled: !confirmed && !mobileAlreadySaved,
-                  decoration: InputDecoration(
-                    hintText: 'Enter your mobile number',
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                    contentPadding: EdgeInsets.symmetric(
-                        horizontal: 5.w, vertical: 1.5.h),
-                  ),
-                  validator: (val) {
-                    if (val == null || val.isEmpty) {
-                      return 'Mobile number is required';
-                    }
-                    if (!RegExp(r'^\d{10}$').hasMatch(val)) {
-                      return 'Enter a valid 10-digit number';
-                    }
-                    return null;
-                  },
-                ),
-
-                if (!confirmed) ...[
-                  SizedBox(height: 2.h),
-                  ElevatedButton(
-                    onPressed: isVerifying
-                        ? null
-                        : () => _confirmNameAndMobile(),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.deepPurple,
-                      padding: EdgeInsets.symmetric(vertical: 1.6.h),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                    ),
-                    child: isVerifying
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.white),
-                          )
-                        : Text(
-                            'Confirm',
-                            style: TextStyle(
-                                fontSize: 16.sp,
-                                fontWeight: FontWeight.w500,
-                                color: Colors.white),
-                          ),
-                  ),
-                ],
-
-                if (confirmed) ...[
-                  SizedBox(height: 2.h),
-
-                  // Date of birth
-                  Text('Date of Birth',
-                      style: TextStyle(
-                          fontSize: 16.sp, fontWeight: FontWeight.w600)),
-                  SizedBox(height: 1.h),
-                  FormField<DateTime>(
-                    validator: (_) =>
-                        dob == null ? 'Date of birth is required' : null,
-                    builder: (state) {
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          InkWell(
-                            borderRadius: BorderRadius.circular(12),
-                            onTap: dobLocked ? null : () => _pickDob(state),
-                            child: InputDecorator(
-                              decoration: InputDecoration(
-                                border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12)),
-                                contentPadding: EdgeInsets.symmetric(
-                                    horizontal: 5.w, vertical: 1.5.h),
-                                suffixIcon: Icon(
-                                  Icons.calendar_today,
-                                  size: 18.sp,
-                                  color: dobLocked ? Colors.grey : null,
-                                ),
-                              ),
-                              child: Text(
-                                dob == null
-                                    ? 'Select your date of birth'
-                                    : DateFormat('dd MMM yyyy').format(dob!),
-                                style: TextStyle(
-                                  fontSize: 16.sp,
-                                  color: dob == null ? Colors.grey : null,
-                                ),
-                              ),
+                            // Full name
+                            _label('Full Name'),
+                            const SizedBox(height: FolkSpace.sm),
+                            TextFormField(
+                              controller: nameController,
+                              enabled: !confirmed && !nameAlreadySaved,
+                              style: text.body.copyWith(
+                                  color: (!confirmed && !nameAlreadySaved)
+                                      ? colors.text
+                                      : colors.mutedText),
+                              decoration: lockedAware('Enter your full name',
+                                  errorText: nameError,
+                                  locked: confirmed || nameAlreadySaved),
+                              validator: (val) =>
+                                  (val == null || val.trim().isEmpty)
+                                      ? 'Full name is required'
+                                      : null,
                             ),
-                          ),
-                          if (state.hasError)
-                            Padding(
-                              padding: EdgeInsets.only(left: 4.w, top: 0.8.h),
-                              child: Text(
-                                state.errorText!,
-                                style: TextStyle(
-                                    color: Theme.of(context).colorScheme.error,
-                                    fontSize: 12.sp),
+
+                            const SizedBox(height: FolkSpace.xl),
+
+                            // Gender — required, saved once, hidden when already saved.
+                            if (!genderAlreadySaved) ...[
+                              _label('Gender'),
+                              const SizedBox(height: FolkSpace.sm),
+                              Wrap(
+                                spacing: FolkSpace.md,
+                                runSpacing: FolkSpace.sm,
+                                children: [
+                                  for (final option in const [
+                                    ('male', 'Male'),
+                                    ('female', 'Female'),
+                                  ])
+                                    FolkChip(
+                                      label: option.$2,
+                                      selected: selectedGender == option.$1,
+                                      selectedStyle: FolkGradientStyle.violet,
+                                      large: true,
+                                      onTap: genderLocked
+                                          ? null
+                                          : () => setState(() {
+                                                selectedGender = option.$1;
+                                                // "Stay at FOLK" is for boys only.
+                                                if (folkForbidden(selectedGender,
+                                                    selectedResidence)) {
+                                                  selectedResidence = null;
+                                                }
+                                              }),
+                                    ),
+                                ],
                               ),
+                              const SizedBox(height: FolkSpace.xl),
+                            ],
+
+                            // Mobile number
+                            _label('Mobile Number'),
+                            const SizedBox(height: FolkSpace.sm),
+                            TextFormField(
+                              controller: mobileController,
+                              keyboardType: TextInputType.phone,
+                              enabled: !confirmed && !mobileAlreadySaved,
+                              style: text.body.copyWith(
+                                  color: (!confirmed && !mobileAlreadySaved)
+                                      ? colors.text
+                                      : colors.mutedText),
+                              decoration: lockedAware('Enter your mobile number',
+                                  locked: confirmed || mobileAlreadySaved),
+                              validator: (val) {
+                                if (val == null || val.isEmpty) {
+                                  return 'Mobile number is required';
+                                }
+                                if (!RegExp(r'^\d{10}$').hasMatch(val)) {
+                                  return 'Enter a valid 10-digit number';
+                                }
+                                return null;
+                              },
                             ),
-                        ],
-                      );
-                    },
-                  ),
 
-                  SizedBox(height: 2.h),
+                            if (!confirmed) ...[
+                              const SizedBox(height: FolkSpace.xl),
+                              PrimaryButton(
+                                label: 'Confirm',
+                                loading: isVerifying,
+                                onPressed: (isVerifying ||
+                                        (!genderAlreadySaved &&
+                                            selectedGender == null))
+                                    ? null
+                                    : () => _confirmNameAndMobile(),
+                              ),
+                            ],
 
-                  // Chanting commitment — OPTIONAL.
-                  Text('How many rounds do you commit to chant daily? (optional)',
-                      style: TextStyle(
-                          fontSize: 16.sp, fontWeight: FontWeight.w600)),
-                  SizedBox(height: 1.h),
-                  TextFormField(
-                    controller: commitmentRoundsController,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      hintText: 'e.g. 16',
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                      contentPadding: EdgeInsets.symmetric(
-                          horizontal: 5.w, vertical: 1.5.h),
-                    ),
-                    validator: (val) {
-                      if (val == null || val.trim().isEmpty) return null;
-                      final n = int.tryParse(val.trim());
-                      if (n == null || n <= 0) {
-                        return 'Enter a whole number greater than 0, or leave blank';
-                      }
-                      return null;
-                    },
-                  ),
+                            if (confirmed) ...[
+                              const SizedBox(height: FolkSpace.xl),
 
-                  // Residence — only ever asked when it isn't already
-                  // fixed some other way. See this file's own header.
-                  if (showResidenceField) ...[
-                    SizedBox(height: 2.h),
-                    Text('Residence',
-                        style: TextStyle(
-                            fontSize: 16.sp, fontWeight: FontWeight.w600)),
-                    SizedBox(height: 1.h),
-                    DropdownButtonFormField<String>(
-                      value: selectedResidence,
-                      items: const [
-                        DropdownMenuItem(
-                            value: 'Stay at FOLK',
-                            child: Text('Stay at FOLK')),
-                        DropdownMenuItem(
-                            value: 'Stay at Hostel',
-                            child: Text('Stay at Hostel')),
-                        DropdownMenuItem(
-                            value: 'Stay at Localite',
-                            child: Text('Stay at Localite')),
-                      ],
-                      onChanged: (val) =>
-                          setState(() => selectedResidence = val),
-                      decoration: InputDecoration(
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                        contentPadding: EdgeInsets.symmetric(
-                            horizontal: 5.w, vertical: 1.5.h),
+                              // Date of birth
+                              _label('Date of Birth'),
+                              const SizedBox(height: FolkSpace.sm),
+                              FormField<DateTime>(
+                                validator: (_) =>
+                                    dob == null ? 'Date of birth is required' : null,
+                                builder: (state) {
+                                  return Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      InkWell(
+                                        borderRadius: BorderRadius.circular(
+                                            FolkShape.tileRadius),
+                                        onTap: dobLocked
+                                            ? null
+                                            : () => _pickDob(state),
+                                        child: InputDecorator(
+                                          decoration: sadhanaFieldDecoration(
+                                            context,
+                                            suffixIcon: Icon(
+                                              dobLocked
+                                                  ? Icons.lock_outline_rounded
+                                                  : Icons.calendar_today,
+                                              size: 20,
+                                              color: dobLocked
+                                                  ? colors.mutedText
+                                                  : colors.text,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            dob == null
+                                                ? 'Select your date of birth'
+                                                : DateFormat('dd MMM yyyy')
+                                                    .format(dob!),
+                                            style: dob == null
+                                                ? text.body.copyWith(
+                                                    color: colors.mutedText)
+                                                : text.body,
+                                          ),
+                                        ),
+                                      ),
+                                      if (state.hasError)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                              left: 16, top: 6),
+                                          child: Text(
+                                            state.errorText!,
+                                            style: text.caption.copyWith(
+                                                color: colors.calendarMissedText),
+                                          ),
+                                        ),
+                                    ],
+                                  );
+                                },
+                              ),
+
+                              const SizedBox(height: FolkSpace.xl),
+
+                              // Chanting commitment — OPTIONAL.
+                              _label(
+                                  'How many rounds do you commit to chant daily? (optional)'),
+                              const SizedBox(height: FolkSpace.sm),
+                              TextFormField(
+                                controller: commitmentRoundsController,
+                                keyboardType: TextInputType.number,
+                                style: text.body,
+                                decoration: sadhanaFieldDecoration(context,
+                                    hint: 'e.g. 16'),
+                                validator: (val) {
+                                  if (val == null || val.trim().isEmpty) return null;
+                                  final n = int.tryParse(val.trim());
+                                  if (n == null || n <= 0) {
+                                    return 'Enter a whole number greater than 0, or leave blank';
+                                  }
+                                  return null;
+                                },
+                              ),
+
+                              // Residence — only ever asked when it isn't already
+                              // fixed some other way. See this file's own header.
+                              if (showResidenceField) ...[
+                                const SizedBox(height: FolkSpace.xl),
+                                _label('Residence'),
+                                const SizedBox(height: FolkSpace.sm),
+                                DropdownButtonFormField<String>(
+                                  value: selectedResidence,
+                                  dropdownColor: colors.surface,
+                                  style: text.body,
+                                  // A girl is offered Hostel and Localite only.
+                                  items: [
+                                    for (final residence
+                                        in residenceChoices(selectedGender))
+                                      DropdownMenuItem(
+                                          value: residence,
+                                          child: Text(residence)),
+                                  ],
+                                  onChanged: (val) =>
+                                      setState(() => selectedResidence = val),
+                                  decoration: sadhanaFieldDecoration(context),
+                                ),
+                                if (selectedGender == 'female')
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 8),
+                                    child: Text(kFolkBoysOnlyNote,
+                                        style: text.caption),
+                                  ),
+                              ],
+
+                              const SizedBox(height: 32),
+
+                              PrimaryButton(
+                                label: 'Submit',
+                                loading: isSubmitting,
+                                onPressed: isSubmitting ? null : _submitForm,
+                              ),
+                            ],
+                          ],
+                        ),
                       ),
                     ),
-                  ],
-
-                  SizedBox(height: 4.h),
-
-                  ElevatedButton(
-                    onPressed: isSubmitting ? null : _submitForm,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.deepPurple,
-                      padding: EdgeInsets.symmetric(vertical: 2.h),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                    ),
-                    child: isSubmitting
-                        ? CustomLoader()
-                        : Center(
-                      child: Text(
-                        'Submit',
-                        style: TextStyle(
-                            fontSize: 18.sp,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.white),
-                      ),
-                    ),
                   ),
-                ],
-              ],
-            ),
           ),
         ),
-      ),
       ),
     );
   }

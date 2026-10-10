@@ -3,10 +3,12 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
-import '../utils/ColorProvider.dart';
-import '../utils/MalaLoading.dart';
+import '../theme/FolkTheme.dart';
+import '../theme/FolkTokens.dart';
+import '../widgets/EntryAnimation.dart';
+import '../widgets/FolkScaffold.dart';
+import '../widgets/GhostPlaceholder.dart';
 import 'BookReaderPage.dart';
 
 /// RDUA Modules — a structured study course of 50 fixed topics, each split
@@ -131,43 +133,53 @@ class _RduaScreenState extends State<RduaScreen> {
     required String title,
     required String fileRef,
   }) {
+    final colors = context.folk;
+    final text = context.folkText;
     final isRead = _progress['${topicId}_$chapterNum'] == true;
 
     return InkWell(
+      borderRadius: BorderRadius.circular(FolkShape.tileRadius),
       onTap: () => _openChapter(
         topicId: topicId,
         chapterNum: chapterNum,
         chapterTitle: title,
         fileRef: fileRef,
       ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
-        child: Row(
-          children: [
-            Icon(
-              isRead ? Icons.check_circle : Icons.radio_button_unchecked,
-              size: 18,
-              color: isRead ? Colors.green : Colors.grey.shade400,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                title,
-                style: TextStyle(
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w500,
-                  color: isRead ? Colors.grey.shade700 : Colors.black87,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: FolkShape.touchTarget),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+          child: Row(
+            children: [
+              Icon(
+                isRead ? Icons.check_circle : Icons.radio_button_unchecked,
+                size: 20,
+                color: isRead
+                    ? FolkCalendarTokens.legendSubmitted
+                    : colors.disabledText,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: text.body.copyWith(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: isRead ? colors.mutedText : colors.text,
+                  ),
                 ),
               ),
-            ),
-            Icon(Icons.chevron_right, size: 18, color: Colors.grey.shade400),
-          ],
+              Icon(Icons.chevron_right, size: 18, color: colors.mutedText),
+            ],
+          ),
         ),
       ),
     );
   }
 
   Widget _topicTile(Map<String, dynamic> data) {
+    final colors = context.folk;
+    final text = context.folkText;
     final topicId = (data['topicNumber'] is num)
         ? (data['topicNumber'] as num).toInt().toString().padLeft(2, '0')
         : (data['id'] ?? '').toString();
@@ -183,40 +195,35 @@ class _RduaScreenState extends State<RduaScreen> {
     return Theme(
       data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
       child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
+        margin: const EdgeInsets.only(bottom: FolkSpace.cardGap),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(.05),
-              blurRadius: 8,
-              offset: const Offset(0, 4),
-            ),
-          ],
+          color: colors.surface,
+          borderRadius: BorderRadius.circular(FolkShape.tileRadius),
+          boxShadow: colors.cardShadows,
         ),
         // ExpansionTile paints its header/ink via the nearest Material
-        // ancestor — without one here, the Container's own `color: white`
-        // above sits between it and the Scaffold's Material, triggering
-        // "ListTile background color or ink splashes may be invisible"
-        // (recurred three times in this project already — same fix each
-        // time).
+        // ancestor — without one here, the Container's own colour above sits
+        // between it and the Scaffold's Material, triggering "ListTile
+        // background color or ink splashes may be invisible" (recurred three
+        // times in this project already — same fix each time).
         child: Material(
           color: Colors.transparent,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(FolkShape.tileRadius),
           clipBehavior: Clip.antiAlias,
           child: ExpansionTile(
             key: PageStorageKey(topicId),
+            iconColor: colors.text,
+            collapsedIconColor: colors.mutedText,
             tilePadding: const EdgeInsets.symmetric(horizontal: 16),
             childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
             title: Text(
               "$topicId. $topicTitle",
-              style:
-                  const TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5),
+              style: text.bodyStrong,
             ),
             trailing: bothRead
-                ? const Icon(Icons.check_circle, color: Colors.green, size: 20)
-                : const Icon(Icons.expand_more),
+                ? const Icon(Icons.check_circle,
+                    color: FolkCalendarTokens.legendSubmitted, size: 22)
+                : Icon(Icons.expand_more, color: colors.mutedText),
             children: [
               _chapterRow(
                 topicId: topicId,
@@ -224,7 +231,7 @@ class _RduaScreenState extends State<RduaScreen> {
                 title: chapter1Title,
                 fileRef: chapter1FileRef,
               ),
-              Divider(height: 1, color: Colors.grey.shade200),
+              Divider(height: 1, color: colors.surfaceSecondary),
               _chapterRow(
                 topicId: topicId,
                 chapterNum: '2',
@@ -240,56 +247,60 @@ class _RduaScreenState extends State<RduaScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ColorProvider>(
-      builder: (context, colorProvider, child) {
-        return Scaffold(
-          backgroundColor: colorProvider.color,
-          appBar: AppBar(
-            backgroundColor: colorProvider.color,
-            elevation: 0,
-            iconTheme: IconThemeData(color: colorProvider.secondColor),
-            title: Text(
-              "RDUA Modules",
-              style: TextStyle(
-                color: colorProvider.secondColor,
-                fontWeight: FontWeight.bold,
+    final text = context.folkText;
+    return FolkScaffold(
+      title: "RDUA Modules",
+      body: StreamBuilder<QuerySnapshot>(
+        stream: _firestore
+            .collection('rduaTopics')
+            .orderBy('topicNumber')
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            // Ghost topic rows while the list loads.
+            return GhostScope(
+              child: ListView(
+                physics: const NeverScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(FolkSpace.pagePadding),
+                children: [
+                  for (var i = 0; i < 7; i++)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: FolkSpace.cardGap),
+                      child: GhostPlaceholder(
+                        width: double.infinity,
+                        height: 56,
+                        radius: FolkShape.tileRadius,
+                        showBars: false,
+                      ),
+                    ),
+                ],
               ),
+            );
+          }
+          if (snapshot.hasError) {
+            return Center(
+                child: Text("Error: ${snapshot.error}", style: text.body));
+          }
+
+          final docs = snapshot.data?.docs ?? [];
+          if (docs.isEmpty) {
+            return Center(
+              child: Text("No modules available yet.", style: text.body),
+            );
+          }
+
+          return ListView.builder(
+            padding: const EdgeInsets.all(FolkSpace.pagePadding),
+            physics: const BouncingScrollPhysics(),
+            itemCount: docs.length,
+            itemBuilder: (context, i) => EntryAnimation(
+              key: ValueKey(docs[i].id),
+              index: i,
+              child: _topicTile(docs[i].data() as Map<String, dynamic>),
             ),
-          ),
-          body: StreamBuilder<QuerySnapshot>(
-            stream: _firestore
-                .collection('rduaTopics')
-                .orderBy('topicNumber')
-                .snapshots(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const CustomLoader();
-              }
-              if (snapshot.hasError) {
-                return Center(child: Text("Error: ${snapshot.error}"));
-              }
-
-              final docs = snapshot.data?.docs ?? [];
-              if (docs.isEmpty) {
-                return Center(
-                  child: Text(
-                    "No modules available yet.",
-                    style: TextStyle(color: colorProvider.secondColor),
-                  ),
-                );
-              }
-
-              return ListView.builder(
-                padding: const EdgeInsets.all(16),
-                physics: const BouncingScrollPhysics(),
-                itemCount: docs.length,
-                itemBuilder: (context, i) =>
-                    _topicTile(docs[i].data() as Map<String, dynamic>),
-              );
-            },
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 }

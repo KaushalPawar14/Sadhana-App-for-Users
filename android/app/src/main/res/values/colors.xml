@@ -5,4 +5,8 @@
 
     <color name="black">#000000</color>
     <color name="white">#FFFFFF</color>
+
+    <!-- The app's page background (FolkColors.pageBackground, light). The window
+         shows it until Flutter draws its first frame, so there is no flash. -->
+    <color name="folk_page_background">#F8F7FC</color>
 </resources>

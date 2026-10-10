@@ -1,36 +1,178 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:curved_navigation_bar/curved_navigation_bar.dart';
 import 'package:folk_app/pages/ABCDEScreen.dart';
 import 'package:folk_app/pages/Calendar.dart';
 import 'package:folk_app/pages/Competition.dart';
 import 'package:folk_app/pages/Profile.dart';
 import 'package:folk_app/pages/Scorecard.dart';
-import 'package:folk_app/utils/ColorProvider.dart';
-import 'package:folk_app/utils/MalaLoading.dart';
+import 'package:folk_app/services/DailyMessageService.dart';
+import 'package:folk_app/theme/FolkTheme.dart';
+import 'package:folk_app/theme/FolkTokens.dart';
+import 'package:folk_app/utils/MainAppReached.dart';
 import 'package:folk_app/utils/SeenMarkers.dart';
 import 'package:folk_app/utils/UnseenDot.dart';
-import 'package:provider/provider.dart';
+import 'package:folk_app/widgets/EntryAnimation.dart';
+import 'package:folk_app/widgets/FloatingPillNavBar.dart';
+import 'package:folk_app/widgets/FolkPageBackground.dart';
+import 'package:folk_app/widgets/FolkStatusBar.dart';
+import 'package:folk_app/widgets/NavHostGhost.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+// The four tabs' titles, the small muted line above two of them, the title bar and
+// the pill's items. Top-level so the launch ghost (`widgets/StartupWaiting.dart`)
+// draws the very same header and pill the tab host does.
+const List<String> kHostTabTitles = ['Insights', 'Journey', 'Sadhana', 'Profile'];
+
+const Map<int, String> kHostKickers = {
+  0: "How you're doing",
+  2: 'Your daily practice',
+};
+
+/// The tab's large title, in place of the AppBar the screens used to sit
+/// under. Each tab's own screen starts below it, as it did below the AppBar.
+Widget hostHeader(BuildContext context, int idx) {
+  // Journey greets the student by name inside its own list ("Hare Krishna,"
+  // and the first name), so it has no title bar of its own.
+  if (idx == 1) return const SizedBox.shrink();
+  return Padding(
+    padding: const EdgeInsets.fromLTRB(
+        FolkSpace.pagePadding, FolkSpace.lg, FolkSpace.pagePadding, FolkSpace.sm),
+    child: Align(
+      alignment: Alignment.centerLeft,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // A small muted line above the title (Insights and Sadhana).
+          if (kHostKickers[idx] != null)
+            Text(
+              kHostKickers[idx]!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: context.folkText.body
+                  .copyWith(color: context.folk.mutedText),
+            ),
+          Text(
+            kHostTabTitles[idx],
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: context.folkText.screenTitle,
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+/// The pill's four items. [journeyUnseen] feeds the one unseen-content dot (on
+/// Journey); the launch ghost passes none.
+List<FolkNavItem> hostNavItems(BuildContext context,
+    {Stream<bool>? journeyUnseen}) {
+  final colors = context.folk;
+  final titles = kHostTabTitles;
+  return [
+    FolkNavItem(
+      label: titles[0],
+      iconBuilder: (context, selected, color) => Icon(
+        Icons.bar_chart_rounded,
+        size: 22,
+        color: color,
+      ),
+    ),
+    // Master Task 2026-09-10, Part 6 item 5 — the only tab with an
+    // unseen-content dot; see `_journeyUnseen`'s own doc comment for
+    // why the other three don't get one. The dot is wrapped OUTSIDE
+    // the selected/unselected icon cross-fade (`decorate`), so its
+    // stream subscription survives the tab being selected.
+    FolkNavItem(
+      label: titles[1],
+      decorate: journeyUnseen == null
+          ? null
+          : (context, icon) => StreamBuilder<bool>(
+                stream: journeyUnseen,
+                builder: (context, snap) => UnseenBadge(
+                  show: snap.data ?? false,
+                  offset: const Offset(0, -2),
+                  ringColor: colors.surface,
+                  child: icon,
+                ),
+              ),
+      iconBuilder: (context, selected, color) => Icon(
+        selected ? Icons.spa : Icons.spa_outlined,
+        size: 22,
+        color: color,
+      ),
+    ),
+    FolkNavItem(
+      label: titles[2],
+      iconBuilder: (context, selected, color) => Icon(
+        Icons.event_available_outlined,
+        size: 22,
+        color: color,
+      ),
+    ),
+    FolkNavItem(
+      label: titles[3],
+      iconBuilder: (context, selected, color) => Icon(
+        selected ? Icons.person_rounded : Icons.person_outline_rounded,
+        size: 22,
+        color: color,
+      ),
+    ),
+  ];
+}
+
 class CurvedNavBar extends StatefulWidget {
 
-  const CurvedNavBar(this.role, {super.key});
+  const CurvedNavBar(
+    this.role, {
+    super.key,
+    this.loadUser,
+    this.buildScreens,
+    this.journeyUnseen,
+    this.dailyMessage,
+  });
   final String role;
+
+  // Tests hand in their own loader, screens and unseen stream so the host can
+  // run without Firebase; the app never sets these.
+  @visibleForTesting
+  final Future<({String name, String role})> Function()? loadUser;
+  @visibleForTesting
+  final List<Widget> Function(String userName, String role)? buildScreens;
+  @visibleForTesting
+  final Stream<bool>? journeyUnseen;
+  @visibleForTesting
+  final DailyMessageService? dailyMessage;
 
   @override
   State<CurvedNavBar> createState() => _CurvedNavBarState();
 }
 
-class _CurvedNavBarState extends State<CurvedNavBar> {
+class _CurvedNavBarState extends State<CurvedNavBar>
+    with WidgetsBindingObserver {
   int currentIdx = 2; // Set default index to 2 for CalendarPage
 
-  final List<String> titles = ['Folk analysis', 'Journey', 'Calendar', 'Profile'];
+  /// The tabs the student has opened. A tab's screen is built the first time
+  /// it is selected and then kept alive (see the `IndexedStack` in `build`),
+  /// so coming back to it neither rebuilds nor re-reads anything and its
+  /// entry animation plays only on that first visit.
+  final Set<int> _visited = {2};
+
+  /// Today's message is made when the student opens (or comes back to) the
+  /// app, so it is ready before they reach Journey. Null in tests that hand
+  /// in their own `loadUser` without a service.
+  DailyMessageService? get _dailyMessage =>
+      widget.dailyMessage ??
+      (widget.loadUser == null ? DailyMessageService.instance : null);
+
+  final List<String> titles = kHostTabTitles;
   late String userName; // Declare a variable to hold the username
   late String role;
   bool isLoading = true; // Flag to indicate loading state
+  bool loadFailed = false; // LOGIC CHANGE: the profile read failed; show Retry
   late List<Widget> screens; // ✅ declare late
 
   /// Master Task 2026-09-10, Part 6 item 5 — "Journey" (idx 1) is the only
@@ -53,6 +195,23 @@ class _CurvedNavBarState extends State<CurvedNavBar> {
     ];
     _fetchUserName(); // fetch user and then update screens
     _buildUnseenStreams();
+    WidgetsBinding.instance.addObserver(this);
+    _dailyMessage?.onAppOpened();
+    // The tab host is only ever built once registration is complete: tell the
+    // floating buttons the student has reached the main app.
+    MainAppReached.instance.enter();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _dailyMessage?.onAppOpened();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    MainAppReached.instance.leave();
+    super.dispose();
   }
 
   Stream<Timestamp?> _maxTimestamp(
@@ -98,6 +257,10 @@ class _CurvedNavBarState extends State<CurvedNavBar> {
   }
 
   void _buildUnseenStreams() {
+    if (widget.journeyUnseen != null) {
+      _journeyUnseen = widget.journeyUnseen!;
+      return;
+    }
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null || uid.isEmpty) {
       _journeyUnseen = Stream.value(false);
@@ -184,10 +347,22 @@ class _CurvedNavBarState extends State<CurvedNavBar> {
   }
 
   // Fetch the username from Firestore
+  //
+  // LOGIC CHANGE: a failed read (or no signed-in user) used to leave the host
+  // on its loader for good. It now sets [loadFailed], which shows an error with
+  // a Retry button; Retry calls this again.
   Future<void> _fetchUserName() async {
     try {
-      var currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser != null) {
+      final injected = widget.loadUser;
+      if (injected != null) {
+        final loaded = await injected();
+        userName = loaded.name;
+        role = loaded.role;
+      } else {
+        var currentUser = FirebaseAuth.instance.currentUser;
+        if (currentUser == null) {
+          throw StateError('No signed-in user');
+        }
         var userDoc = await FirebaseFirestore.instance
             .collection('users')
             .doc(currentUser.uid)
@@ -195,126 +370,107 @@ class _CurvedNavBarState extends State<CurvedNavBar> {
 
         userName = userDoc.data()?['name'] ?? 'Unknown User';
         role = userDoc.data()?['role'] ?? widget.role; // fallback to passed role
-
-        // Update screens with actual pages now that role and username are known
-        setState(() {
-          screens = [
-            CompetitionPage(role: role),
-            const ABCDEScreen(),
-            CalendarPage(username: userName, role: role),
-            ProfilePage(),
-          ];
-          isLoading = false;
-        });
       }
+
+      if (!mounted) return;
+      // Update screens with actual pages now that role and username are known
+      setState(() {
+        screens = widget.buildScreens != null
+            ? widget.buildScreens!(userName, role)
+            : [
+                CompetitionPage(role: role, username: userName),
+                const ABCDEScreen(),
+                CalendarPage(username: userName, role: role),
+                ProfilePage(),
+              ];
+        loadFailed = false;
+        isLoading = false;
+      });
     } catch (e) {
       print('Error fetching username from Firestore: $e');
+      if (!mounted) return;
+      setState(() => loadFailed = true);
     }
   }
 
+  void _retryLoad() {
+    setState(() {
+      loadFailed = false;
+      isLoading = true;
+    });
+    _fetchUserName();
+  }
+
+  Widget _header() => hostHeader(context, currentIdx);
+
   @override
   Widget build(BuildContext context) {
-    return Consumer<ColorProvider>(builder: (context, colorProvider, child) {
-      return Scaffold(
-        appBar: AppBar(
-          centerTitle: true,
-          title: Text(
-            titles[currentIdx],
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 25,
-              color: colorProvider.secondColor,
-            ),
-          ),
-          backgroundColor: colorProvider.color,
-        ),
-        body: isLoading
-            ? CustomLoader() // Show loading indicator
-            : screens[currentIdx], // Show the correct screen
-        // Three-button-navigation fix — same approach as the Guide app's
-        // own `utils/BottomNavBar.dart` (`CurvedNavBar`), replicated here
-        // rather than reinvented (Rule 1).
-        //
-        // ⚠️ NOT `SafeArea`. `SafeArea` insets the bar by
-        // `MediaQuery.padding.bottom` and paints nothing in the reserved
-        // strip, so whatever is behind shows through:
-        //
-        //   * Gesture navigation — the system's home-indicator pill is a
-        //     thin OVERLAY (~24-34px) and reports a non-zero bottom
-        //     inset. SafeArea therefore pushes the whole bar UP by that
-        //     much and leaves a bare strip beneath it — the bar looks
-        //     like it's floating above the screen edge.
-        //   * 3-button navigation — the opaque system bar reports a
-        //     larger inset (~48px), and reserving it is genuinely
-        //     necessary, otherwise the bar sits underneath the system
-        //     buttons — this app's own bug before this fix.
-        //
-        // The inset itself is right in both cases; painting nothing in
-        // it is wrong. This `Container` reserves the identical runtime
-        // inset but fills it with the bar's OWN colour, so the bar reads
-        // as extending to the physical bottom edge on gesture devices
-        // while still clearing the opaque bar in 3-button mode. No mode
-        // detection, no magic numbers — one expression that adapts
-        // because the inset itself differs.
-        //
-        // `viewPadding` rather than `padding` on purpose: `padding`
-        // collapses to zero while a keyboard is open, which would make
-        // the strip flicker away mid-typing.
-        bottomNavigationBar: Container(
-          color: const Color(0xFF835DF1),
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewPadding.bottom,
-          ),
-          child: CurvedNavigationBar(
-            items: <Widget>[
-              const Icon(
-                Icons.dataset_outlined,
-                size: 30,
-                color: Colors.white,
-              ),
-              // Master Task 2026-09-10, Part 6 item 5 — the only tab with
-              // an unseen-content dot; see `_journeyUnseen`'s own doc
-              // comment for why the other three don't get one.
-              StreamBuilder<bool>(
-                stream: _journeyUnseen,
-                builder: (context, snap) => UnseenBadge(
-                  show: snap.data ?? false,
-                  offset: const Offset(4, 2),
-                  // CurvedNavigationBar shows one widget per item, so the
-                  // selected/unselected pair is resolved here.
-                  child: Icon(
-                    currentIdx == 1 ? Icons.spa : Icons.spa_outlined,
-                    size: 30,
-                    color: Colors.white,
+    final colors = context.folk;
+    return FolkStatusBar(
+      child: Scaffold(
+        // The pill floats; the body runs underneath it, so every tab screen
+        // pads its own bottom by `FloatingPillNavBar.reservedHeight`.
+        extendBody: true,
+        backgroundColor: colors.pageBackground,
+        body: FolkPageBackground(
+          child: SafeArea(
+            bottom: false,
+            child: Column(
+              children: [
+                EntryAnimation(index: 0, child: _header()),
+                Expanded(
+                  // Tab screens pad their own bottom explicitly (by
+                  // `FloatingPillNavBar.reservedHeight`), so the Scaffold's
+                  // automatic bottom padding is removed here — but ONLY
+                  // `padding`. `MediaQuery.removePadding` also took the system
+                  // bar's height out of `viewPadding`, which is what
+                  // `reservedHeight` reads, so every tab padded itself too
+                  // little (by the gesture-bar / 3-button-bar height) and its
+                  // last item ended up behind the pill. `viewPadding` is kept.
+                  child: MediaQuery(
+                    data: MediaQuery.of(context).copyWith(
+                      padding: MediaQuery.paddingOf(context).copyWith(bottom: 0),
+                    ),
+                    child: loadFailed
+                        ? NavHostError(onRetry: _retryLoad)
+                        : isLoading
+                            ? const NavHostGhost() // Ghost of the first tab while the name and role load
+                            // Every opened tab stays alive underneath the
+                            // visible one; the hidden ones do not tick.
+                            : IndexedStack(
+                                index: currentIdx,
+                                children: [
+                                  for (var i = 0; i < screens.length; i++)
+                                    TickerMode(
+                                      enabled: i == currentIdx,
+                                      child: _visited.contains(i)
+                                          ? screens[i]
+                                          : const SizedBox.shrink(),
+                                    ),
+                                ],
+                              ),
                   ),
                 ),
-              ),
-              const Icon(
-                Icons.mark_unread_chat_alt_outlined,
-                size: 30,
-                color: Colors.white,
-              ),
-              const Icon(
-                Icons.person,
-                size: 30,
-                color: Colors.white,
-              ),
-            ],
-            buttonBackgroundColor: const Color(0xFF835DF1),
-            backgroundColor: colorProvider.color,
-            color: const Color(0xFF835DF1),
-            animationCurve: Curves.easeInOut,
-            height: 60,
-            animationDuration: const Duration(milliseconds: 250),
-            index: currentIdx, // Set the initial selected index
-            onTap: (index) {
-              setState(() {
-                currentIdx = index;
-              });
-            },
+              ],
+            ),
           ),
         ),
-      );
-    });
+        // Three-button-navigation fix (kept): the pill's own bottom padding
+        // is `viewPadding.bottom`, so it clears the system bar in gesture and
+        // 3-button modes alike — see `FloatingPillNavBar`. `viewPadding`
+        // rather than `padding` so it does not collapse while a keyboard is
+        // open.
+        bottomNavigationBar: FloatingPillNavBar(
+          currentIndex: currentIdx, // initial selection is index 2
+          items: hostNavItems(context, journeyUnseen: _journeyUnseen),
+          onTap: (index) {
+            setState(() {
+              currentIdx = index;
+              _visited.add(index);
+            });
+          },
+        ),
+      ),
+    );
   }
 }

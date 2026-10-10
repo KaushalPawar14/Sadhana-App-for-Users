@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../theme/ThemeModeController.dart';
+
 class ColorProvider with ChangeNotifier {
   Color _color = Colors.white;  // Main color (default white)
   Color _secondColor = Colors.black;  // Second color (default black)
@@ -12,9 +14,42 @@ class ColorProvider with ChangeNotifier {
   Color get thirdColor => _thirdColor;
   Color get fourthColor => _fourthColor;
 
-  // Constructor to load saved color preferences when the app starts
-  ColorProvider() {
-    _loadColorPreferences();
+  ThemeModeController? _themeController;
+
+  // Constructor to load saved color preferences when the app starts. The app
+  // root passes loadLegacyPrefs: false and calls bindTo, so the Light/Dark/Auto
+  // setting is the only thing that decides these colours.
+  ColorProvider({bool loadLegacyPrefs = true}) {
+    if (loadLegacyPrefs) _loadColorPreferences();
+  }
+
+  // Makes every screen that reads these colours follow the Light/Dark/Auto
+  // setting. Sets the colours now (no notification, so it is safe during
+  // build) and again whenever the setting or the system brightness changes.
+  void bindTo(ThemeModeController controller) {
+    _themeController?.removeListener(_followTheme);
+    _themeController = controller;
+    controller.addListener(_followTheme);
+    _applyDark(controller.isDark);
+  }
+
+  void _followTheme() {
+    _applyDark(_themeController!.isDark);
+    notifyListeners();
+  }
+
+  void _applyDark(bool dark) {
+    if (dark) {
+      _color = Colors.black87;
+      _secondColor = Colors.white;
+      _thirdColor = Color(0xFF835DF1);
+      _fourthColor = Colors.grey[850]!;
+    } else {
+      _color = Colors.white;
+      _secondColor = Colors.black;
+      _thirdColor = Color(0xFF835DF1);
+      _fourthColor = Colors.white70;
+    }
   }
 
   // Load color preferences from shared preferences
@@ -40,6 +75,13 @@ class ColorProvider with ChangeNotifier {
 
   // Toggle between white/black87 for the main color and between black/white for the second color
   Future<void> toggleColor() async {
+    final controller = _themeController;
+    if (controller != null) {
+      await controller.setMode(
+          controller.isDark ? FolkThemeMode.light : FolkThemeMode.dark);
+      return;
+    }
+
     SharedPreferences prefs = await SharedPreferences.getInstance();
 
     if (_color == Colors.white) {

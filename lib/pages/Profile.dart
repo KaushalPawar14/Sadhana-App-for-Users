@@ -9,12 +9,24 @@ import 'package:folk_app/pages/ChantingCompetition.dart';
 import 'package:folk_app/pages/NotificationPreferences.dart';
 import 'package:folk_app/pages/Welcome.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:folk_app/utils/MalaLoading.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../main.dart' show studentNavigatorKey;
-import '../utils/ColorProvider.dart';
+import '../theme/FolkColors.dart';
+import '../theme/FolkTheme.dart';
+import '../theme/FolkTokens.dart';
+import '../widgets/ProfileMenuIconTile.dart';
+import '../theme/FolkTypography.dart';
+import '../theme/ThemeModeController.dart';
+import '../widgets/EntryAnimation.dart';
+import '../widgets/FloatingPillNavBar.dart';
+import '../widgets/FolkSegmented.dart';
+import '../widgets/GhostPlaceholder.dart';
+import '../widgets/GradientCard.dart';
+import '../widgets/LogoutButton.dart';
+import '../widgets/PressScale.dart';
+import '../widgets/ProfileStatTiles.dart';
 
 class ProfilePage extends StatefulWidget {
   @override
@@ -36,6 +48,11 @@ class _ProfilePageState extends State<ProfilePage>
   /// treated as a real commitment of 0 rounds/day.
   int? commitmentRounds;
 
+  /// The most rounds / reading minutes the student ever reported in one day, from
+  /// the user document (kept by the `updateBestStatsOn*` triggers). 0 until set.
+  int bestChantRounds = 0;
+  int bestReadingMinutes = 0;
+
   late String uid;
 
   /// Firestore-listener-in-build() fix (2026-09-09, size/perf task) — used
@@ -48,12 +65,20 @@ class _ProfilePageState extends State<ProfilePage>
   /// fixed for this tab's whole life.
   late final Stream<DocumentSnapshot<Map<String, dynamic>>> _userStream;
 
+  /// This student's books (the same `booksRead` query the Journey tab already
+  /// uses), for the "books completed" tile. Built once, like [_userStream].
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _booksStream;
+
   @override
   void initState() {
     super.initState();
     uid = FirebaseAuth.instance.currentUser!.uid;
     _userStream =
         FirebaseFirestore.instance.collection('users').doc(uid).snapshots();
+    _booksStream = FirebaseFirestore.instance
+        .collection('booksRead')
+        .where('uid', isEqualTo: uid)
+        .snapshots();
   }
 
   /// Back-button fix (2026-09-03) — same bug and same fix as
@@ -73,58 +98,68 @@ class _ProfilePageState extends State<ProfilePage>
   /// cases apart at pop-time.
   @override
   Widget build(BuildContext context) {
-    return Consumer<ColorProvider>(builder: (context, colorProvider, child) {
-      return PopScope<Object?>(
-        canPop: false,
-        onPopInvokedWithResult: (didPop, result) {
-          if (didPop) return;
-          if (MediaQuery.of(context).viewInsets.bottom > 0) {
-            FocusScope.of(context).unfocus();
-            return;
-          }
-          if (Navigator.of(context).canPop()) {
-            Navigator.of(context).pop();
-          } else {
-            SystemNavigator.pop();
-          }
-        },
-        child: Scaffold(
-          backgroundColor: colorProvider.color,
-          body: StreamBuilder<DocumentSnapshot>(
-            stream: _userStream,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CustomLoader());
-              }
+    final text = context.folkText;
+    return PopScope<Object?>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (MediaQuery.of(context).viewInsets.bottom > 0) {
+          FocusScope.of(context).unfocus();
+          return;
+        }
+        if (Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+        } else {
+          SystemNavigator.pop();
+        }
+      },
+      child: Scaffold(
+        // The tab host paints the page background (with the top fade).
+        backgroundColor: Colors.transparent,
+        body: StreamBuilder<DocumentSnapshot>(
+          stream: _userStream,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return _swap('ghost', _ghostBody());
+            }
 
-              if (snapshot.hasError) {
-                return Center(child: Text("Error: ${snapshot.error}"));
-              }
+            if (snapshot.hasError) {
+              return _swap(
+                  'error',
+                  Center(
+                      child: Text("Error: ${snapshot.error}",
+                          style: text.body)));
+            }
 
-              if (!snapshot.hasData || !snapshot.data!.exists) {
-                return Center(child: Text("No Data"));
-              }
+            if (!snapshot.hasData || !snapshot.data!.exists) {
+              return _swap(
+                  'empty', Center(child: Text("No Data", style: text.body)));
+            }
 
-              final data = snapshot.data!.data() as Map<String, dynamic>;
+            final data = snapshot.data!.data() as Map<String, dynamic>;
 
-              name = data['name'] ?? "";
-              email = data['email'] ?? "";
-              role = data['role'] ?? "Not mentioned";
-              mobileNumber = data['mobileNumber'];
-              dob = data['dob'] is Timestamp
-                  ? (data['dob'] as Timestamp).toDate()
-                  : null;
-              final rawCommitment = data['commitmentRounds'];
-              commitmentRounds = rawCommitment is num && rawCommitment > 0
-                  ? rawCommitment.toInt()
-                  : null;
+            name = data['name'] ?? "";
+            email = data['email'] ?? "";
+            role = data['role'] ?? "Not mentioned";
+            mobileNumber = data['mobileNumber'];
+            dob = data['dob'] is Timestamp
+                ? (data['dob'] as Timestamp).toDate()
+                : null;
+            final rawCommitment = data['commitmentRounds'];
+            commitmentRounds = rawCommitment is num && rawCommitment > 0
+                ? rawCommitment.toInt()
+                : null;
+            final rawBestChant = data['bestChantRounds'];
+            bestChantRounds = rawBestChant is num ? rawBestChant.toInt() : 0;
+            final rawBestReading = data['bestReadingMinutes'];
+            bestReadingMinutes =
+                rawBestReading is num ? rawBestReading.toInt() : 0;
 
-              return _buildUI(context); // 👈 move your current UI into this
-            },
-          ),
+            return _swap('real', _buildUI(context)); // 👈 move your current UI into this
+          },
         ),
-      );
-    });
+      ),
+    );
   }
 
   /// Lets a student set — or correct — their own date of birth.
@@ -141,6 +176,27 @@ class _ProfilePageState extends State<ProfilePage>
       firstDate: DateTime(1950),
       lastDate: DateTime(now.year - 10, now.month, now.day),
       helpText: 'Select your date of birth',
+      // Colours only — the picker follows the Folk palette in both themes.
+      builder: (pickerContext, child) {
+        final colors = pickerContext.folk;
+        final scheme = colors.isDark
+            ? ColorScheme.dark(
+                primary: colors.primaryBg,
+                onPrimary: colors.primaryFg,
+                surface: colors.surface,
+                onSurface: colors.text,
+              )
+            : ColorScheme.light(
+                primary: colors.primaryBg,
+                onPrimary: colors.primaryFg,
+                surface: colors.surface,
+                onSurface: colors.text,
+              );
+        return Theme(
+          data: Theme.of(pickerContext).copyWith(colorScheme: scheme),
+          child: child!,
+        );
+      },
     );
 
     if (picked == null) return;
@@ -169,39 +225,56 @@ class _ProfilePageState extends State<ProfilePage>
 
     final result = await showDialog<int>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text("Chanting commitment"),
-        content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.number,
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'Rounds per day',
-            border: OutlineInputBorder(),
+      builder: (dialogContext) {
+        final colors = dialogContext.folk;
+        final text = dialogContext.folkText;
+        return AlertDialog(
+          backgroundColor: colors.surface,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(FolkShape.cardRadius)),
+          title: Text("Chanting commitment", style: text.topBarTitle),
+          content: TextField(
+            controller: controller,
+            keyboardType: TextInputType.number,
+            autofocus: true,
+            style: text.body,
+            cursorColor: colors.text,
+            decoration: InputDecoration(
+              hintText: 'Rounds per day',
+              hintStyle: text.body.copyWith(color: colors.mutedText),
+              filled: true,
+              fillColor: colors.surfaceSecondary,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(FolkShape.tileRadius),
+                borderSide: BorderSide.none,
+              ),
+            ),
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text("Cancel"),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final n = int.tryParse(controller.text.trim());
-              if (n == null || n <= 0) {
-                ScaffoldMessenger.of(dialogContext).showSnackBar(
-                  const SnackBar(
-                      content: Text("Enter a whole number greater than 0")),
-                );
-                return;
-              }
-              Navigator.of(dialogContext).pop(n);
-            },
-            child: const Text("Save"),
-          ),
-        ],
-      ),
+          actions: [
+            TextButton(
+              style: _dialogTextButton(colors, text),
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text("Cancel"),
+            ),
+            ElevatedButton(
+              style: _dialogPrimaryButton(colors, text),
+              onPressed: () {
+                final n = int.tryParse(controller.text.trim());
+                if (n == null || n <= 0) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    const SnackBar(
+                        content: Text("Enter a whole number greater than 0")),
+                  );
+                  return;
+                }
+                Navigator.of(dialogContext).pop(n);
+              },
+              child: const Text("Save"),
+            ),
+          ],
+        );
+      },
     );
 
     if (result == null) return;
@@ -219,371 +292,359 @@ class _ProfilePageState extends State<ProfilePage>
     }
   }
 
+  /// Cross-fades between the ghost, an error and the real page. All three fill
+  /// the same body, so nothing moves.
+  Widget _swap(String key, Widget child) {
+    return AnimatedSwitcher(
+      duration: FolkMotion.of(context, FolkMotion.ghostCrossFade),
+      layoutBuilder: (current, previous) => Stack(
+        fit: StackFit.expand,
+        children: [...previous, if (current != null) current],
+      ),
+      child: KeyedSubtree(key: ValueKey<String>(key), child: child),
+    );
+  }
+
+  /// While the profile document loads: the name card, the three stat tiles, the
+  /// six-row menu card,
+  /// the Appearance row and the Log Out button as ghosts, with the same page
+  /// padding, gaps and sizes as the real page (88 / 6 rows of 64 + 12 / 72 / 56).
+  /// The stream that ends this is unchanged.
+  Widget _ghostBody() {
+    return SingleChildScrollView(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: EdgeInsets.fromLTRB(
+        FolkSpace.pagePadding,
+        FolkSpace.sm,
+        FolkSpace.pagePadding,
+        FloatingPillNavBar.reservedHeight(context) + FolkSpace.lg,
+      ),
+      child: const GhostScope(
+        child: Column(
+          children: [
+            GhostPlaceholder(
+                width: double.infinity, height: 88, showBars: false),
+            SizedBox(height: FolkSpace.cardGap),
+            ProfileStatTilesGhost(),
+            SizedBox(height: FolkSpace.cardGap),
+            GhostPlaceholder(
+                width: double.infinity, height: 6 * 64 + 12, showBars: false),
+            SizedBox(height: FolkSpace.cardGap),
+            GhostPlaceholder(
+                width: double.infinity, height: 72, showBars: false),
+            SizedBox(height: FolkSpace.xxl),
+            GhostPlaceholder(
+              width: double.infinity,
+              height: FolkShape.buttonHeight,
+              radius: FolkShape.buttonRadius,
+              showBars: false,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildUI(BuildContext context) {
-    final colorProvider = Provider.of<ColorProvider>(context, listen: false);
+    final text = context.folkText;
+    final themeController = context.watch<ThemeModeController>();
 
-    return SafeArea(
-      child: SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
-        child: Padding(
-          padding: const EdgeInsets.all(10),
-          child: Column(
-            children: [
-              SafeArea(
-                child: SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  child: Padding(
-                    padding: const EdgeInsets.all(5),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(child: SizedBox()),
-                            IconButton(
-                              onPressed: () {
-                                Provider.of<ColorProvider>(context,
-                                        listen: false)
-                                    .toggleColor();
-                              },
-                              icon: Icon(Icons.dark_mode,
-                                  color: colorProvider.secondColor),
+    // Name card: the student's name and residence, display only — there is no
+    // way to edit either from here.
+    final displayName = name ?? "";
+    final initial =
+        displayName.trim().isEmpty ? null : displayName.trim()[0].toUpperCase();
+
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      child: Padding(
+        // Bottom leaves room for the floating pill navigation.
+        padding: EdgeInsets.fromLTRB(
+          FolkSpace.pagePadding,
+          FolkSpace.sm,
+          FolkSpace.pagePadding,
+          FloatingPillNavBar.reservedHeight(context) + FolkSpace.lg,
+        ),
+        child: Column(
+          children: [
+            /// Profile header
+            EntryAnimation(
+              index: 0,
+              child: GradientCard(
+                style: FolkGradientStyle.sky,
+                decorate: false,
+                padding: const EdgeInsets.all(FolkSpace.lg),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 56,
+                      height: 56,
+                      alignment: Alignment.center,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: FolkColors.gradientPlayButton,
+                      ),
+                      child: initial == null
+                          ? const Icon(CupertinoIcons.person_alt, size: 28)
+                          : Text(
+                              initial,
+                              style: text.cardTitle.copyWith(fontSize: 24),
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 13),
-
-                        /// Profile header
-                        AnimatedContainer(
-                          duration: const Duration(milliseconds: 600),
-                          curve: Curves.easeOut,
-                          padding: const EdgeInsets.all(20),
-                          decoration: BoxDecoration(
-                            color: Colors.deepPurpleAccent,
-                            borderRadius: BorderRadius.circular(25),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black26,
-                                blurRadius: 10,
-                                offset: const Offset(0, 6),
-                              ),
-                            ],
-                          ),
-                          child: Row(
-                            children: [
-                              CircleAvatar(
-                                radius: 30,
-                                backgroundColor: Colors.white.withOpacity(0.3),
-                                child: const Icon(
-                                  CupertinoIcons.person_alt,
-                                  size: 34,
-                                  color: Colors.white,
-                                ),
-                              ),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      name ?? "",
-                                      style: const TextStyle(
-                                        fontSize: 20,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      role ??
-                                          "", // <-- Show role instead of email
-                                      style: TextStyle(
-                                        fontSize: 15,
-                                        color: Colors.white.withOpacity(0.9),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        const SizedBox(height: 30),
-
-                        /// Floating menu items
-                        FloatingCard(
-                          child: itemProfileCard(
-                            'Book read',
-                            'Share your books reading history',
-                            CupertinoIcons.book,
-                            () {
-                              Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                      builder: (context) =>
-                                          BooksSelectionScreen()));
-                            },
-                          ),
-                        ),
-
-                        FloatingCard(
-                          delay: 400,
-                          child: Material(
-                            color: Colors
-                                .transparent, // if you want ripple visible, use a non-transparent color
-                            borderRadius: BorderRadius.circular(25),
-                            child: itemProfileCard(
-                              'My Achievements',
-                              "Your All Badges and Tags",
-                              CupertinoIcons.mail,
-                              () {
-                                Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                        builder: (context) => AchievementsPage(
-                                            username: name ?? "")));
-                              }, // can leave empty
-                            ),
-                          ),
-                        ),
-
-                        FloatingCard(
-                          delay: 400,
-                          child: Material(
-                            color: Colors.transparent,
-                            borderRadius: BorderRadius.circular(25),
-                            child: itemProfileCard(
-                              'Chanting Competition',
-                              "See the group's live rounds target",
-                              CupertinoIcons.flame,
-                              () {
-                                Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                        builder: (context) =>
-                                            const ChantingCompetitionPage()));
-                              },
-                            ),
-                          ),
-                        ),
-
-                        /// NOTIFICATIONS — what this student wants to be told
-                        /// about. Every type defaults to on, so this row only
-                        /// ever removes noise the student chose to remove.
-                        FloatingCard(
-                          delay: 400,
-                          child: Material(
-                            color: Colors.transparent,
-                            borderRadius: BorderRadius.circular(25),
-                            child: itemProfileCard(
-                              'Notifications',
-                              "Choose what you are notified about",
-                              CupertinoIcons.bell,
-                              () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) =>
-                                        NotificationPreferencesPage(uid: uid),
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                        ),
-
-                        /// DATE OF BIRTH — always shown. Students who
-                        /// registered before this field existed see an
-                        /// invitation to add it rather than a blank or a crash.
-                        FloatingCard(
-                          delay: 400,
-                          child: Material(
-                            color: Colors.transparent,
-                            borderRadius: BorderRadius.circular(25),
-                            child: itemProfileCard(
-                              'Date of Birth',
-                              dob == null
-                                  ? "Tap to add your date of birth"
-                                  : DateFormat('dd MMM yyyy').format(dob!),
-                              CupertinoIcons.gift,
-                              _pickAndSaveDob,
-                            ),
-                          ),
-                        ),
-
-                        /// CHANTING COMMITMENT — always shown, editable any
-                        /// time (unlike Date of Birth above, this never
-                        /// locks — a student's own commitment can genuinely
-                        /// change). This is the number the guide's compound
-                        /// target evaluation checks against.
-                        FloatingCard(
-                          delay: 400,
-                          child: Material(
-                            color: Colors.transparent,
-                            borderRadius: BorderRadius.circular(25),
-                            child: itemProfileCard(
-                              'Chanting Commitment',
-                              commitmentRounds == null
-                                  ? "Tap to set your daily rounds commitment"
-                                  : "$commitmentRounds rounds per day",
-                              CupertinoIcons.flame_fill,
-                              _editCommitmentRounds,
-                            ),
-                          ),
-                        ),
-
-                        const SizedBox(height: 40),
-
-                        /// Logout button
-                        AnimatedContainer(
-                          duration: const Duration(milliseconds: 300),
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.deepOrange[500],
-                              elevation: 3,
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(20)),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 30, vertical: 15),
-                            ),
-                            onPressed: () {
-                              showLogoutDialog(context);
-                            },
-                            child: const Text(
-                              "Log Out",
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
-                        )
-                      ],
                     ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            displayName,
+                            style: text.cardTitle.copyWith(fontSize: 22),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            role ?? "", // <-- Show role instead of email
+                            style: text.onGradientSmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: FolkSpace.cardGap),
+
+            /// Three stat tiles: best day of chanting, best day of reading, books
+            /// completed (counted from the books stream above, not stored).
+            EntryAnimation(
+              index: 1,
+              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: _booksStream,
+                builder: (context, books) => ProfileStatTiles(
+                  bestChantRounds: bestChantRounds,
+                  bestReadingMinutes: bestReadingMinutes,
+                  booksCompleted: books.hasData
+                      ? completedBooksOf(books.data!.docs.map((d) => d.data()))
+                      : null,
+                ),
+              ),
+            ),
+
+            const SizedBox(height: FolkSpace.cardGap),
+
+            /// Menu rows
+            EntryAnimation(
+              index: 2,
+              child: _menuCard([
+                _menuRow(
+                  'Book read',
+                  'Share your books reading history',
+                  CupertinoIcons.book,
+                  () {
+                    Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (context) => BooksSelectionScreen()));
+                  },
+                ),
+                _menuRow(
+                  'My Achievements',
+                  "Your All Badges and Tags",
+                  CupertinoIcons.mail,
+                  () {
+                    Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (context) =>
+                                AchievementsPage(username: name ?? "")));
+                  }, // can leave empty
+                ),
+                _menuRow(
+                  'Chanting Competition',
+                  "See the group's live rounds target",
+                  CupertinoIcons.flame,
+                  () {
+                    Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (context) =>
+                                const ChantingCompetitionPage()));
+                  },
+                ),
+
+                /// NOTIFICATIONS — what this student wants to be told
+                /// about. Every type defaults to on, so this row only
+                /// ever removes noise the student chose to remove.
+                _menuRow(
+                  'Notifications',
+                  "Choose what you are notified about",
+                  CupertinoIcons.bell,
+                  () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) =>
+                            NotificationPreferencesPage(uid: uid),
+                      ),
+                    );
+                  },
+                ),
+
+                /// DATE OF BIRTH — always shown. Students who
+                /// registered before this field existed see an
+                /// invitation to add it rather than a blank or a crash.
+                _menuRow(
+                  'Date of Birth',
+                  dob == null
+                      ? "Tap to add your date of birth"
+                      : DateFormat('dd MMM yyyy').format(dob!),
+                  CupertinoIcons.gift,
+                  _pickAndSaveDob,
+                ),
+
+                /// CHANTING COMMITMENT — always shown, editable any
+                /// time (unlike Date of Birth above, this never
+                /// locks — a student's own commitment can genuinely
+                /// change). This is the number the guide's compound
+                /// target evaluation checks against.
+                _menuRow(
+                  'Chanting Commitment',
+                  commitmentRounds == null
+                      ? "Tap to set your daily rounds commitment"
+                      : "$commitmentRounds rounds per day",
+                  CupertinoIcons.flame_fill,
+                  _editCommitmentRounds,
+                ),
+              ]),
+            ),
+
+            const SizedBox(height: FolkSpace.cardGap),
+
+            /// Appearance — replaces the old two-state dark toggle. Stored on
+            /// this device only (see ThemeModeController).
+            EntryAnimation(
+              index: 3,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 14, vertical: FolkSpace.md),
+                decoration: _surfaceDecoration(context),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 120,
+                      child: Text("Appearance", style: text.chip),
+                    ),
+                    Expanded(
+                      child: FolkSegmented<FolkThemeMode>(
+                        value: themeController.mode,
+                        onChanged: themeController.setMode,
+                        segments: const [
+                          FolkSegment(
+                              value: FolkThemeMode.light, label: "Light"),
+                          FolkSegment(
+                              value: FolkThemeMode.dark, label: "Dark"),
+                          FolkSegment(
+                              value: FolkThemeMode.auto, label: "Auto"),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: FolkSpace.xxl),
+
+            /// Logout button
+            EntryAnimation(
+              index: 4,
+              child: _logoutButton(context),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  BoxDecoration _surfaceDecoration(BuildContext context) {
+    final colors = context.folk;
+    return BoxDecoration(
+      color: colors.surface,
+      borderRadius: BorderRadius.circular(FolkShape.cardRadius),
+      boxShadow: colors.cardShadows,
+    );
+  }
+
+  /// One white card holding every menu row.
+  Widget _menuCard(List<Widget> rows) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: _surfaceDecoration(context),
+      child: Column(children: rows),
+    );
+  }
+
+  /// One tappable row: an icon tile, a title, a one-line subtitle, a chevron.
+  /// Press feedback is the shared 0.97 scale.
+  Widget _menuRow(
+      String title, String subtitle, IconData iconData, VoidCallback onTap) {
+    final colors = context.folk;
+    final text = context.folkText;
+    return PressScale(
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(FolkShape.tileRadius),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 8),
+            child: Row(
+              children: [
+                ProfileMenuIconTile(iconData),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title, style: text.bodyStrong),
+                      const SizedBox(height: 1),
+                      Text(subtitle, style: text.caption),
+                    ],
                   ),
                 ),
-              )
-            ],
+                Icon(Icons.chevron_right, size: 18, color: colors.mutedText),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget itemProfileCard(
-      String title, String subtitle, IconData iconData, VoidCallback onTap) {
-    return Consumer<ColorProvider>(
-      builder: (context, colorProvider, child) {
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 15),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOut,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Colors.deepPurpleAccent, Colors.deepPurple.shade300],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(25),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black26.withOpacity(0.25),
-                  spreadRadius: 2,
-                  blurRadius: 10,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-            ),
-            // ListTile paints its background/ink splashes via the nearest
-            // Material ancestor — without one here, the Container's own
-            // gradient above sits between it and the Scaffold's Material,
-            // triggering "ListTile background color or ink splashes may
-            // be invisible" (recurred three times in this project
-            // already — same fix each time).
-            child: Material(
-              color: Colors.transparent,
-              borderRadius: BorderRadius.circular(25),
-              clipBehavior: Clip.antiAlias,
-              child: ListTile(
-                title: Text(
-                  title,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
-                      color: Colors.white),
-                ),
-                subtitle: Text(
-                  subtitle,
-                  style: const TextStyle(
-                      fontSize: 16,
-                      fontStyle: FontStyle.italic,
-                      color: Colors.white70),
-                ),
-                leading: Icon(iconData, color: Colors.white, size: 28),
-                onTap: onTap,
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
+  /// Log Out: a filled red button (the same in light and dark), white label and
+  /// icon, opening the same confirm dialog.
+  Widget _logoutButton(BuildContext context) =>
+      LogoutButton(onPressed: () => showLogoutDialog(context));
 }
 
-class FloatingCard extends StatefulWidget {
-  final Widget child;
-  final int delay;
-  const FloatingCard({super.key, required this.child, this.delay = 0});
-
-  @override
-  _FloatingCardState createState() => _FloatingCardState();
-}
-
-class _FloatingCardState extends State<FloatingCard>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _animation;
-
-  @override
-  void initState() {
-    super.initState();
-
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 3),
+ButtonStyle _dialogTextButton(FolkColors colors, FolkTypography text) =>
+    TextButton.styleFrom(
+      minimumSize: const Size(FolkShape.touchTarget, FolkShape.touchTarget),
+      foregroundColor: colors.mutedText,
+      textStyle: text.chip,
     );
 
-    _animation = Tween<double>(begin: -6, end: 6).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+ButtonStyle _dialogPrimaryButton(FolkColors colors, FolkTypography text) =>
+    ElevatedButton.styleFrom(
+      minimumSize: const Size(FolkShape.touchTarget, FolkShape.touchTarget),
+      backgroundColor: colors.primaryBg,
+      foregroundColor: colors.primaryFg,
+      elevation: 0,
+      shape: const StadiumBorder(),
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      textStyle: text.button,
     );
-
-    // Start repeating after optional delay
-    Future.delayed(Duration(milliseconds: widget.delay), () {
-      if (mounted) _controller.repeat(reverse: true);
-    });
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _animation,
-      builder: (context, child) {
-        return Transform.translate(
-          offset: Offset(0, _animation.value),
-          child: child,
-        );
-      },
-      child: widget.child,
-    );
-  }
-}
 
 /// Bug fix, 2026-09-16 — real-device-confirmed root cause: this dialog's own
 /// `builder` used to name its parameter `context`, SHADOWING the outer
@@ -619,18 +680,25 @@ void showLogoutDialog(BuildContext context) {
   showDialog(
     context: context,
     builder: (dialogContext) {
+      final colors = dialogContext.folk;
+      final text = dialogContext.folkText;
       return AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text("Log Out"),
-        content: const Text("Do you really want to log out?"),
+        backgroundColor: colors.surface,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(FolkShape.cardRadius)),
+        title: Text("Log Out", style: text.topBarTitle),
+        content: Text("Do you really want to log out?", style: text.body),
         actions: [
           TextButton(
+            style: _dialogTextButton(colors, text),
             onPressed: () {
               Navigator.of(dialogContext).pop();
             },
             child: const Text("No"),
           ),
           ElevatedButton(
+            style: _dialogPrimaryButton(colors, text),
             onPressed: () async {
               try {
                 await GoogleSignIn().signOut();

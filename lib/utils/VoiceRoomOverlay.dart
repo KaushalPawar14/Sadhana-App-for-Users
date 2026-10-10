@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/VoiceRoomService.dart';
+import 'FloatingButtonInsets.dart';
+import 'MainAppReached.dart';
 import 'Snackbar.dart';
 
 /// The persistent "who's in the room" icon (Part 6) — reuses
@@ -34,7 +36,19 @@ import 'Snackbar.dart';
 class VoiceRoomOverlay extends StatelessWidget {
   final Widget child;
 
-  const VoiceRoomOverlay({super.key, required this.child});
+  /// Tests hand in their own signed-in-user stream and watcher; the app never
+  /// sets these.
+  @visibleForTesting
+  final Stream<String?>? userIds;
+  @visibleForTesting
+  final Widget Function(String uid)? watcherBuilder;
+
+  const VoiceRoomOverlay({
+    super.key,
+    required this.child,
+    this.userIds,
+    this.watcherBuilder,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -47,12 +61,22 @@ class VoiceRoomOverlay extends StatelessWidget {
         // see that file's header for the full explanation and the
         // `currentUser?.reload()` call in `services/PostAuthRouter.dart`
         // that this now reacts to.
-        StreamBuilder<User?>(
-          stream: FirebaseAuth.instance.userChanges(),
+        StreamBuilder<String?>(
+          stream: userIds ??
+              FirebaseAuth.instance.userChanges().map((user) => user?.uid),
           builder: (context, snap) {
-            final user = snap.data;
-            if (user == null) return const SizedBox.shrink();
-            return _ActiveRoomWatcher(uid: user.uid);
+            final uid = snap.data;
+            if (uid == null) return const SizedBox.shrink();
+            // Only once the student has reached the main app (registration
+            // finished) — which also means its Firestore listener is not
+            // started during registration. See `MainAppReached`.
+            return ValueListenableBuilder<bool>(
+              valueListenable: MainAppReached.instance.reached,
+              builder: (context, reached, _) {
+                if (!reached) return const SizedBox.shrink();
+                return watcherBuilder?.call(uid) ?? _ActiveRoomWatcher(uid: uid);
+              },
+            );
           },
         ),
       ],
@@ -135,7 +159,6 @@ const String _kPrefsDx = 'voiceroom_button_dx_fraction';
 const String _kPrefsDy = 'voiceroom_button_dy_fraction';
 
 const double _kButtonSize = 58;
-const double _kBottomInset = 96;
 const double _kSideInset = 14;
 
 class _DraggableRoomButton extends StatefulWidget {
@@ -182,13 +205,14 @@ class _DraggableRoomButtonState extends State<_DraggableRoomButton> {
     await prefs.setDouble(_kPrefsDy, fraction.dy);
   }
 
-  Offset _resolvePosition(Size screen) {
+  Offset _resolvePosition(Size screen, double bottomInset) {
     final maxX = screen.width - _kButtonSize - _kSideInset;
-    final maxY = screen.height - _kButtonSize - _kBottomInset;
+    final maxY = screen.height - _kButtonSize - bottomInset;
 
     if (_position != null) {
       return Offset(
-        _position!.dx.clamp(_kSideInset, maxX < _kSideInset ? _kSideInset : maxX),
+        _position!.dx
+            .clamp(_kSideInset, maxX < _kSideInset ? _kSideInset : maxX),
         _position!.dy.clamp(0, maxY < 0 ? 0 : maxY),
       );
     }
@@ -228,7 +252,8 @@ class _DraggableRoomButtonState extends State<_DraggableRoomButton> {
     if (!_loaded) return const SizedBox.shrink();
 
     final screen = MediaQuery.of(context).size;
-    final pos = _resolvePosition(screen);
+    final bottomInset = floatingButtonBottomInset(context);
+    final pos = _resolvePosition(screen, bottomInset);
 
     return Positioned(
       left: pos.dx,
@@ -238,10 +263,10 @@ class _DraggableRoomButtonState extends State<_DraggableRoomButton> {
         onPanUpdate: (details) {
           setState(() {
             _position = Offset(
-              (pos.dx + details.delta.dx)
-                  .clamp(_kSideInset, screen.width - _kButtonSize - _kSideInset),
+              (pos.dx + details.delta.dx).clamp(
+                  _kSideInset, screen.width - _kButtonSize - _kSideInset),
               (pos.dy + details.delta.dy)
-                  .clamp(0, screen.height - _kButtonSize - _kBottomInset),
+                  .clamp(0, screen.height - _kButtonSize - bottomInset),
             );
           });
         },
@@ -251,7 +276,8 @@ class _DraggableRoomButtonState extends State<_DraggableRoomButton> {
           _persist(Offset(p.dx / screen.width, p.dy / screen.height));
         },
         onTap: _openRoom,
-        child: AnimatedScale(
+        child: RepaintBoundary(
+            child: AnimatedScale(
           scale: _dragging ? 1.08 : 1.0,
           duration: const Duration(milliseconds: 120),
           child: Container(
@@ -281,11 +307,13 @@ class _DraggableRoomButtonState extends State<_DraggableRoomButton> {
                   right: 2,
                   top: 2,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.green.shade700, width: 1),
+                      border:
+                          Border.all(color: Colors.green.shade700, width: 1),
                     ),
                     child: Text(
                       '${widget.participantCount}',
@@ -300,7 +328,7 @@ class _DraggableRoomButtonState extends State<_DraggableRoomButton> {
               ],
             ),
           ),
-        ),
+        )),
       ),
     );
   }

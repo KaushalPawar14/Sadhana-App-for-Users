@@ -4,6 +4,8 @@ import 'dart:ffi';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../utils/SameGender.dart';
+
 // ------------------- MODELS -------------------
 
 class UserCompetitionResult {
@@ -64,14 +66,25 @@ class WeeklyResults {
   final List<UserCompetitionResult> topUsers;
   final DateTime generatedAt;
 
+  // The top three of EACH gender (additive fields: `topUsers` above stays as it
+  // always was). A student is shown the winners of their own gender only.
+  final List<UserCompetitionResult>? topUsersMale;
+  final List<UserCompetitionResult>? topUsersFemale;
+
   WeeklyResults({
     required this.weekId,
     required this.topUsers,
     required this.generatedAt,
+    this.topUsersMale,
+    this.topUsersFemale,
   });
 
   Map<String, dynamic> toMap() => {
     "topUsers": topUsers.map((u) => u.toMap()).toList(),
+    if (topUsersMale != null)
+      "topUsersMale": topUsersMale!.map((u) => u.toMap()).toList(),
+    if (topUsersFemale != null)
+      "topUsersFemale": topUsersFemale!.map((u) => u.toMap()).toList(),
     "generatedAt": generatedAt.toIso8601String(),
   };
 }
@@ -81,14 +94,25 @@ class MonthlyResults {
   final List<UserCompetitionResult> topUsers;
   final DateTime generatedAt;
 
+  // The top three of EACH gender (additive fields: `topUsers` above stays as it
+  // always was). A student is shown the winners of their own gender only.
+  final List<UserCompetitionResult>? topUsersMale;
+  final List<UserCompetitionResult>? topUsersFemale;
+
   MonthlyResults({
     required this.monthId,
     required this.topUsers,
     required this.generatedAt,
+    this.topUsersMale,
+    this.topUsersFemale,
   });
 
   Map<String, dynamic> toMap() => {
     "topUsers": topUsers.map((u) => u.toMap()).toList(),
+    if (topUsersMale != null)
+      "topUsersMale": topUsersMale!.map((u) => u.toMap()).toList(),
+    if (topUsersFemale != null)
+      "topUsersFemale": topUsersFemale!.map((u) => u.toMap()).toList(),
     "generatedAt": generatedAt.toIso8601String(),
   };
 }
@@ -160,6 +184,43 @@ class CompetitionResultService {
         sleepingMultiplier: (data['weekly.sleeping_multiplier'] ?? 1).toDouble(),
       );
     }).toList();
+  }
+
+  // The top three of each gender for [period] ('weekly' or 'monthly'), best first:
+  // one read of every competitor and one query for the female users.
+  Future<Map<String, List<UserCompetitionResult>>> generateTopByGender(
+      String period) async {
+    final snapshot = await firestore.collection('competition').get();
+    final females = await firestore
+        .collection('users')
+        .where('gender', isEqualTo: kFemale)
+        .get();
+    final femaleNames = {
+      for (final d in females.docs)
+        if ((d.data()['name'] ?? '').toString().isNotEmpty)
+          d.data()['name'].toString(),
+    };
+    final all = [
+      for (final doc in snapshot.docs)
+        UserCompetitionResult(
+          name: (doc.data()['Name'] ?? '').toString(),
+          totalScore: ((doc.data()['$period.total_score'] ?? 0) as num).toDouble(),
+          bhagavatam: ((doc.data()['$period.bhagavatam_class'] ?? 0) as num).toDouble(),
+          dailyService: ((doc.data()['$period.daily_service'] ?? 0) as num).toDouble(),
+          chantingRounds: ((doc.data()['$period.chanting_rounds'] ?? 0) as num).toDouble(),
+          bookReading: ((doc.data()['$period.book_reading'] ?? 0) as num).toDouble(),
+          extraLecture: ((doc.data()['$period.extra_lecture'] ?? 0) as num).toDouble(),
+          templeMultiplier: ((doc.data()['$period.temple_multiplier'] ?? 1) as num).toDouble(),
+          japaMultiplier: ((doc.data()['$period.japa_multiplier'] ?? 1) as num).toDouble(),
+          sleepingMultiplier: ((doc.data()['$period.sleeping_multiplier'] ?? 1) as num).toDouble(),
+        ),
+    ];
+    return topByGender<UserCompetitionResult>(
+      all,
+      nameOf: (u) => u.name,
+      scoreOf: (u) => u.totalScore,
+      femaleNames: femaleNames,
+    );
   }
 
   Future<void> saveMonthlyResults(MonthlyResults results) async {
@@ -332,25 +393,27 @@ class CompetitionResultService {
     if (topUsers.isEmpty) return;
     print("checkAndRunWeeklyLazyTrigger is on the way");
 
-    // only index 0 gets weekly winner badge
-    final winnerName = topUsers[0].name;
+    // The weekly winner badge goes to the best student of EACH gender (a student
+    // is ranked among their own gender only).
+    final byGender = await generateTopByGender('weekly');
+    for (final winnerName in weeklyWinnerNames(byGender)) {
+      // find user in users collection
+      final userQuery = await firestore
+          .collection("users")
+          .where("name", isEqualTo: winnerName)
+          .limit(1)
+          .get();
 
-// find user in users collection
-    final userQuery = await firestore
-        .collection("users")
-        .where("name", isEqualTo: winnerName)
-        .limit(1)
-        .get();
+      if (userQuery.docs.isNotEmpty) {
+        final userDocId = userQuery.docs.first.id;
 
-    if (userQuery.docs.isNotEmpty && topUsers[0].totalScore != 0) {
-      final userDocId = userQuery.docs.first.id;
-
-      await firestore.collection("users").doc(userDocId).set(
-      {
-        "weekly-winner": FieldValue.increment(1),
-      },
-      SetOptions(merge: true),
-      );
+        await firestore.collection("users").doc(userDocId).set(
+        {
+          "weekly-winner": FieldValue.increment(1),
+        },
+        SetOptions(merge: true),
+        );
+      }
     }
 
     // --- 4️⃣ Save weekly results ---
@@ -358,6 +421,8 @@ class CompetitionResultService {
       weekId: weekId,
       topUsers: topUsers,
       generatedAt: DateTime.now(),
+      topUsersMale: byGender[kMale],
+      topUsersFemale: byGender[kFemale],
     );
     await saveWeeklyResults(results);
     await updateWeeklyUsers();
@@ -435,22 +500,14 @@ class CompetitionResultService {
     final topUsers = await generateTopUsers();
     if (topUsers.isEmpty) return;
 
-    // badge field names according to rank
-    final badgeFields = [
-      "monthly-gold",
-      "monthly-silver",
-      "monthly-bronze",
-    ];
-
-    for (int i = 0; i < topUsers.length && i < 3; i++) {
-
-      if (topUsers[0].totalScore == 0) break;
-      final winnerName = topUsers[i].name;
-
+    // Gold / silver / bronze go to the top three of EACH gender (a student is
+    // ranked among their own gender only).
+    final byGender = await generateTopByGender('monthly');
+    for (final award in monthlyBadgeAwards(byGender)) {
       // find user in "users" collection by Name
       final userQuery = await firestore
           .collection("users")
-          .where("name", isEqualTo: winnerName)
+          .where("name", isEqualTo: award.name)
           .limit(1)
           .get();
 
@@ -460,7 +517,7 @@ class CompetitionResultService {
 
       // increment badge count
       await firestore.collection("users").doc(userDocId).set({
-        badgeFields[i]: FieldValue.increment(1),
+        award.field: FieldValue.increment(1),
       }, SetOptions(merge: true));
     }
 
@@ -468,6 +525,8 @@ class CompetitionResultService {
       monthId: monthId,
       topUsers: topUsers,
       generatedAt: DateTime.now(),
+      topUsersMale: byGender[kMale],
+      topUsersFemale: byGender[kFemale],
     );
 
     await saveMonthlyResults(results);
@@ -475,4 +534,23 @@ class CompetitionResultService {
     await updateMonthlyUsers();
     await _resetMonthlyFields();
   }
+}
+// Who gets the weekly winner badge: the best student of each gender, if they
+// scored anything at all.
+List<String> weeklyWinnerNames(Map<String, List<UserCompetitionResult>> byGender) => [
+      for (final list in byGender.values)
+        if (list.isNotEmpty && list.first.totalScore != 0) list.first.name,
+    ];
+
+// Who gets which monthly badge: for each gender, the top three in order (gold,
+// silver, bronze), skipped altogether when that gender's best scored nothing.
+List<({String name, String field})> monthlyBadgeAwards(
+    Map<String, List<UserCompetitionResult>> byGender) {
+  const fields = ["monthly-gold", "monthly-silver", "monthly-bronze"];
+  return [
+    for (final list in byGender.values)
+      if (list.isNotEmpty && list.first.totalScore != 0)
+        for (var i = 0; i < list.length && i < 3; i++)
+          (name: list[i].name, field: fields[i]),
+  ];
 }

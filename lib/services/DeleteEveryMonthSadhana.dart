@@ -1,5 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+// UNUSED: this cleanup now runs server-side in the Cloud Function
+// monthlySadhanaRetention (functions/monthlyRetention.js). Nothing calls it.
+
 String getMonthName(int month) {
   const months = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun",

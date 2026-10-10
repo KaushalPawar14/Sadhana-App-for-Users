@@ -3,11 +3,23 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
-import 'package:provider/provider.dart';
 
-import '../utils/ColorProvider.dart';
+import '../theme/FolkColors.dart';
+import '../theme/FolkTheme.dart';
+import '../theme/FolkTokens.dart';
 import '../utils/SeenMarkers.dart';
+import '../services/DailyMessageService.dart';
+import '../widgets/DailyMessageCard.dart';
+import '../widgets/MarkdownText.dart';
+import '../widgets/EntryAnimation.dart';
+import '../widgets/FolkPageBackground.dart';
+import '../widgets/GhostPlaceholder.dart';
+import '../widgets/MotionHelpers.dart';
+import '../widgets/PressScale.dart';
+import '../widgets/RoundIconButton.dart';
+import '../widgets/TypingDots.dart';
 import 'AssistantHistoryScreen.dart';
 
 /// The named route used when this screen is opened from the floating
@@ -71,74 +83,67 @@ class ChatTurn {
   /// this task) reads as an ordinary conversation turn, unchanged.
   final bool isDailyMessage;
 
-  const ChatTurn(this.text, {required this.fromStudent, this.isDailyMessage = false});
+  const ChatTurn(this.text,
+      {required this.fromStudent, this.isDailyMessage = false});
 }
 
 /// The message bubble, shared between the live chat and the read-only past-
 /// session viewer so the two never visually diverge.
+///
+/// Today's daily message is drawn as the warm message card; every other turn
+/// is a bubble — ink for the student, a surface card for the reply.
 Widget chatBubble(BuildContext context, ChatTurn turn) {
-  final mine = turn.fromStudent;
+  if (turn.isDailyMessage) return _dailyMessageCard(context, turn);
 
+  final mine = turn.fromStudent;
   return Align(
     alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // Follow-up task, 2026-09-10, Part 2 — a small caption so a student
-        // recognises this as their daily message, not a reply to something
-        // they asked.
-        if (turn.isDailyMessage)
-          Padding(
-            padding: const EdgeInsets.only(left: 4, bottom: 3),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.wb_sunny_outlined,
-                    size: 12, color: Colors.orange.shade700),
-                const SizedBox(width: 4),
-                Text(
-                  "Today's message",
-                  style: TextStyle(
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.orange.shade700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        _chatBubbleContent(context, turn, mine),
-      ],
-    ),
+    child: _chatBubbleContent(context, turn, mine),
   );
 }
 
+/// Chat bubble corners: 22 everywhere except the corner nearest the speaker,
+/// which is 6.
+BorderRadius _bubbleRadius({required bool mine}) => BorderRadius.only(
+      topLeft: const Radius.circular(FolkShape.messageBubbleRadius),
+      topRight: const Radius.circular(FolkShape.messageBubbleRadius),
+      bottomLeft: Radius.circular(mine ? FolkShape.messageBubbleRadius : 6),
+      bottomRight: Radius.circular(mine ? 6 : FolkShape.messageBubbleRadius),
+    );
+
+/// Follow-up task, 2026-09-10, Part 2 — the daily message carries a small
+/// caption so a student recognises it as their daily message, not a reply to
+/// something they asked. Now a full-width warm gradient card.
+Widget _dailyMessageCard(BuildContext context, ChatTurn turn) =>
+    DailyMessageCard(text: turn.text);
+
 Widget _chatBubbleContent(BuildContext context, ChatTurn turn, bool mine) {
+  final colors = context.folk;
+  final text = context.folkText;
   return Container(
-      constraints: BoxConstraints(
-        maxWidth: MediaQuery.of(context).size.width * 0.82,
-      ),
-      margin: const EdgeInsets.symmetric(vertical: 5),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-      decoration: BoxDecoration(
-        color: mine ? Colors.blue.shade600 : Colors.white,
-        borderRadius: BorderRadius.only(
-          topLeft: const Radius.circular(16),
-          topRight: const Radius.circular(16),
-          bottomLeft: Radius.circular(mine ? 16 : 4),
-          bottomRight: Radius.circular(mine ? 4 : 16),
-        ),
-        border: mine ? null : Border.all(color: Colors.grey.shade300),
-      ),
-      child: Text(
-        turn.text,
-        style: TextStyle(
-          fontSize: 14,
-          height: 1.45,
-          color: mine ? Colors.white : Colors.black87,
-        ),
-      ),
+    constraints: BoxConstraints(
+      maxWidth: MediaQuery.of(context).size.width * 0.82,
+    ),
+    margin: const EdgeInsets.symmetric(vertical: 6),
+    padding: mine
+        ? const EdgeInsets.symmetric(horizontal: 20, vertical: 12)
+        : const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+    decoration: BoxDecoration(
+      color: mine ? colors.primaryBg : colors.surface,
+      borderRadius: _bubbleRadius(mine: mine),
+      boxShadow: mine ? null : colors.cardShadows,
+    ),
+    // The student's own words stay plain; the assistant's reply shows its
+    // simple markdown (bold, italic, lists, headings) properly.
+    child: mine
+        ? Text(
+            turn.text,
+            style: text.body.copyWith(height: 1.5, color: colors.primaryFg),
+          )
+        : MarkdownText(
+            turn.text,
+            style: text.body.copyWith(height: 1.5, color: colors.text),
+          ),
   );
 }
 
@@ -158,6 +163,10 @@ class _AssistantScreenState extends State<AssistantScreen> {
 
   bool _loadingHistory = true;
   bool _sending = false;
+
+  /// UI only: a turn added after the list was first drawn rises in once; the
+  /// first draw (earlier messages) never animates.
+  final NewItemRise _rise = NewItemRise();
 
   /// Issue 3 fix (2026-09-16) — true only while `generateDailyEncouragement`
   /// is actually in flight, so the screen can show a real waiting state
@@ -274,8 +283,10 @@ class _AssistantScreenState extends State<AssistantScreen> {
     }
   }
 
-  /// Calls the (idempotent — at most one OpenAI call per student per day,
-  /// server-side) `generateDailyEncouragement` callable.
+  /// Ensures today's message through `DailyMessageService` (which makes the
+  /// one call to the idempotent — at most one OpenAI call per student per day,
+  /// server-side — `generateDailyEncouragement` callable, and shares it with
+  /// the app-open start and Journey).
   ///
   /// `isNew` distinguishes "a message was just generated" from "today's
   /// message already existed" (the normal case on a second open the same
@@ -289,17 +300,11 @@ class _AssistantScreenState extends State<AssistantScreen> {
   /// into a plain, readable, auto-clearing message instead of an indefinite
   /// spinner.
   Future<({bool isNew, bool failed})> _ensureDailyEncouragement() async {
-    try {
-      final callable = FirebaseFunctions.instanceFor(region: 'asia-south1')
-          .httpsCallable(
-        'generateDailyEncouragement',
-        options: HttpsCallableOptions(timeout: const Duration(seconds: 45)),
-      );
-      final result = await callable.call<Map<String, dynamic>>();
-      return (isNew: result.data['isNew'] == true, failed: false);
-    } catch (_) {
-      return (isNew: false, failed: true);
-    }
+    // The one shared service (`DailyMessageService`): it makes the call, and
+    // if the app already started it for today (on open), this joins that call
+    // or finds the message ready — never a second call.
+    final result = await DailyMessageService.instance.ensureToday(widget.uid);
+    return (isNew: result.isNew, failed: result.failed);
   }
 
   Future<void> _loadHistory() async {
@@ -367,8 +372,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
     bool acknowledged = false;
 
     try {
-      final snap =
-          await _firestore.collection('users').doc(widget.uid).get();
+      final snap = await _firestore.collection('users').doc(widget.uid).get();
       acknowledged = snap.data()?['acknowledgedDisclosure'] == true;
     } catch (_) {
       acknowledged = false;
@@ -380,58 +384,84 @@ class _AssistantScreenState extends State<AssistantScreen> {
     final accepted = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text("How this works"),
-        content: const SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                "Ask freely — this is here to help you.",
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-              ),
-              SizedBox(height: 10),
-              Text(
-                "Questions about Krishna consciousness and the teachings, "
-                "about your daily practice, or about how this app works — "
-                "all of it is welcome, and no question is too small.",
-                style: TextStyle(fontSize: 13, height: 1.45),
-              ),
-              SizedBox(height: 12),
-              Text(
-                "Your guide can see these conversations. Not to check up on "
-                "you — it is one of the ways they stay close to how you are "
-                "doing, the same way they see your sadhana reports.",
-                style: TextStyle(fontSize: 13, height: 1.45),
-              ),
-              SizedBox(height: 12),
-              Text(
-                "And if you ever write something that suggests you are "
-                "going through a hard time, your guide is gently let know, "
-                "so they can be there for you.",
-                style: TextStyle(fontSize: 13, height: 1.45),
-              ),
-              SizedBox(height: 12),
-              Text(
-                "This assistant is not a replacement for real people. When "
-                "something weighs on you, your guide is the one to talk to.",
-                style: TextStyle(fontSize: 13, height: 1.45),
-              ),
-            ],
+      builder: (dialogContext) {
+        final colors = dialogContext.folk;
+        final text = dialogContext.folkText;
+        final paragraph = text.small.copyWith(height: 1.45, color: colors.text);
+        return AlertDialog(
+          backgroundColor: colors.surface,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(FolkShape.cardRadius),
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text("Go back"),
+          title: Text("How this works", style: text.topBarTitle),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "Ask freely — this is here to help you.",
+                  style: text.bodyStrong,
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  "Questions about Krishna consciousness and the teachings, "
+                  "about your daily practice, or about how this app works — "
+                  "all of it is welcome, and no question is too small.",
+                  style: paragraph,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  "Your guide can see these conversations. Not to check up on "
+                  "you — it is one of the ways they stay close to how you are "
+                  "doing, the same way they see your sadhana reports.",
+                  style: paragraph,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  "And if you ever write something that suggests you are "
+                  "going through a hard time, your guide is gently let know, "
+                  "so they can be there for you.",
+                  style: paragraph,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  "This assistant is not a replacement for real people. When "
+                  "something weighs on you, your guide is the one to talk to.",
+                  style: paragraph,
+                ),
+              ],
+            ),
           ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text("I understand"),
-          ),
-        ],
-      ),
+          actions: [
+            TextButton(
+              style: TextButton.styleFrom(
+                minimumSize:
+                    const Size(FolkShape.touchTarget, FolkShape.touchTarget),
+                foregroundColor: colors.mutedText,
+                textStyle: text.chip,
+              ),
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text("Go back"),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                minimumSize:
+                    const Size(FolkShape.touchTarget, FolkShape.touchTarget),
+                backgroundColor: colors.primaryBg,
+                foregroundColor: colors.primaryFg,
+                elevation: 0,
+                shape: const StadiumBorder(),
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                textStyle: text.button,
+              ),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text("I understand"),
+            ),
+          ],
+        );
+      },
     );
 
     if (!mounted) return false;
@@ -535,9 +565,9 @@ class _AssistantScreenState extends State<AssistantScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              e is FirebaseFunctionsException && e.message != null ?
-                  e.message! :
-                  "Could not send. Check your connection and try again.",
+              e is FirebaseFunctionsException && e.message != null
+                  ? e.message!
+                  : "Could not send. Check your connection and try again.",
             ),
           ),
         );
@@ -625,138 +655,231 @@ class _AssistantScreenState extends State<AssistantScreen> {
   /// open could close the app instead of just the keyboard. Same
   /// `PopScope<Object?>` + `canPop: false` idiom, same `viewInsets.bottom >
   /// 0` keyboard-open check — applies regardless of this screen's own
-  /// AppBar, which only affects a tapped back arrow, not the hardware
+  /// top bar, which only affects a tapped back arrow, not the hardware
   /// back button/gesture this fix targets.
   @override
   Widget build(BuildContext context) {
-    return Consumer<ColorProvider>(
-      builder: (context, colorProvider, child) {
-        return PopScope<Object?>(
-          canPop: false,
-          onPopInvokedWithResult: (didPop, result) {
-            if (didPop) return;
-            if (MediaQuery.of(context).viewInsets.bottom > 0) {
-              FocusScope.of(context).unfocus();
-              return;
-            }
-            Navigator.of(context).pop();
-          },
-          child: Scaffold(
-          backgroundColor: colorProvider.color,
-          appBar: AppBar(
-            backgroundColor: colorProvider.color,
-            elevation: 0,
-            iconTheme: IconThemeData(color: colorProvider.secondColor),
-            title: Text(
-              "Ask a Question",
-              style: TextStyle(
-                color: colorProvider.secondColor,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            actions: [
-              // Stage 6 (2026-08-24) — browse past date-based sessions.
-              IconButton(
-                tooltip: "Past conversations",
-                icon: Icon(Icons.history, color: colorProvider.secondColor),
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        AssistantHistoryListPage(uid: widget.uid),
+    final colors = context.folk;
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: (colors.isDark
+              ? SystemUiOverlayStyle.light
+              : SystemUiOverlayStyle.dark)
+          .copyWith(statusBarColor: Colors.transparent),
+      child: PopScope<Object?>(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, result) {
+          if (didPop) return;
+          if (MediaQuery.of(context).viewInsets.bottom > 0) {
+            FocusScope.of(context).unfocus();
+            return;
+          }
+          Navigator.of(context).pop();
+        },
+        child: Scaffold(
+          backgroundColor: colors.pageBackground,
+          body: FolkPageBackground(
+            child: SafeArea(
+              child: Column(
+                children: [
+                  EntryAnimation(index: 0, child: _topBar()),
+                  _dailyMessageStatusBanner(),
+                  Expanded(
+                    child: AnimatedSwitcher(
+                      duration:
+                          FolkMotion.of(context, FolkMotion.ghostCrossFade),
+                      layoutBuilder: (current, previous) => Stack(
+                        fit: StackFit.expand,
+                        children: [...previous, if (current != null) current],
+                      ),
+                      child: _loadingHistory
+                          // While earlier messages load: two ghost bubbles.
+                          ? KeyedSubtree(
+                              key: const ValueKey<String>('ghost'),
+                              child: _ghostChat(),
+                            )
+                          // One stable key, so the entry animation plays once
+                          // and is not replayed when the starter view gives way
+                          // to the message list on the first send.
+                          : KeyedSubtree(
+                              key: const ValueKey<String>('body'),
+                              child: EntryAnimation(
+                                key: const ValueKey('ask-body'),
+                                index: 1,
+                                child: _turns.isEmpty
+                                    ? _starterView()
+                                    : _messageList(),
+                              ),
+                            ),
+                    ),
                   ),
-                ),
+                  if (_sending) _thinkingRow(),
+                  EntryAnimation(index: 2, child: _composer()),
+                ],
               ),
-            ],
-          ),
-          body: SafeArea(
-            child: Column(
-              children: [
-                _dailyMessageStatusBanner(),
-                Expanded(
-                  child: _loadingHistory ?
-                      const Center(child: CircularProgressIndicator()) :
-                      _turns.isEmpty ?
-                          _starterView() :
-                          _messageList(),
-                ),
-                if (_sending) _thinkingRow(),
-                _composer(),
-              ],
             ),
           ),
-          ),
-        );
-      },
+        ),
+      ),
     );
   }
 
+  /// Round back button, centred title, round history button. "Back" is the
+  /// pop the AppBar's own back arrow did; the history button is the same
+  /// "Past conversations" push as before.
+  Widget _topBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+          FolkSpace.pagePadding, FolkSpace.xl, FolkSpace.pagePadding, 0),
+      child: Row(
+        children: [
+          RoundIconButton(
+            icon: Icons.chevron_left_rounded,
+            iconSize: 26,
+            semanticLabel: 'Back',
+            onPressed: () => Navigator.of(context).maybePop(),
+          ),
+          Expanded(
+            child: Text(
+              "Ask a Question",
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: context.folkText.topBarTitle,
+            ),
+          ),
+          // Stage 6 (2026-08-24) — browse past date-based sessions.
+          RoundIconButton(
+            icon: Icons.history_rounded,
+            semanticLabel: 'Past conversations',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => AssistantHistoryListPage(uid: widget.uid),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   /// Replaces the "Prabhupada content feed" placeholder — the feed is these
-  /// openings into the same corpus.
+  /// openings into the same corpus. The four starters keep their exact text
+  /// and still send themselves on tap; they are now violet chips.
   Widget _starterView() {
+    final colors = context.folk;
+    final text = context.folkText;
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
+      padding: const EdgeInsets.fromLTRB(
+          FolkSpace.pagePadding, 24, FolkSpace.pagePadding, FolkSpace.lg),
       children: [
-        Icon(Icons.forum_outlined, size: 48, color: Colors.blue.shade200),
+        Icon(Icons.forum_outlined, size: 48, color: colors.disabledText),
         const SizedBox(height: 16),
-        const Text(
+        Text(
           "Ask about the teachings",
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          style: text.topBarTitle,
         ),
         const SizedBox(height: 8),
         Text(
           "Answers come from Śrīla Prabhupāda's books, letters and recorded "
           "talks. You can also ask about your practice, or about this app.",
           textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 13,
-            height: 1.45,
-            color: Colors.grey.shade600,
-          ),
+          style: text.small.copyWith(height: 1.45),
         ),
         const SizedBox(height: 24),
-        ..._starters.map(
-          (s) => Container(
-            margin: const EdgeInsets.only(bottom: 10),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.grey.shade300),
-            ),
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(16),
-                onTap: _sending ? null : () => _send(s),
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Row(
-                    children: [
-                      Icon(Icons.auto_stories_outlined,
-                          size: 18, color: Colors.blue.shade700),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(s, style: const TextStyle(fontSize: 13)),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
+        Wrap(
+          spacing: FolkSpace.sm,
+          runSpacing: FolkSpace.sm,
+          children: _starters.map(_starterChip).toList(),
         ),
       ],
     );
   }
 
+  Widget _starterChip(String s) {
+    final text = context.folkText;
+    final enabled = !_sending;
+    final radius = BorderRadius.circular(FolkShape.tileRadius);
+    return PressScale(
+      enabled: enabled,
+      child: Container(
+        constraints: const BoxConstraints(minHeight: FolkShape.touchTarget),
+        decoration: BoxDecoration(
+          gradient: FolkGradients.violet,
+          borderRadius: radius,
+        ),
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            borderRadius: radius,
+            onTap: enabled ? () => _send(s) : null,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: FolkSpace.lg, vertical: FolkSpace.md),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.auto_stories_outlined,
+                      size: 18, color: FolkColors.onGradient),
+                  const SizedBox(width: 10),
+                  Flexible(
+                    child: Text(
+                      s,
+                      style: text.chip.copyWith(color: FolkColors.onGradient),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _messageList() {
+    _rise.markDrawn(_turns.length);
     return ListView.builder(
       controller: _scroll,
-      padding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
+      padding: const EdgeInsets.fromLTRB(FolkSpace.pagePadding, FolkSpace.lg,
+          FolkSpace.pagePadding, FolkSpace.sm),
       itemCount: _turns.length,
-      itemBuilder: (context, i) => chatBubble(context, _turns[i]),
+      itemBuilder: (context, i) =>
+          _rise.wrap(i, chatBubble(context, _turns[i])),
+    );
+  }
+
+  /// Ghost of the chat while earlier messages load: a short bubble on the
+  /// right (yours) and a taller one on the left (the reply), at the list's own
+  /// padding.
+  Widget _ghostChat() {
+    return GhostScope(
+      child: ListView(
+        physics: const NeverScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(FolkSpace.pagePadding, FolkSpace.lg,
+            FolkSpace.pagePadding, FolkSpace.sm),
+        children: const [
+          Align(
+            alignment: Alignment.centerRight,
+            child: GhostPlaceholder(
+              width: 160,
+              height: 44,
+              radius: FolkShape.messageBubbleRadius,
+              showBars: false,
+            ),
+          ),
+          SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: GhostPlaceholder(
+              width: 260,
+              height: 92,
+              radius: FolkShape.messageBubbleRadius,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -766,19 +889,31 @@ class _AssistantScreenState extends State<AssistantScreen> {
   /// usable underneath it — generating today's message never blocks a
   /// student from asking their own question in the meantime.
   Widget _dailyMessageStatusBanner() {
+    final colors = context.folk;
+    final text = context.folkText;
+    const margin = EdgeInsets.fromLTRB(
+        FolkSpace.pagePadding, FolkSpace.md, FolkSpace.pagePadding, 0);
+    const padding =
+        EdgeInsets.symmetric(horizontal: FolkSpace.lg, vertical: FolkSpace.md);
+
     if (_dailyMessageError != null) {
       return Container(
         width: double.infinity,
-        color: Colors.red.shade50,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        margin: margin,
+        padding: padding,
+        decoration: BoxDecoration(
+          color: colors.calendarMissedBg,
+          borderRadius: BorderRadius.circular(FolkShape.tileRadius),
+        ),
         child: Row(
           children: [
-            Icon(Icons.error_outline, size: 16, color: Colors.red.shade700),
+            Icon(Icons.error_outline,
+                size: 16, color: colors.calendarMissedText),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
                 _dailyMessageError!,
-                style: TextStyle(fontSize: 12, color: Colors.red.shade700),
+                style: text.caption.copyWith(color: colors.calendarMissedText),
               ),
             ),
           ],
@@ -789,22 +924,28 @@ class _AssistantScreenState extends State<AssistantScreen> {
     if (_preparingDailyMessage) {
       return Container(
         width: double.infinity,
-        color: Colors.orange.shade50,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        margin: margin,
+        padding: padding,
+        decoration: BoxDecoration(
+          gradient: FolkGradients.sky,
+          borderRadius: BorderRadius.circular(FolkShape.tileRadius),
+        ),
         child: Row(
           children: [
             const SizedBox(
               width: 14,
               height: 14,
-              child: CircularProgressIndicator(strokeWidth: 2),
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: FolkColors.onGradient,
+              ),
             ),
             const SizedBox(width: 10),
             Text(
               "Preparing today's message for you…",
-              style: TextStyle(
-                fontSize: 12.5,
-                fontWeight: FontWeight.w600,
-                color: Colors.orange.shade800,
+              style: text.caption.copyWith(
+                fontWeight: FontWeight.w700,
+                color: FolkColors.onGradient,
               ),
             ),
           ],
@@ -815,65 +956,111 @@ class _AssistantScreenState extends State<AssistantScreen> {
     return const SizedBox.shrink();
   }
 
+  /// The existing "thinking" indicator (spinner + line), now sitting in a
+  /// reply-shaped bubble. The three-dot animation is Phase 11.
   Widget _thinkingRow() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-      child: Row(
-        children: [
-          const SizedBox(
-            width: 14,
-            height: 14,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-          const SizedBox(width: 12),
-          Text(
-            "Looking through the teachings…",
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-          ),
-        ],
+    final colors = context.folk;
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(
+            FolkSpace.pagePadding, 4, FolkSpace.pagePadding, FolkSpace.sm),
+        padding: const EdgeInsets.symmetric(
+            horizontal: FolkSpace.lg, vertical: FolkSpace.md),
+        decoration: BoxDecoration(
+          color: colors.surface,
+          borderRadius: _bubbleRadius(mine: false),
+          boxShadow: colors.cardShadows,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TypingDots(color: colors.mutedText),
+            const SizedBox(width: 12),
+            Text(
+              "Looking through the teachings…",
+              style: context.folkText.caption,
+            ),
+          ],
+        ),
       ),
     );
   }
 
+  /// A floating pill: the same text field, send button and rules as before
+  /// (disabled while a reply is in flight, up to four lines, Enter sends).
   Widget _composer() {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: Colors.grey.shade300)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Expanded(
-            child: TextField(
-              controller: _input,
+    final colors = context.folk;
+    final text = context.folkText;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(FolkSpace.pagePadding, FolkSpace.sm,
+          FolkSpace.pagePadding, FolkSpace.md),
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 60),
+        padding: const EdgeInsets.fromLTRB(22, 6, 8, 6),
+        decoration: BoxDecoration(
+          color: colors.surface,
+          borderRadius: BorderRadius.circular(30),
+          boxShadow: colors.navShadows,
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _input,
+                enabled: !_sending,
+                minLines: 1,
+                maxLines: 4,
+                textCapitalization: TextCapitalization.sentences,
+                style: text.body,
+                cursorColor: colors.text,
+                decoration: InputDecoration(
+                  hintText: "Ask something…",
+                  hintStyle: text.body.copyWith(color: colors.mutedText),
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  disabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                ),
+                onSubmitted: _sending ? null : (_) => _send(),
+              ),
+            ),
+            const SizedBox(width: FolkSpace.sm),
+            Semantics(
+              button: true,
+              label: 'Send',
               enabled: !_sending,
-              minLines: 1,
-              maxLines: 4,
-              textCapitalization: TextCapitalization.sentences,
-              decoration: InputDecoration(
-                hintText: "Ask something…",
-                isDense: true,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(24),
+              excludeSemantics: true,
+              child: PressScale(
+                enabled: !_sending,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _sending ? null : () => _send(),
+                  child: SizedBox(
+                    width: FolkShape.touchTarget,
+                    height: FolkShape.touchTarget,
+                    child: Center(
+                      child: Container(
+                        width: 46,
+                        height: 46,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color:
+                              _sending ? colors.disabledText : colors.primaryBg,
+                        ),
+                        child: Icon(Icons.send_rounded,
+                            size: 20, color: colors.primaryFg),
+                      ),
+                    ),
+                  ),
                 ),
               ),
-              onSubmitted: _sending ? null : (_) => _send(),
             ),
-          ),
-          const SizedBox(width: 8),
-          CircleAvatar(
-            radius: 22,
-            backgroundColor: _sending ? Colors.grey : Colors.blue.shade600,
-            child: IconButton(
-              icon: const Icon(Icons.send, color: Colors.white, size: 18),
-              onPressed: _sending ? null : () => _send(),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

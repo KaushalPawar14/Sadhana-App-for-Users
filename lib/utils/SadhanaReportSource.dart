@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 /// Reads a student's sadhana report HISTORY across both residence-scoped
 /// collections, merged by date — Master Task 2026-09-11, "Read reports from
@@ -100,7 +101,17 @@ Future<Map<String, dynamic>?> fetchMergedDateReport(
 /// one-shot read would miss a report arriving while the screen stays open.
 /// A plain set union: a student's own date-doc only ever lives in one of
 /// the two collections, so there is nothing to reconcile between them.
-Stream<Set<String>> mergedAvailableDatesStream(String studentName) {
+///
+/// LOGIC CHANGE: an error from EITHER collection's stream is now forwarded to
+/// the listener (`onError`). Before, it was dropped, so the merged stream never
+/// emitted and the Calendar sat on its loading ghost forever. [snapshotsFor] is
+/// for tests only; the app never passes it.
+Stream<Set<String>> mergedAvailableDatesStream(
+  String studentName, {
+  @visibleForTesting
+  Stream<QuerySnapshot<Map<String, dynamic>>> Function(String collection)?
+      snapshotsFor,
+}) {
   late StreamController<Set<String>> controller;
   final latest = <String, Set<String>>{};
   final subs = <StreamSubscription>[];
@@ -114,9 +125,13 @@ Stream<Set<String>> mergedAvailableDatesStream(String studentName) {
     onListen: () {
       for (final collection in kSadhanaReportCollections) {
         subs.add(
-          _datesRef(collection, studentName).snapshots().listen((snap) {
+          (snapshotsFor?.call(collection) ??
+                  _datesRef(collection, studentName).snapshots())
+              .listen((snap) {
             latest[collection] = snap.docs.map((d) => d.id).toSet();
             emit();
+          }, onError: (Object error, StackTrace stackTrace) {
+            controller.addError(error, stackTrace);
           }),
         );
       }

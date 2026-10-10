@@ -1,10 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
-import '../utils/ColorProvider.dart';
-import '../utils/MalaLoading.dart';
+import '../theme/FolkColors.dart';
+import '../theme/FolkTheme.dart';
+import '../theme/FolkTokens.dart';
 import '../utils/SadhanaReportSource.dart';
+import '../widgets/FolkCard.dart';
+import '../widgets/FolkScaffold.dart';
+import '../widgets/GhostPlaceholder.dart';
+
+// Chart colours. Traffic-light meaning is kept (on time / late / very late;
+// fully / partially / missed) in the app's own tones; the data itself is violet.
+const Color _kGood = FolkCalendarTokens.legendSubmitted;
+const Color _kMid = Color(0xFFFFC978);
+const Color _kLate = FolkCalendarTokens.legendMissed;
+const Color _kData = FolkCalendarTokens.selectedRing;
 
 class AllGraph extends StatefulWidget {
   final String? username;
@@ -178,199 +188,107 @@ class _ChantingGraphState extends State<AllGraph> {
     bookReadingData = readingList; // 🔹 Set reading state
   }
 
+  // A titled card holding one chart and what goes with it.
+  Widget _graphCard({String? title, required Widget child}) {
+    final text = context.folkText;
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+          horizontal: FolkSpace.pagePadding, vertical: 8),
+      child: FolkCard(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (title != null) ...[
+              Text(title, style: text.topBarTitle),
+              const SizedBox(height: 12),
+            ],
+            child,
+          ],
+        ),
+      ),
+    );
+  }
+
+  // The chart area while the reports load.
+  Widget _chartGhost() => const GhostPlaceholder(
+        width: double.infinity,
+        height: 240,
+        showBars: false,
+      );
+
   @override
   Widget build(BuildContext context) {
-    return Consumer<ColorProvider>(builder: (context, colorProvider, child) {
-      return Scaffold(
-        backgroundColor: colorProvider.color,
-        appBar: AppBar(
-          title: Text(
-            widget.username??"" ,
-            style: TextStyle(color: colorProvider.secondColor),
-          ),
-          backgroundColor: colorProvider.color,
-          iconTheme: IconThemeData(
-            color: colorProvider.secondColor,
-          ),
-        ),
-        body: Center(
-          child: SingleChildScrollView(
-            child: Column(
-              children: [
-                SizedBox(
-                  height: 30,
-                ),
-                Text(
-                  'Chanting 📿',
-                  style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: colorProvider.secondColor),
-                ),
-                const SizedBox(height: 10),
-                Container(
-                  padding:
-                  const EdgeInsets.only(right: 16, top: 16, bottom: 5),
-                  decoration: BoxDecoration(
-                    color: colorProvider
-                        .color, // Or use colorProvider.color for background
-                    border: Border.all(
-                        color: colorProvider.secondColor,
-                        width: 2), // Border style
-                    borderRadius:
-                    BorderRadius.circular(12), // Optional: rounded corners
-                  ),
-                  height: 320,
-                  width: 320,
-                  child: loading
-                      ? CustomLoader()
-                      : Column(children: [
-                    Expanded(child: MyLineChart(chantingRounds: chantingRounds)),
-                    const SizedBox(height: 20),
-                    Text(
-                      'Total: ${chantingRounds.fold(0, (a, b) => a + b)} rounds',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                        color: colorProvider.secondColor,
-                      ),
-                    ),
-                  ]),
-                ),
-
-                const SizedBox(height: 30), // 🔹 Spacer between charts
-
-                // 🔸 Reading Chart
-                Center(
-                  child: Text(
-                    'Reading 📖',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: colorProvider.secondColor,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Container(
-                  padding:
-                  const EdgeInsets.only(right: 16, top: 16, bottom: 5),
-                  decoration: BoxDecoration(
-                    color: colorProvider.color,
-                    border:
-                    Border.all(color: colorProvider.secondColor, width: 2),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  height: 320,
-                  width: 320,
-                  child: loading
-                      ? CustomLoader()
-                      : Column(
-                    children: [
-                      Expanded(
-                        child: MyLineChart(chantingRounds: bookReadingData),
-                      ),
-                      const SizedBox(height: 20),
-                      Text(
-                        bookReadingData.isEmpty
-                            ? 'No Data'
-                            : 'Average: ${(bookReadingData.reduce((a, b) => a + b) / bookReadingData.length).toStringAsFixed(1)} mins',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                          color: colorProvider.secondColor,
+    final text = context.folkText;
+    return FolkScaffold(
+      title: widget.username ?? "",
+      body: GhostScope(
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.only(top: 12, bottom: 32),
+          child: Column(
+            children: [
+              _graphCard(
+                title: 'Chanting 📿',
+                child: loading
+                    ? _chartGhost()
+                    : Column(children: [
+                        SizedBox(
+                          height: 240,
+                          child: MyLineChart(chantingRounds: chantingRounds),
                         ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Total: ${chantingRounds.fold(0, (a, b) => a + b)} rounds',
+                          style: text.bodyStrong,
+                        ),
+                      ]),
+              ),
+
+              // 🔸 Reading Chart
+              _graphCard(
+                title: 'Reading 📖',
+                child: loading
+                    ? _chartGhost()
+                    : Column(
+                        children: [
+                          SizedBox(
+                            height: 240,
+                            child: MyLineChart(chantingRounds: bookReadingData),
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            bookReadingData.isEmpty
+                                ? 'No Data'
+                                : 'Average: ${(bookReadingData.reduce((a, b) => a + b) / bookReadingData.length).toStringAsFixed(1)} mins',
+                            style: text.bodyStrong,
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 30),
-                Text(
-                  'Temple Entry ⛪',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: colorProvider.secondColor,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.only(
-                      right: 16, top: 16, left: 16, bottom: 5),
-                  decoration: BoxDecoration(
-                    color: colorProvider.color,
-                    border:
-                    Border.all(color: colorProvider.secondColor, width: 2),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  height: 320,
-                  width: 320,
-                  child: loading
-                      ? CustomLoader()
-                      : TempleEntryChart(data: templeEntryData),
-                ),
-                const SizedBox(
-                  height: 30,
-                ),
-                Text(
-                  'Chanting Finish Timing ⏰',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: colorProvider.secondColor,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.only(
-                      right: 16, top: 16, left: 16, bottom: 5),
-                  decoration: BoxDecoration(
-                    color: colorProvider.color,
-                    border:
-                    Border.all(color: colorProvider.secondColor, width: 2),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  height: 320,
-                  width: 320,
-                  child: loading
-                      ? CustomLoader()
-                      : FinishTimingChart(data: finishTimingData),
-                ),
-                const SizedBox(height: 20),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 40),
-                  child: Divider(
-                    color: colorProvider.secondColor.withOpacity(0.5),
-                    thickness: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 20),
-                MyPieChart(data: classHearingCount, title: "Class Hearing 🎧"),
-                const SizedBox(height: 20),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 40),
-                  child: Divider(
-                    color: colorProvider.secondColor.withOpacity(0.5),
-                    thickness: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 20),
-                MyPieChart(data: dailyServicesCount, title: "Daily Services 🛐"),
-                const SizedBox(height: 20),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 40),
-                  child: Divider(
-                    color: colorProvider.secondColor.withOpacity(0.5),
-                    thickness: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 20),
-              ],
-            ),
+              ),
+              _graphCard(
+                title: 'Temple Entry ⛪',
+                child: loading
+                    ? _chartGhost()
+                    : TempleEntryChart(data: templeEntryData),
+              ),
+              _graphCard(
+                title: 'Chanting Finish Timing ⏰',
+                child: loading
+                    ? _chartGhost()
+                    : FinishTimingChart(data: finishTimingData),
+              ),
+              _graphCard(
+                child: MyPieChart(data: classHearingCount, title: "Class Hearing 🎧"),
+              ),
+              _graphCard(
+                child: MyPieChart(data: dailyServicesCount, title: "Daily Services 🛐"),
+              ),
+            ],
           ),
         ),
-      );
-    });
+      ),
+    );
   }
 }
 
@@ -387,9 +305,9 @@ class MyPieChart extends StatelessWidget {
 
     final sections = data.entries.map((e) {
       Color color;
-      if (e.key == 'Fully') color = Colors.green;
-      else if (e.key == 'Partial') color = Colors.yellow;
-      else color = Colors.red;
+      if (e.key == 'Fully') color = _kGood;
+      else if (e.key == 'Partial') color = _kMid;
+      else color = _kLate;
 
       final percent = (e.value / total * 100);
       return PieChartSectionData(
@@ -400,37 +318,37 @@ class MyPieChart extends StatelessWidget {
         titleStyle: const TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.bold,
-          color: Colors.black,
+          color: FolkColors.onGradient,
         ),
       );
     }).toList();
-    return Consumer<ColorProvider>(
-        builder: (context, colorProvider, child) {
-          return Column(
-            children: [
-              Text(title, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: colorProvider.secondColor)),
-              const SizedBox(height: 10),
-              SizedBox(
-                height: 250,
-                child: PieChart(
-                  PieChartData(
-                    sections: sections,
-                    sectionsSpace: 2,
-                    centerSpaceRadius: 0,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  LegendItem(color: Colors.green, text: "Fully"),
-                  LegendItem(color: Colors.yellow, text: "Partial"),
-                  LegendItem(color: Colors.red, text: "Missed"),
-                ],
-              ),
-            ],
-          );});
+    return Column(
+      children: [
+        Text(title, style: context.folkText.topBarTitle),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: 250,
+          child: PieChart(
+            PieChartData(
+              sections: sections,
+              sectionsSpace: 2,
+              centerSpaceRadius: 0,
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        const Wrap(
+          alignment: WrapAlignment.spaceEvenly,
+          spacing: 16,
+          runSpacing: 8,
+          children: [
+            LegendItem(color: _kGood, text: "Fully"),
+            LegendItem(color: _kMid, text: "Partial"),
+            LegendItem(color: _kLate, text: "Missed"),
+          ],
+        ),
+      ],
+    );
   }
 }
 
@@ -456,8 +374,10 @@ class FinishTimingChart extends StatelessWidget {
     });
 
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Expanded(
+        SizedBox(
+          height: 240,
           child: BarChart(
             BarChartData(
               barGroups: barGroups,
@@ -466,11 +386,11 @@ class FinishTimingChart extends StatelessWidget {
               gridData: FlGridData(show: false),
               extraLinesData: ExtraLinesData(horizontalLines: [
                 HorizontalLine(
-                    y: 780, color: Colors.green, strokeWidth: 2), // 1:00 PM
+                    y: 780, color: _kGood, strokeWidth: 2), // 1:00 PM
                 HorizontalLine(
-                    y: 960, color: Colors.yellow, strokeWidth: 2), // 4:00 PM
+                    y: 960, color: _kMid, strokeWidth: 2), // 4:00 PM
                 HorizontalLine(
-                    y: 1320, color: Colors.red, strokeWidth: 2), // 10:00 PM
+                    y: 1320, color: _kLate, strokeWidth: 2), // 10:00 PM
               ]),
               alignment: BarChartAlignment.spaceAround,
               maxY: 1320, // ✅ Cap Y axis at 10:00 PM
@@ -481,12 +401,14 @@ class FinishTimingChart extends StatelessWidget {
         const SizedBox(height: 12),
 
         // ✅ Legend
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: const [
-            LegendItem(color: Colors.green, text: "1:00 PM"),
-            LegendItem(color: Colors.yellow, text: "4:00 PM"),
-            LegendItem(color: Colors.red, text: "10:00 PM"),
+        const Wrap(
+          alignment: WrapAlignment.spaceEvenly,
+          spacing: 16,
+          runSpacing: 8,
+          children: [
+            LegendItem(color: _kGood, text: "1:00 PM"),
+            LegendItem(color: _kMid, text: "4:00 PM"),
+            LegendItem(color: _kLate, text: "10:00 PM"),
           ],
         )
       ],
@@ -519,8 +441,10 @@ class TempleEntryChart extends StatelessWidget {
     const double maxY = 600;
 
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Expanded(
+        SizedBox(
+          height: 240,
           child: BarChart(
             BarChartData(
               barGroups: barGroups,
@@ -529,11 +453,11 @@ class TempleEntryChart extends StatelessWidget {
               gridData: FlGridData(show: false),
               extraLinesData: ExtraLinesData(horizontalLines: [
                 HorizontalLine(
-                    y: 330, color: Colors.green, strokeWidth: 2), // 5:30
+                    y: 330, color: _kGood, strokeWidth: 2), // 5:30
                 HorizontalLine(
-                    y: 390, color: Colors.yellow, strokeWidth: 2), // 6:30
+                    y: 390, color: _kMid, strokeWidth: 2), // 6:30
                 HorizontalLine(
-                    y: 450, color: Colors.red, strokeWidth: 2), // 7:30
+                    y: 450, color: _kLate, strokeWidth: 2), // 7:30
               ]),
               alignment: BarChartAlignment.spaceAround,
               maxY: maxY,
@@ -544,15 +468,14 @@ class TempleEntryChart extends StatelessWidget {
         const SizedBox(height: 12),
 
         // Legend Section
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: const [
-            LegendItem(
-              color: Colors.green,
-              text: "5:30 AM",
-            ),
-            LegendItem(color: Colors.yellow, text: "6:30 AM"),
-            LegendItem(color: Colors.red, text: "7:30 AM"),
+        const Wrap(
+          alignment: WrapAlignment.spaceEvenly,
+          spacing: 16,
+          runSpacing: 8,
+          children: [
+            LegendItem(color: _kGood, text: "5:30 AM"),
+            LegendItem(color: _kMid, text: "6:30 AM"),
+            LegendItem(color: _kLate, text: "7:30 AM"),
           ],
         )
       ],
@@ -568,28 +491,21 @@ class LegendItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ColorProvider>(builder: (context, colorProvider, child) {
-      return Row(
-        children: [
-          Container(
-            width: 14,
-            height: 12,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-            ),
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 14,
+          height: 12,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
           ),
-          const SizedBox(width: 6),
-          Text(
-            text,
-            style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: colorProvider.secondColor),
-          ),
-        ],
-      );
-    });
+        ),
+        const SizedBox(width: 6),
+        Text(text, style: context.folkText.small.copyWith(fontSize: 14)),
+      ],
+    );
   }
 }
 
@@ -618,10 +534,17 @@ class MyLineChart extends StatelessWidget {
     final maxY = maxValue + (maxValue * 0.2);
     final minY = minValue - (minValue * 0.1); // small padding at bottom
     final finalMinY = minY < 0 ? 0 : minY; // don't go below 0
-    return Consumer<ColorProvider>(builder: (context, colorProvider, child) {
+    return Builder(builder: (context) {
+      final colors = context.folk;
       return LineChart(
         LineChartData(
-          gridData: FlGridData(show: true),
+          gridData: FlGridData(
+            show: true,
+            getDrawingHorizontalLine: (value) =>
+                FlLine(color: colors.surfaceSecondary, strokeWidth: 1),
+            getDrawingVerticalLine: (value) =>
+                FlLine(color: colors.surfaceSecondary, strokeWidth: 1),
+          ),
           titlesData: FlTitlesData(
             leftTitles: AxisTitles(
               sideTitles: SideTitles(
@@ -630,9 +553,9 @@ class MyLineChart extends StatelessWidget {
                 getTitlesWidget: (value, meta) {
                   return SideTitleWidget(
                     child: Text(value.toInt().toString(),
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
-                          color: Colors.grey,
+                          color: colors.mutedText,
                         )),
                     meta: meta,
                     space: 5,
@@ -664,13 +587,13 @@ class MyLineChart extends StatelessWidget {
             LineChartBarData(
               spots: spots,
               isCurved: true,
-              color: Colors.blueAccent,
+              color: _kData,
               barWidth: 3,
               belowBarData: BarAreaData(
                 show: true,
                 gradient: LinearGradient(
                   colors: [
-                    Colors.blueAccent.withOpacity(0.3),
+                    _kData.withValues(alpha: 0.35),
                     Colors.transparent,
                   ],
                   begin: Alignment.topCenter,
@@ -727,8 +650,8 @@ FlBorderData get borderData => FlBorderData(show: false);
 
 LinearGradient get _barGradient => LinearGradient(
   colors: [
-    Colors.lightBlueAccent,
-    Colors.blueAccent,
+    Color(0xFFDDD2FF),
+    _kData,
   ],
   begin: Alignment.bottomCenter,
   end: Alignment.topCenter,

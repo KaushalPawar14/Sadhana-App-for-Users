@@ -1,10 +1,23 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
-import '../utils/ColorProvider.dart';
+import '../services/DailyMessageService.dart';
+import '../theme/FolkColors.dart';
+import '../theme/FolkTheme.dart';
+import '../theme/FolkTokens.dart';
+import '../utils/BookCurrentBook.dart';
 import '../utils/UnseenFeatureBadge.dart';
+import '../widgets/DailyMessageCard.dart';
+import '../widgets/EntryAnimation.dart';
+import '../widgets/FloatingPillNavBar.dart';
+import '../widgets/FolkScaffold.dart';
+import '../widgets/GhostPlaceholder.dart';
+import '../widgets/GhostedTextLine.dart';
+import '../widgets/CountUpText.dart';
+import '../widgets/JourneyMosaic.dart';
+import '../widgets/SectionDivider.dart';
+import 'AssistantScreen.dart' show AssistantScreen, kAssistantRouteName;
 import 'AssociationScreen.dart';
 import 'BookPageList.dart';
 import 'ChantingScreen.dart';
@@ -68,6 +81,29 @@ class _ABCDEScreenState extends State<ABCDEScreen> {
     _loadUserMeta();
   }
 
+  /// Opens Ask by the same route name the floating button uses, so the
+  /// button hides there. Today's message itself comes from
+  /// `DailyMessageService` (started when the app opened); this screen only
+  /// shows it, so nothing needs re-reading when Ask closes.
+  Future<void> _openAssistant() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        settings: const RouteSettings(name: kAssistantRouteName),
+        builder: (_) => AssistantScreen(uid: _uid),
+      ),
+    );
+  }
+
+  /// The first word of the name this screen already loads (`_loadUserMeta`),
+  /// for the greeting. Null until it has loaded.
+  String? _firstName() {
+    final name = _userName;
+    if (name == null) return null;
+    final trimmed = name.trim();
+    return trimmed.isEmpty ? '' : trimmed.split(RegExp(r'\s+')).first;
+  }
+
   Future<void> _loadUserMeta() async {
     final user = _auth.currentUser;
     if (user == null) return;
@@ -99,12 +135,12 @@ class _ABCDEScreenState extends State<ABCDEScreen> {
   Widget _associationProgress() {
     return StreamBuilder<QuerySnapshot>(
       stream: _associationStream,
-      builder: (context, snapshot) {
+      builder: (context, snapshot) => _ghostedProgress(snapshot, () {
         final count = snapshot.data?.docs.length ?? 0;
         return _progressText(
           count > 0 ? "$count sessions this month" : "No sessions yet",
         );
-      },
+      }),
     );
   }
 
@@ -113,12 +149,12 @@ class _ABCDEScreenState extends State<ABCDEScreen> {
   Widget _booksProgress() {
     return StreamBuilder<QuerySnapshot>(
       stream: _booksStream,
-      builder: (context, snapshot) {
+      builder: (context, snapshot) => _ghostedProgress(snapshot, () {
         final docs = snapshot.data?.docs ?? [];
 
         for (final doc in docs) {
           final data = doc.data() as Map<String, dynamic>;
-          if (data['isCurrentBook'] == true) {
+          if (isCurrentBookEntry(data)) {
             final title = (data['bookTitle'] ?? '').toString();
             if (title.isNotEmpty) {
               return _progressText("Currently reading: $title");
@@ -127,13 +163,16 @@ class _ABCDEScreenState extends State<ABCDEScreen> {
         }
 
         return _progressText("No current book set");
-      },
+      }),
     );
   }
 
   /// C — Chanting. Reads `lifetimeRounds` from the user document. The old
   /// sadhana-based "today" figure was removed: it only counted rounds typed
   /// into the sadhana form, so it contradicted the japa counter.
+  ///
+  /// Shown as the tall tile's big number ("rounds lifetime" under it): the
+  /// same stream and the same reading as the old "Lifetime: N rounds" line.
   Widget _chantingProgress() {
     return StreamBuilder<DocumentSnapshot>(
       stream: _userDocStream,
@@ -142,23 +181,43 @@ class _ABCDEScreenState extends State<ABCDEScreen> {
         final raw = data?['lifetimeRounds'];
         final lifetime = raw is num ? raw.toInt() : 0;
 
-        return _progressText("Lifetime: $lifetime rounds");
+        return GhostedTextLine(
+          loading: snapshot.connectionState == ConnectionState.waiting,
+          lineHeight: 53,
+          ghostWidth: 90,
+          child: CountUpText(
+            value: lifetime,
+            style: context.folkText.bigStat,
+            ready: snapshot.connectionState != ConnectionState.waiting,
+          ),
+        );
       },
     );
   }
 
-  Widget _journeyLetterAvatar(String letter, List<Color> gradient) {
-    return CircleAvatar(
-      radius: 22,
-      backgroundColor: Colors.white,
-      child: Text(
-        letter,
-        style: TextStyle(
-          fontSize: 22,
-          fontWeight: FontWeight.bold,
-          color: gradient.first,
-        ),
+  /// Until a progress line's stream has delivered its first event, a ghost bar
+  /// (same size as the text line) stands in for it, then cross-fades into the
+  /// text. The streams, and the text built from them, are unchanged; an empty
+  /// result still reads "No sessions yet" / "No current book set".
+  Widget _ghostedProgress(AsyncSnapshot snapshot, Widget Function() line) {
+    return GhostedTextLine(
+      loading: snapshot.connectionState == ConnectionState.waiting,
+      child: line(),
+    );
+  }
+
+  /// The A-E letter, kept as the card's avatar (and the carrier for its unseen
+  /// dot): a 44 dp frosted circle with the letter in the heading font.
+  Widget _journeyLetterAvatar(String letter) {
+    return Container(
+      width: 44,
+      height: 44,
+      alignment: Alignment.center,
+      decoration: const BoxDecoration(
+        shape: BoxShape.circle,
+        color: FolkColors.onGradientIconTile,
       ),
+      child: Text(letter, style: context.folkText.cardTitle),
     );
   }
 
@@ -167,11 +226,7 @@ class _ABCDEScreenState extends State<ABCDEScreen> {
       text,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
-      style: const TextStyle(
-        color: Colors.white,
-        fontSize: 12,
-        fontStyle: FontStyle.italic,
-      ),
+      style: context.folkText.onGradientCaption,
     );
   }
 
@@ -179,268 +234,245 @@ class _ABCDEScreenState extends State<ABCDEScreen> {
   // Card
   // ---------------------------------------------------------------------------
 
+  /// One A-E tile of the mosaic. [tall] is the Chanting tile: it also shows
+  /// its subtitle, and [stat] is its big number.
   Widget _journeyCard({
     required String letter,
     required String title,
     required String subtitle,
     required IconData icon,
-    required List<Color> gradient,
+    required FolkGradientStyle style,
     required Widget progress,
     required VoidCallback onTap,
+    bool tall = false,
+    String? statCaption,
     // Master Task 2026-09-10, Part 6 — optional; wraps the letter avatar
     // with an unseen dot for the limbs that have guide-driven content of
     // their own. Null (the default) renders exactly as before.
     Widget Function(Widget avatar)? wrapBadge,
   }) {
-    return Container(
-      height: 220,
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: gradient,
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: gradient.first.withOpacity(.35),
-            blurRadius: 12,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(20),
-          child: Stack(
-            children: [
-              /// Faded watermark
-              Positioned(
-                right: 10,
-                top: 50,
-                child: Icon(
-                  icon,
-                  size: 120,
-                  color: Colors.white.withOpacity(.15),
-                ),
-              ),
+    final avatar = _journeyLetterAvatar(letter);
 
-              Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        wrapBadge != null
-                            ? wrapBadge(_journeyLetterAvatar(letter, gradient))
-                            : _journeyLetterAvatar(letter, gradient),
-                        const Spacer(),
-                        const Icon(
-                          Icons.chevron_right,
-                          color: Colors.white54,
-                          size: 28,
-                        ),
-                      ],
-                    ),
-
-                    const Spacer(),
-
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 14,
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    progress,
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    return JourneyTile(
+      style: style,
+      title: title,
+      subtitle: tall ? subtitle : null,
+      watermark: icon,
+      tall: tall,
+      leading: wrapBadge != null ? wrapBadge(avatar) : avatar,
+      stat: tall ? progress : null,
+      statCaption: tall ? statCaption : null,
+      line: tall ? null : progress,
+      onTap: onTap,
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ColorProvider>(
-    builder: (context, colorProvider, child) {
-    return Container(
-      color: colorProvider.color,
+    // The tab host paints the page background; this list only has to leave
+    // room for the floating pill navigation under it.
+    // One scope, so the progress-line ghosts pulse together; it only runs
+    // while a ghost is showing.
+    return GhostScope(
       child: ListView(
-        padding: const EdgeInsets.symmetric(vertical: 12),
+        padding: EdgeInsets.fromLTRB(
+          FolkSpace.pagePadding,
+          0,
+          FolkSpace.pagePadding,
+          FloatingPillNavBar.reservedHeight(context) + FolkSpace.lg,
+        ),
         physics: const BouncingScrollPhysics(),
         children: [
-          _journeyCard(
-            letter: 'A',
-            title: "Association",
-            subtitle: "Connect with your guide",
-            icon: Icons.people_alt_outlined,
-            gradient: const [Color(0xFFE65100), Color(0xFFFF8F00)],
-            progress: _associationProgress(),
-            // Master Task 2026-09-10, Part 6 — unseen = a guide's own action
-            // on one of this student's association records since they last
-            // opened this screen.
-            wrapBadge: (avatar) => UnseenFeatureBadge(
-              featureKey: 'associations',
-              timestampField: 'updatedAt',
-              latestQuery: (uid) => FirebaseFirestore.instance
-                  .collection('associations')
-                  .where('studentUid', isEqualTo: uid)
-                  .snapshots(),
-              child: avatar,
+          EntryAnimation(
+            index: 0,
+            child: JourneyGreeting(
+              firstName: _firstName(),
+              loading: _userName == null,
             ),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => AssociationScreen(
-                  uid: _uid,
-                  userName: _userName ?? '',
-                  role: _role ?? '',
+          ),
+          // Today's message — the same warm card Ask shows, from the shared
+          // `DailyMessageService`. Showing it never marks anything seen; a
+          // tap opens Ask, which does.
+          EntryAnimation(
+            index: 1,
+            child: ValueListenableBuilder<DailyMessageState>(
+              valueListenable: DailyMessageService.instance.state,
+              builder: (context, state, _) =>
+                  JourneyTodayMessage(state: state, onTap: _openAssistant),
+            ),
+          ),
+          const EntryAnimation(index: 2, child: SectionDivider(label: 'ABCDE')),
+          EntryAnimation(
+            index: 3,
+            child: JourneyPair(
+              // Chanting: the tall tile on the left, as tall as the two short
+              // tiles (Books, Association) stacked beside it.
+              left: _journeyCard(
+              letter: 'C',
+              title: "Chanting",
+              subtitle: "Track your japa rounds",
+              icon: Icons.radio_button_checked_outlined,
+              style: FolkFeatureGradients.chanting,
+              progress: _chantingProgress(),
+              tall: true,
+              statCaption: "rounds lifetime",
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ChantingScreen(
+                    uid: _uid,
+                    userName: _userName ?? '',
+                    role: _role ?? '',
+                  ),
                 ),
               ),
             ),
-          ),
-          _journeyCard(
-            letter: 'B',
-            title: "Books",
-            subtitle: "Read & track your progress",
-            icon: Icons.menu_book_outlined,
-            gradient: const [Color(0xFF4A148C), Color(0xFF7B1FA2)],
-            progress: _booksProgress(),
-            // Unseen = the guide assigned/updated a commitment on one of
-            // this student's books since they last opened this screen
-            // (`commitmentSetAt`, only when `commitmentSetBy == 'guide'` —
-            // the student's own edits never light this up). Guide-marked
-            // completion has no separate Timestamp field to compare against
-            // (`endDate` is a plain date string, not a Firestore Timestamp)
-            // so that action alone does not trigger this dot — a disclosed,
-            // narrower scope for this one feature.
-            wrapBadge: (avatar) => UnseenFeatureBadge(
-              featureKey: 'bookCommitments',
-              extractTimestamp: (data) {
-                if (data['commitmentSetBy'] != 'guide') return null;
-                final ts = data['commitmentSetAt'];
-                return ts is Timestamp ? ts : null;
-              },
-              latestQuery: (uid) => FirebaseFirestore.instance
-                  .collection('booksRead')
-                  .where('uid', isEqualTo: uid)
-                  .snapshots(),
-              child: avatar,
-            ),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const BooksSelectionScreen()),
-            ),
-          ),
-          _journeyCard(
-            letter: 'C',
-            title: "Chanting",
-            subtitle: "Track your japa rounds",
-            icon: Icons.radio_button_checked_outlined,
-            gradient: const [Color(0xFF1B5E20), Color(0xFF388E3C)],
-            progress: _chantingProgress(),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => ChantingScreen(
-                  uid: _uid,
-                  userName: _userName ?? '',
-                  role: _role ?? '',
+              right: JourneyStack(
+                top: _journeyCard(
+              letter: 'A',
+              title: "Association",
+              subtitle: "Connect with your guide",
+              icon: Icons.people_alt_outlined,
+              style: FolkFeatureGradients.association,
+              progress: _associationProgress(),
+              // Master Task 2026-09-10, Part 6 — unseen = a guide's own action
+              // on one of this student's association records since they last
+              // opened this screen.
+              wrapBadge: (avatar) => UnseenFeatureBadge(
+                featureKey: 'associations',
+                timestampField: 'updatedAt',
+                latestQuery: (uid) => FirebaseFirestore.instance
+                    .collection('associations')
+                    .where('studentUid', isEqualTo: uid)
+                    .snapshots(),
+                child: avatar,
+              ),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => AssociationScreen(
+                    uid: _uid,
+                    userName: _userName ?? '',
+                    role: _role ?? '',
+                  ),
                 ),
               ),
             ),
-          ),
-          _journeyCard(
-            letter: 'D',
-            title: "Devotional Service",
-            subtitle: "Serve with devotion",
-            icon: Icons.volunteer_activism_outlined,
-            gradient: const [Color(0xFFB71C1C), Color(0xFFE53935)],
-            progress: _progressText("Browse opportunities"),
-            // Unseen = a guide's own change (new assignment, competence
-            // verdict, or a status change THEY made) since this student
-            // last opened this screen — excludes the student's own status
-            // updates via `statusUpdatedBy`.
-            wrapBadge: (avatar) => UnseenFeatureBadge(
-              featureKey: 'serviceAssignments',
-              extractTimestamp: (data) {
-                if (data['statusUpdatedBy'] == _uid) return null;
-                final ts = data['statusUpdatedAt'];
-                return ts is Timestamp ? ts : null;
-              },
-              latestQuery: (uid) => FirebaseFirestore.instance
-                  .collection('serviceAssignments')
-                  .where('studentUid', isEqualTo: uid)
-                  .snapshots(),
-              child: avatar,
+                bottom: _journeyCard(
+              letter: 'B',
+              title: "Books",
+              subtitle: "Read & track your progress",
+              icon: Icons.menu_book_outlined,
+              style: FolkFeatureGradients.books,
+              progress: _booksProgress(),
+              // Unseen = the guide assigned/updated a commitment on one of
+              // this student's books since they last opened this screen
+              // (`commitmentSetAt`, only when `commitmentSetBy == 'guide'` —
+              // the student's own edits never light this up). Guide-marked
+              // completion has no separate Timestamp field to compare against
+              // (`endDate` is a plain date string, not a Firestore Timestamp)
+              // so that action alone does not trigger this dot — a disclosed,
+              // narrower scope for this one feature.
+              wrapBadge: (avatar) => UnseenFeatureBadge(
+                featureKey: 'bookCommitments',
+                extractTimestamp: (data) {
+                  if (data['commitmentSetBy'] != 'guide') return null;
+                  final ts = data['commitmentSetAt'];
+                  return ts is Timestamp ? ts : null;
+                },
+                latestQuery: (uid) => FirebaseFirestore.instance
+                    .collection('booksRead')
+                    .where('uid', isEqualTo: uid)
+                    .snapshots(),
+                child: avatar,
+              ),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const BooksSelectionScreen()),
+              ),
             ),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => ServiceBankScreen(
-                  uid: _uid,
-                  userName: _userName ?? '',
-                  role: _role ?? '',
-                ),
               ),
             ),
           ),
-          _journeyCard(
-            letter: 'E',
-            title: "Expeditions",
-            subtitle: "Pilgrimages & retreats",
-            icon: Icons.explore_outlined,
-            gradient: const [Color(0xFF01579B), Color(0xFF0288D1)],
-            progress: _progressText("View upcoming trips"),
-            // Unseen = a new trip posted since this student last opened this
-            // screen — every student sees the same `expeditions` list, no
-            // per-student filter.
-            wrapBadge: (avatar) => UnseenFeatureBadge(
-              featureKey: 'expeditionTrips',
-              timestampField: 'createdAt',
-              latestQuery: (_) =>
-                  FirebaseFirestore.instance.collection('expeditions').snapshots(),
-              child: avatar,
-            ),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => ExpeditionScreen(
-                  uid: _uid,
-                  userName: _userName ?? '',
-                  role: _role ?? '',
+          const SizedBox(height: FolkSpace.cardGap),
+          EntryAnimation(
+            index: 4,
+            child: JourneyPair(
+              left: _journeyCard(
+              letter: 'D',
+              title: "Devotional Service",
+              subtitle: "Serve with devotion",
+              icon: Icons.volunteer_activism_outlined,
+              style: FolkFeatureGradients.devotionalService,
+              progress: _progressText("Browse opportunities"),
+              // Unseen = a guide's own change (new assignment, competence
+              // verdict, or a status change THEY made) since this student
+              // last opened this screen — excludes the student's own status
+              // updates via `statusUpdatedBy`.
+              wrapBadge: (avatar) => UnseenFeatureBadge(
+                featureKey: 'serviceAssignments',
+                extractTimestamp: (data) {
+                  if (data['statusUpdatedBy'] == _uid) return null;
+                  final ts = data['statusUpdatedAt'];
+                  return ts is Timestamp ? ts : null;
+                },
+                latestQuery: (uid) => FirebaseFirestore.instance
+                    .collection('serviceAssignments')
+                    .where('studentUid', isEqualTo: uid)
+                    .snapshots(),
+                child: avatar,
+              ),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ServiceBankScreen(
+                    uid: _uid,
+                    userName: _userName ?? '',
+                    role: _role ?? '',
+                  ),
                 ),
               ),
             ),
+              right: _journeyCard(
+              letter: 'E',
+              title: "Expeditions",
+              subtitle: "Pilgrimages & retreats",
+              icon: Icons.explore_outlined,
+              style: FolkFeatureGradients.expeditions,
+              progress: _progressText("View upcoming trips"),
+              // Unseen = a new trip posted since this student last opened this
+              // screen — every student sees the same `expeditions` list, no
+              // per-student filter.
+              wrapBadge: (avatar) => UnseenFeatureBadge(
+                featureKey: 'expeditionTrips',
+                timestampField: 'createdAt',
+                latestQuery: (_) => FirebaseFirestore.instance
+                    .collection('expeditions')
+                    .snapshots(),
+                child: avatar,
+              ),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ExpeditionScreen(
+                    uid: _uid,
+                    userName: _userName ?? '',
+                    role: _role ?? '',
+                  ),
+                ),
+              ),
+            ),
+            ),
           ),
+          const EntryAnimation(index: 5, child: SectionDivider(label: 'MODULES')),
 
           /// Phase 7 shells, below and visually separate from the five ABCDE
           /// cards. ABCDE is exactly five limbs of practice; these are content
           /// modules and must not be mistaken for a sixth.
-          const Phase7Section(),
+          const EntryAnimation(index: 6, child: Phase7Section()),
         ],
       ),
     );
-  });
   }
 }
 
@@ -452,37 +484,35 @@ class PlaceholderScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ColorProvider>(
-        builder: (context, colorProvider, child) {
-      return Scaffold(
-        appBar: AppBar(
-          title: Text(title),
-          backgroundColor: colorProvider.color,
-          foregroundColor: colorProvider.secondColor,
-          elevation: 1,
-        ),
-        backgroundColor: colorProvider.color,
-        body: Center(
-
+    final colors = context.folk;
+    final text = context.folkText;
+    return FolkScaffold(
+      title: title,
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(FolkSpace.xxl),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.hourglass_empty,
-                  size: 56, color: Colors.grey.shade400),
+              Container(
+                width: 88,
+                height: 88,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: colors.surfaceSecondary,
+                ),
+                child: Icon(Icons.hourglass_empty,
+                    size: 44, color: colors.mutedText),
+              ),
               const SizedBox(height: 16),
-              const Text(
-                "Coming Soon",
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-              ),
+              Text("Coming Soon",
+                  textAlign: TextAlign.center, style: text.screenTitle.copyWith(fontSize: 26)),
               const SizedBox(height: 8),
-              Text(
-                title,
-                style: TextStyle(fontSize: 15, color: Colors.grey.shade600),
-              ),
+              Text(title, textAlign: TextAlign.center, style: text.small),
             ],
           ),
         ),
-      );
-        });
+      ),
+    );
   }
 }

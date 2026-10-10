@@ -1,15 +1,31 @@
-import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:folk_app/models/HostelSadhana.dart';
-import 'package:folk_app/utils/ColorProvider.dart';
+import 'package:folk_app/theme/FolkTheme.dart';
+import 'package:folk_app/utils/SadhanaSave.dart';
 import 'package:folk_app/utils/Snackbar.dart';
 import 'package:intl/intl.dart';
-import 'package:provider/provider.dart';
+import 'package:folk_app/widgets/FolkScaffold.dart';
+import 'package:folk_app/widgets/PrimaryButton.dart';
+import 'package:folk_app/widgets/SadhanaFormWidgets.dart';
 
 class SadhanaPage extends StatefulWidget {
+  const SadhanaPage({
+    super.key,
+    this.saveReport,
+    this.saveTimeout = kSadhanaSaveTimeout,
+  });
+
+  // Tests hand in their own save so no real Submit reaches Firestore; the app
+  // never sets these, and `saveSadhanaReport` below is what runs.
+  @visibleForTesting
+  final Future<void> Function(HostelSadhana report, String reportDate)?
+      saveReport;
+  @visibleForTesting
+  final Duration saveTimeout;
+
   @override
   State<SadhanaPage> createState() => SadhanaPageState();
 }
@@ -26,7 +42,22 @@ class SadhanaPageState extends State<SadhanaPage> {
   Map<int, int?> selectedOptions = {};
   Map<int, String> answers = {};
 
-  void submitQuiz() async {
+  // LOGIC CHANGES (save path): the button is busy while a save runs, and a field
+  // the last Submit rejected shows its message until it is edited.
+  bool _saving = false;
+  final SadhanaFieldErrors _errors = SadhanaFieldErrors();
+
+  @override
+  void dispose() {
+    _errors.dispose();
+    super.dispose();
+  }
+
+  Future<void> _saveReport(HostelSadhana report, String reportDate) =>
+      (widget.saveReport ?? saveSadhanaReport)(report, reportDate);
+
+  Future<void> submitQuiz() async {
+    if (_saving) return;
     FocusScope.of(context).requestFocus(FocusNode());
 
     // Fill answers from controllers
@@ -52,6 +83,30 @@ class SadhanaPageState extends State<SadhanaPage> {
       return;
     }
 
+    // ======= LOGIC CHANGE: VALIDATE AND PARSE EVERY NUMBER FIRST =======
+    // Nothing is written, and nothing is cleared, unless all of these pass.
+    final int? roundsValue = parseWholeNumber(roundsController.text);
+    final int? bookValue = parseWholeNumber(bookController.text);
+    final int? hearingValue = int.tryParse(answers[2] ?? '');
+    final errors = <String, String>{
+      if (roundsValue == null) 'rounds': kWholeNumberMessage,
+      if (bookValue == null) 'book': kWholeNumberMessage,
+      if (hearingValue == null) 'class': 'Choose an answer',
+      if (tryParseTime(wakeUpTimeController.text) == null)
+        'wake': 'Pick this time again',
+      if (tryParseTime(sleepTime.text) == null) 'sleep': 'Pick this time again',
+      if (tryParseTime(japaFinish.text) == null) 'japa': 'Pick this time again',
+      if (DateTime.tryParse(dateController.text) == null)
+        'date': 'Pick the date again',
+    };
+    if (errors.isNotEmpty) {
+      _errors.set(errors);
+      showSnackbar(context, 'Please correct the highlighted fields.',
+          Colors.black45, CupertinoIcons.info);
+      return;
+    }
+    _errors.clear();
+
     print(answers);
 
     String? Rounds = answers[5];
@@ -64,25 +119,8 @@ class SadhanaPageState extends State<SadhanaPage> {
 
     TimeOfDay parsedWakeUpTime = _parseTime(wakeUpTime!);
     TimeOfDay parsedFinishTiming = _parseTime(japaEnd!);
-    TimeOfDay parsedSleepingTiming = _parseTime(Sleeping!);
-
-    String sentence =
-        "📿: $Rounds rounds,  📖 : $bookRead mins\n👂 : $Hearing points ,  🙇🏻‍♂️ : $japaEnd";
-
-    print(sentence);
-    showSnackbar(context, 'Sadhana submitted successfully',
-        CupertinoColors.activeGreen, Icons.done_outline_rounded);
-
-    setState(() {
-      answers.clear();
-      dateController.clear();
-      bookController.clear();
-      roundsController.clear();
-      sleepTime.clear();
-      japaFinish.clear();
-      wakeUpTimeController.clear();
-      selectedOptions.clear();
-    });
+    // A sleep time after midnight (00:00-11:59) is saved as 23:59.
+    TimeOfDay parsedSleepingTiming = normalizeSleepTime(_parseTime(Sleeping!));
 
     // Master Task follow-up (2026-09-03) — the old hardcoded-guide broadcast
     // (sendNotificationToAdmin, ["SBSD", "AMHD"] regardless of this
@@ -95,13 +133,42 @@ class SadhanaPageState extends State<SadhanaPage> {
 
     HostelSadhana newReport = HostelSadhana(
         wakeUpTime: parsedWakeUpTime,
-        chantRounds: int.parse(Rounds!),
-        bookReading: int.parse(bookRead!),
-        classHearing: int.parse(Hearing!),
+        chantRounds: roundsValue!,
+        bookReading: bookValue!,
+        classHearing: hearingValue!,
         finishTiming: parsedFinishTiming,
         sleepTiming: parsedSleepingTiming);
     print('New Report created: ${newReport.toMap()}');
-    await saveSadhanaReport(newReport, reversedDate);
+
+    // ======= LOGIC CHANGE: SAVE FIRST; CLEAR AND CONFIRM ONLY ON SUCCESS =======
+    setState(() => _saving = true);
+    try {
+      await runSadhanaSave(() => _saveReport(newReport, reversedDate),
+          timeout: widget.saveTimeout);
+    } on SadhanaSaveException catch (e) {
+      // Everything the student typed stays where it is.
+      if (!mounted) return;
+      setState(() => _saving = false);
+      showSnackbar(context, sadhanaSaveMessage(e.failure),
+          Colors.red.shade700, Icons.error_outline);
+      return;
+    }
+
+    if (!mounted) return;
+    showSnackbar(context, 'Sadhana submitted successfully',
+        CupertinoColors.activeGreen, Icons.done_outline_rounded);
+
+    setState(() {
+      _saving = false;
+      answers.clear();
+      dateController.clear();
+      bookController.clear();
+      roundsController.clear();
+      sleepTime.clear();
+      japaFinish.clear();
+      wakeUpTimeController.clear();
+      selectedOptions.clear();
+    });
   }
 
   Future<void> SelectDate() async {
@@ -111,9 +178,9 @@ class SadhanaPageState extends State<SadhanaPage> {
         firstDate: DateTime(2000),
         lastDate: DateTime.now());
     if (pickedDate != null) {
-      setState(() {
-        dateController.text = pickedDate.toString().split(" ")[0];
-      });
+      // Only the date field changes: its controller repaints it.
+      dateController.text = pickedDate.toString().split(" ")[0];
+      _errors.remove('date');
     }
   }
 
@@ -156,112 +223,97 @@ class SadhanaPageState extends State<SadhanaPage> {
   /// 0` keyboard-open check.
   @override
   Widget build(BuildContext context) {
-    return Consumer<ColorProvider>(builder: (context, colorProvider, child) {
-      return PopScope<Object?>(
-        canPop: false,
-        onPopInvokedWithResult: (didPop, result) {
-          if (didPop) return;
-          if (MediaQuery.of(context).viewInsets.bottom > 0) {
-            FocusScope.of(context).unfocus();
-            return;
-          }
-          Navigator.of(context).pop();
-        },
-        child: Scaffold(
-        backgroundColor: colorProvider.color,
+    return PopScope<Object?>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (MediaQuery.of(context).viewInsets.bottom > 0) {
+          FocusScope.of(context).unfocus();
+          return;
+        }
+        Navigator.of(context).pop();
+      },
+      child: FolkScaffold(
+        title: "Submit Sadhana",
         body: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              children: [
-                SizedBox(height: 35),
-                buildQuestionTextField(
-                    question: "Date of Submission",
-                    controller: dateController,
-                    labelText: "Enter Date",
-                    keyboardType: TextInputType.none,
-                    onTap: () {
-                      SelectDate();
-                    }),
-                const SizedBox(height: 20),
-                buildQuestionTimePicker(
-                    question: "Sleep time of yesterday",
-                    controller: sleepTime,
-                    labelText: "HH : MM",
-                    context: context),
-                const SizedBox(height: 20),
-                buildQuestionTimePicker(
-                    question: "Waking Up Time for today?",
-                    controller: wakeUpTimeController,
-                    labelText: "HH : MM",
-                    context: context),
-                const SizedBox(height: 20),
-                buildQuestionTextField(
-                  question: "Total rounds chanted yesterday",
-                  controller: roundsController,
-                  labelText: "Total rounds",
-                  keyboardType: TextInputType.number,
-                ),
-                const SizedBox(height: 20),
-                buildQuestionDropdown(
-                  question: "Heard Bhagavatam Class today ?",
-                  questionId: 2,
-                  optionsMap: {
-                    "2": "Fully",
-                    "1": "Partial",
-                    "0": "Missed",
-                  },
-                ),
-                const SizedBox(height: 20),
-                buildQuestionTextField(
-                  question: "Total book reading (in mins) yesterday",
-                  controller: bookController,
-                  labelText: "Total reading",
-                  keyboardType: TextInputType.number,
-                ),
-                const SizedBox(height: 20),
-                buildQuestionTimePicker(
-                    question: "Japa finish time of yesterday",
-                    controller: japaFinish,
-                    labelText: "HH : MM",
-                    context: context),
-                const SizedBox(height: 20),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    elevation: 5,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20)),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 30, vertical: 15),
-                  ),
-                  onPressed: () async {
-                    bool internet = await hasInternet();
-                    if (!internet) {
-                      showSnackbar(
-                          context,
-                          "Please turn on your internet !!",
-                          Colors.orange,
-                          Icons
-                              .signal_cellular_connected_no_internet_4_bar_outlined);
-                      return;
-                    }
-
-                    submitQuiz();
-                  },
-                  child: Text(
-                    "Submit",
-                    style: TextStyle(color: Colors.white),
-                  ),
-                ),
-                const SizedBox(height: 20),
-              ],
-            ),
+          padding: kSadhanaFormPadding,
+          child: Column(
+            children: [
+              buildQuestionTextField(
+                  question: "Date of Submission",
+                  errorKey: 'date',
+                  controller: dateController,
+                  labelText: "Enter Date",
+                  keyboardType: TextInputType.none,
+                  onTap: () {
+                    SelectDate();
+                  }),
+              const SizedBox(height: 8),
+              buildQuestionTimePicker(
+                  question: "Sleep time of yesterday",
+                  errorKey: 'sleep',
+                  controller: sleepTime,
+                  labelText: "HH : MM",
+                  // The picker opens on 10:00 PM; a time after midnight is
+                  // recorded as 11:59 PM.
+                  initialTime: const TimeOfDay(hour: 22, minute: 0),
+                  sleepRule: true,
+                  context: context),
+              const SizedBox(height: 8),
+              buildQuestionTimePicker(
+                  question: "Waking Up Time for today?",
+                  errorKey: 'wake',
+                  controller: wakeUpTimeController,
+                  labelText: "HH : MM",
+                  context: context),
+              const SizedBox(height: 8),
+              buildQuestionTextField(
+                question: "Total rounds chanted yesterday",
+                errorKey: 'rounds',
+                controller: roundsController,
+                labelText: "Total rounds",
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: 8),
+              buildQuestionDropdown(
+                question: "Heard Bhagavatam Class today ?",
+                questionId: 2,
+                optionsMap: {
+                  "2": "Fully",
+                  "1": "Partial",
+                  "0": "Missed",
+                },
+              ),
+              const SizedBox(height: 8),
+              buildQuestionTextField(
+                question: "Total book reading (in mins) yesterday",
+                errorKey: 'book',
+                controller: bookController,
+                labelText: "Total reading",
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: 8),
+              buildQuestionTimePicker(
+                  question: "Japa finish time of yesterday",
+                  errorKey: 'japa',
+                  controller: japaFinish,
+                  labelText: "HH : MM",
+                  context: context),
+              const SizedBox(height: 20),
+              PrimaryButton(
+                label: "Submit",
+                loading: _saving,
+                onPressed: _saving ? null : submitQuiz,
+              ),
+            ],
           ),
         ),
-        ),
-      );
-    });
+      ),
+    );
+  }
+
+  void _clearFieldError(String? key) {
+    _errors.remove(key);
   }
 
   Widget buildQuestionCard({
@@ -272,113 +324,68 @@ class SadhanaPageState extends State<SadhanaPage> {
     String? text,
   }) {
     if (options.length != numberOfOptions) {
-      throw Exception(
-          "Number of options does not match the options list length");
+      throw Exception("Number of options does not match the options list length");
     }
 
-    return Consumer<ColorProvider>(builder: (context, colorProvider, child) {
-      return Card(
-        color: colorProvider.fourthColor,
-        margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 20),
-        elevation: 0.5,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        child: Padding(
-          padding: const EdgeInsets.all(15),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                question,
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: colorProvider.secondColor,
-                ),
+    final style = context.folkText;
+    return FormQuestionCard(
+      question: question,
+      // Choosing an option rebuilds this card only, not the whole form.
+      child: StatefulBuilder(
+        builder: (context, setCard) => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (int i = 0; i < options.length; i++)
+              FormOptionRow(
+                label: options[i],
+                selected: selectedOptions[questionId] == i,
+                onTap: () {
+                  selectedOptions[questionId] = i;
+                  answers[questionId] = options[i];
+                  setCard(() {});
+                },
               ),
-              const SizedBox(height: 10),
-              for (int i = 0; i < options.length; i++)
-                ListTile(
-                  title: Text(
-                    options[i],
-                    style: TextStyle(color: colorProvider.secondColor),
-                  ),
-                  leading: Radio<int>(
-                    value: i,
-                    activeColor: colorProvider.secondColor,
-                    groupValue: selectedOptions[questionId],
-                    onChanged: (value) {
-                      setState(() {
-                        selectedOptions[questionId] = value;
-                        answers[questionId] = options[value!];
-                      });
-                    },
-                  ),
-                ),
-              SizedBox(height: 10),
-              if (text != null)
-                Text(
-                  text,
-                  style: TextStyle(color: colorProvider.secondColor),
-                ),
-            ],
-          ),
+            if (text != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(text, style: style.caption),
+              ),
+          ],
         ),
-      );
-    });
+      ),
+    );
   }
 
   Widget buildQuestionDropdown({
     required String question,
     required int questionId,
-    required Map<String, String> optionsMap, // key = value, value = explanation
+    required Map<String, String> optionsMap,
   }) {
-    return Consumer<ColorProvider>(builder: (context, colorProvider, child) {
-      return Card(
-        color: colorProvider.fourthColor,
-        margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 20),
-        elevation: 0.5,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        child: Padding(
-          padding: const EdgeInsets.all(15),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                question,
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: colorProvider.secondColor,
-                ),
-              ),
-              const SizedBox(height: 10),
-              DropdownButtonFormField<String>(
-                value: answers[questionId], // currently selected value
-                decoration: InputDecoration(
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(15),
-                  ),
-                ),
-                dropdownColor: colorProvider.color,
-                items: optionsMap.entries.map((entry) {
-                  return DropdownMenuItem<String>(
-                    value: entry.key,
-                    child: Text("${entry.key} - ${entry.value}",
-                        style: TextStyle(color: colorProvider.secondColor)),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  setState(() {
-                    answers[questionId] = value!;
-                    selectedOptions[questionId] = int.parse(value);
-                  });
-                },
-              ),
-            ],
-          ),
+    final colors = context.folk;
+    final style = context.folkText;
+    return FormQuestionCard(
+      question: question,
+      // Choosing an answer rebuilds this card only, not the whole form.
+      child: StatefulBuilder(
+        builder: (context, setCard) => DropdownButtonFormField<String>(
+          value: answers[questionId],
+          dropdownColor: colors.surface,
+          style: style.body,
+          decoration: sadhanaFieldDecoration(context),
+          items: optionsMap.entries.map((entry) {
+            return DropdownMenuItem<String>(
+              value: entry.key,
+              child: Text("${entry.key} - ${entry.value}", style: style.body),
+            );
+          }).toList(),
+          onChanged: (value) {
+            answers[questionId] = value!;
+            selectedOptions[questionId] = int.parse(value);
+            setCard(() {});
+          },
         ),
-      );
-    });
+      ),
+    );
   }
 
   Widget buildQuestionTextField({
@@ -387,47 +394,25 @@ class SadhanaPageState extends State<SadhanaPage> {
     required String labelText,
     required TextInputType keyboardType,
     Function()? onTap,
+    String? errorKey,
   }) {
-    return Consumer<ColorProvider>(builder: (context, colorProvider, child) {
-      return Card(
-        color: colorProvider.fourthColor,
-        margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 20),
-        elevation: 0.5,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        child: Padding(
-          padding: const EdgeInsets.all(15),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                question,
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: colorProvider.secondColor,
-                ),
-              ),
-              const SizedBox(height: 10),
-              GestureDetector(
-                child: TextField(
-                  controller: controller,
-                  keyboardType: keyboardType,
-                  style: TextStyle(color: colorProvider.secondColor),
-                  decoration: InputDecoration(
-                    labelText: labelText,
-                    labelStyle: TextStyle(color: colorProvider.secondColor),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(15),
-                    ),
-                  ),
-                  onTap: onTap,
-                ),
-              ),
-            ],
-          ),
+    final style = context.folkText;
+    return FormQuestionCard(
+      question: question,
+      child: sadhanaErrorBuilder(
+        _errors,
+        errorKey,
+        (error) => TextField(
+          controller: controller,
+          keyboardType: keyboardType,
+          onTap: onTap,
+          onChanged: (_) => _clearFieldError(errorKey),
+          style: style.body,
+          decoration:
+              sadhanaFieldDecoration(context, hint: labelText, errorText: error),
         ),
-      );
-    });
+      ),
+    );
   }
 
   Widget buildQuestionTimePicker({
@@ -435,73 +420,80 @@ class SadhanaPageState extends State<SadhanaPage> {
     required TextEditingController controller,
     required String labelText,
     required BuildContext context,
+    String? errorKey,
+    // Where the picker opens (null: the current time, as before).
+    TimeOfDay? initialTime,
+    // The sleep field: a time after midnight is recorded as 11:59 PM, and a
+    // small note says so.
+    bool sleepRule = false,
   }) {
-    return Consumer<ColorProvider>(builder: (context, colorProvider, child) {
-      return Card(
-        color: colorProvider.fourthColor,
-        margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 20),
-        elevation: .5,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        child: Padding(
-          padding: const EdgeInsets.all(15),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                question,
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: colorProvider.secondColor,
-                ),
-              ),
-              const SizedBox(height: 10),
-              GestureDetector(
-                onTap: () async {
-                  final TimeOfDay? pickedTime = await showTimePicker(
-                    context: context,
-                    initialTime: TimeOfDay.now(),
-                  );
-                  if (pickedTime != null) {
-                    final now = DateTime.now();
-                    final dt = DateTime(now.year, now.month, now.day,
-                        pickedTime.hour, pickedTime.minute);
-                    final formattedTime = DateFormat('HH:mm').format(dt);
-                    controller.text = formattedTime;
-                  }
-                },
-                child: AbsorbPointer(
-                  child: TextField(
-                    controller: controller,
-                    cursorColor: colorProvider.secondColor,
-                    style: TextStyle(color: colorProvider.secondColor),
-                    decoration: InputDecoration(
-                      labelText: labelText,
-                      labelStyle: TextStyle(color: colorProvider.secondColor),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(15),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
+    final colors = this.context.folk;
+    final style = this.context.folkText;
+    final field = GestureDetector(
+      onTap: () async {
+        final TimeOfDay? pickedTime = await showTimePicker(
+          context: context,
+          initialTime: initialTime ?? TimeOfDay.now(),
+        );
+
+        if (pickedTime != null) {
+          final chosen = sleepRule ? normalizeSleepTime(pickedTime) : pickedTime;
+          final now = DateTime.now();
+          final dt = DateTime(
+              now.year, now.month, now.day, chosen.hour, chosen.minute);
+
+          final formattedTime = DateFormat('HH:mm').format(dt);
+          controller.text = formattedTime;
+          _clearFieldError(errorKey);
+        }
+      },
+      child: AbsorbPointer(
+        child: sadhanaErrorBuilder(
+          _errors,
+          errorKey,
+          (error) => TextField(
+            controller: controller,
+            style: style.body,
+            decoration: sadhanaFieldDecoration(
+              this.context,
+              hint: labelText,
+              suffixIcon: Icon(Icons.access_time, color: colors.mutedText),
+              errorText: error,
+            ),
           ),
         ),
-      );
-    });
+      ),
+    );
+    return FormQuestionCard(
+      question: question,
+      child: !sleepRule
+          ? field
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                field,
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(kSleepAfterMidnightNote, style: style.caption),
+                ),
+              ],
+            ),
+    );
   }
 }
 
 FirebaseFirestore firestore = FirebaseFirestore.instance;
 
+// LOGIC CHANGES (save path): this no longer swallows its own failures: the catch
+// still logs, then rethrows. A missing user, a missing users document, or a
+// missing name stops BEFORE any write (a report is never filed under a made-up
+// name) and throws. The reads and the single write below are unchanged.
 Future<void> saveSadhanaReport(HostelSadhana report, String reportDate) async {
   try {
     User? currentUser = FirebaseAuth.instance.currentUser;
 
     if (currentUser == null) {
-      print('❌ No user is currently logged in.');
-      return;
+      throw const SadhanaSaveException(SadhanaSaveFailure.profileIncomplete);
     }
 
     // Fetch user document to get username
@@ -510,12 +502,8 @@ Future<void> saveSadhanaReport(HostelSadhana report, String reportDate) async {
         .doc(currentUser.uid)
         .get();
 
-    if (!userDoc.exists) {
-      print('❌ User document not found for UID: ${currentUser.uid}');
-      return;
-    }
-
-    String userName = userDoc.data()?['name'] ?? 'Unknown User';
+    String userName = requireStudentName(
+        userExists: userDoc.exists, storedName: userDoc.data()?['name']);
 
     // Reference to new collection "HostelSadhana/{userName}/dates/{reportDate}"
     final reportRef = FirebaseFirestore.instance
@@ -547,17 +535,6 @@ Future<void> saveSadhanaReport(HostelSadhana report, String reportDate) async {
         '📌 HostelSadhana report saved successfully for $userName on $reportDate');
   } catch (e) {
     print('❌ Error saving HostelSadhana report: $e');
+    rethrow;
   }
-}
-
-Future<bool> hasInternet() async {
-  try {
-    final result = await InternetAddress.lookup('example.com');
-    if (result.isNotEmpty && result[0].rawAddress.isNotEmpty) {
-      return true;
-    }
-  } on SocketException catch (_) {
-    return false;
-  }
-  return false;
 }

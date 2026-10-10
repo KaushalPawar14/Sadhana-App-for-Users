@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
 
+import '../theme/FolkColors.dart';
+import '../theme/FolkTheme.dart';
+import '../theme/FolkTokens.dart';
 import '../utils/SeenMarkers.dart';
 import '../utils/ServiceAssignments.dart';
 import '../utils/ServiceBankContent.dart';
+import '../widgets/FolkScaffold.dart';
+import '../widgets/GhostPlaceholder.dart';
+import '../widgets/GradientCard.dart';
 
 /// Service Bank — replaces `pages/DevotionalServiceScreen.dart` entirely
 /// (Service Bank task, Part 5). Reached from the same "D" tile on
@@ -46,9 +52,6 @@ class ServiceBankScreen extends StatefulWidget {
 }
 
 class _ServiceBankScreenState extends State<ServiceBankScreen> {
-  static const Color lotusDark = Color(0xFFB71C1C);
-  static const Color lotusLight = Color(0xFFE53935);
-
   /// Firestore-listener-in-build() fix (2026-09-09, size/perf task) —
   /// `assignmentsForStudentStream` (`utils/ServiceAssignments.dart`) used to
   /// be called fresh directly in `build()`, itself building a new
@@ -80,49 +83,66 @@ class _ServiceBankScreenState extends State<ServiceBankScreen> {
     );
   }
 
-  Color _statusColor(String status) {
+  // Assigned = violet, in progress = saffron, completed = green; the text on
+  // each is always the dark ink.
+  FolkGradientStyle _statusStyle(String status) {
     switch (status) {
       case kStatusCompleted:
-        return Colors.green;
+        return FolkGradientStyle.green;
       case kStatusInProgress:
-        return Colors.orange;
+        return FolkGradientStyle.saffron;
       default:
-        return Colors.blueGrey;
+        return FolkGradientStyle.violet;
     }
   }
 
   Widget _statusChip(ServiceAssignment assignment) {
+    final text = context.folkText;
     final isCompleted = assignment.status == kStatusCompleted;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+    final chip = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: _statusColor(assignment.status).withOpacity(.12),
-        borderRadius: BorderRadius.circular(8),
+        gradient: FolkGradients.of(_statusStyle(assignment.status)),
+        borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
             statusLabel(assignment.status),
-            style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: _statusColor(assignment.status)),
+            style: text.caption.copyWith(
+              fontWeight: FontWeight.w700,
+              color: FolkColors.onGradient,
+            ),
           ),
           if (!isCompleted) ...[
             const SizedBox(width: 6),
-            InkWell(
-              onTap: () => _advanceStatus(assignment),
-              child: Icon(Icons.arrow_forward,
-                  size: 13, color: _statusColor(assignment.status)),
-            ),
+            const Icon(Icons.arrow_forward,
+                size: 14, color: FolkColors.onGradient),
           ],
         ],
+      ),
+    );
+    if (isCompleted) return chip;
+    // The whole chip is the "next status" button, in a 48 dp tall hit area.
+    return Semantics(
+      button: true,
+      label: 'Move to the next status',
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => _advanceStatus(assignment),
+        child: ConstrainedBox(
+          constraints:
+              const BoxConstraints(minHeight: FolkShape.touchTarget),
+          child: Align(alignment: Alignment.centerLeft, child: chip),
+        ),
       ),
     );
   }
 
   Widget _competenceRow(ServiceCompetence competence) {
+    final colors = context.folk;
+    final text = context.folkText;
     final isYes = competence.level == kCompetenceYes;
     return Padding(
       padding: const EdgeInsets.only(top: 6),
@@ -130,7 +150,10 @@ class _ServiceBankScreenState extends State<ServiceBankScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(isYes ? Icons.check_circle : Icons.hourglass_bottom,
-              size: 14, color: isYes ? Colors.green : Colors.grey.shade500),
+              size: 16,
+              color: isYes
+                  ? FolkCalendarTokens.legendSubmitted
+                  : colors.mutedText),
           const SizedBox(width: 6),
           Expanded(
             child: Text(
@@ -138,10 +161,8 @@ class _ServiceBankScreenState extends State<ServiceBankScreen> {
               // file's header for why nothing here can ever write this.
               "Guide assessment: ${isYes ? 'Yes' : 'Not yet'}"
               "${competence.note != null ? ' — ${competence.note}' : ''}",
-              style: TextStyle(
-                  fontSize: 11.5,
-                  fontStyle: FontStyle.italic,
-                  color: Colors.grey.shade600),
+              style: text.small.copyWith(
+                  fontSize: 12.5, fontStyle: FontStyle.italic),
             ),
           ),
         ],
@@ -151,55 +172,52 @@ class _ServiceBankScreenState extends State<ServiceBankScreen> {
 
   Widget _serviceExpansionTile(ServiceBankEntry service,
       {ServiceAssignment? assignment}) {
+    final colors = context.folk;
+    final text = context.folkText;
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: FolkSpace.cardGap),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withOpacity(.06),
-              blurRadius: 8,
-              offset: const Offset(0, 4)),
-        ],
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(FolkShape.tileRadius),
+        boxShadow: colors.cardShadows,
       ),
       clipBehavior: Clip.antiAlias,
       // ExpansionTile paints its header/ink via the nearest Material
-      // ancestor — without one here, the Container's own `color: white`
-      // above sits between it and the Scaffold's Material, triggering
-      // "ListTile background color or ink splashes may be invisible" (this
-      // exact warning has recurred three times in this project already —
-      // same fix each time).
+      // ancestor — without one here, the Container's own colour above sits
+      // between it and the Scaffold's Material, triggering "ListTile
+      // background color or ink splashes may be invisible" (this exact
+      // warning has recurred three times in this project already — same fix
+      // each time).
       child: Material(
         color: Colors.transparent,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(FolkShape.tileRadius),
         clipBehavior: Clip.antiAlias,
         child: Theme(
           data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
           child: ExpansionTile(
+            iconColor: colors.text,
+            collapsedIconColor: colors.mutedText,
             tilePadding:
                 const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
             childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
             leading: Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                  shape: BoxShape.circle, color: lotusLight.withOpacity(.1)),
+              width: 36,
+              height: 36,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: FolkGradients.green,
+              ),
               child: Center(
                 child: Text("${service.number}",
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w800, color: lotusDark)),
+                    style: text.bodyStrong.copyWith(
+                        fontSize: 14, color: FolkColors.onGradient)),
               ),
             ),
             title: Text(service.title,
-                style: const TextStyle(
-                    fontWeight: FontWeight.w700, fontSize: 14, height: 1.3)),
+                style: text.bodyStrong.copyWith(fontSize: 14.5, height: 1.3)),
             subtitle: assignment == null
                 ? null
-                : Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Row(children: [_statusChip(assignment)]),
-                  ),
+                : Row(children: [_statusChip(assignment)]),
             children: [
               if (assignment != null && assignment.competence != null)
                 _competenceRow(assignment.competence!),
@@ -209,53 +227,47 @@ class _ServiceBankScreenState extends State<ServiceBankScreen> {
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text("•  ",
-                            style: TextStyle(fontWeight: FontWeight.bold)),
+                        Text("•  ", style: text.bodyStrong),
                         Expanded(
                             child: Text(p,
-                                style: const TextStyle(
-                                    fontSize: 13, height: 1.35))),
+                                style: text.body
+                                    .copyWith(fontSize: 13.5, height: 1.4))),
                       ],
                     ),
                   )),
               if (service.nuance != null) ...[
                 const SizedBox(height: 6),
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.amber.shade50,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.amber.shade200),
-                  ),
+                GradientCard(
+                  style: FolkGradientStyle.warm,
+                  radius: 16,
+                  padding: const EdgeInsets.all(12),
+                  decorate: false,
                   child: Text(service.nuance!,
-                      style: TextStyle(
-                          fontSize: 12.5,
-                          color: Colors.amber.shade900,
+                      style: text.body.copyWith(
+                          fontSize: 13,
+                          color: FolkColors.onGradient,
                           height: 1.4)),
                 ),
               ],
               if (service.context != null) ...[
                 const SizedBox(height: 6),
                 Text(service.context!,
-                    style: TextStyle(
-                        fontSize: 11.5,
+                    style: text.small.copyWith(
+                        fontSize: 12.5,
                         fontStyle: FontStyle.italic,
-                        color: Colors.grey.shade600,
                         height: 1.4)),
               ],
               const SizedBox(height: 10),
               Container(
-                padding: const EdgeInsets.all(10),
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                    color: lotusDark.withOpacity(.08),
-                    borderRadius: BorderRadius.circular(10)),
+                    color: colors.surfaceSecondary,
+                    borderRadius: BorderRadius.circular(16)),
                 child: Text(
                   "Assessment question: “${service.assessmentQuestion}”",
-                  style: const TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w600,
-                      color: lotusDark,
-                      height: 1.4),
+                  style: text.bodyStrong
+                      .copyWith(fontSize: 13, height: 1.4),
                 ),
               ),
             ],
@@ -267,37 +279,40 @@ class _ServiceBankScreenState extends State<ServiceBankScreen> {
 
   Widget _sectionHeading(String label) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Text(label,
-          style: const TextStyle(
-              fontSize: 17, fontWeight: FontWeight.bold, color: lotusDark)),
+      padding: const EdgeInsets.only(bottom: FolkSpace.md),
+      child: Text(label, style: context.folkText.topBarTitle.copyWith(fontSize: 18)),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFFAFAFA),
-      appBar: AppBar(
-        elevation: 0,
-        title: const Text("Service Bank",
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        backgroundColor: lotusDark,
-        iconTheme: const IconThemeData(color: Colors.white),
-        flexibleSpace: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-                colors: [lotusDark, lotusLight],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight),
-          ),
-        ),
-      ),
+    final colors = context.folk;
+    final text = context.folkText;
+    return FolkScaffold(
+      title: "Service Bank",
       body: StreamBuilder<List<ServiceAssignment>>(
         stream: _assignmentsStream,
         builder: (context, snap) {
           if (!snap.hasData) {
-            return const Center(child: CircularProgressIndicator());
+            // Ghost rows while the assignments load.
+            return GhostScope(
+              child: ListView(
+                physics: const NeverScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(FolkSpace.pagePadding),
+                children: [
+                  for (var i = 0; i < 5; i++)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: FolkSpace.cardGap),
+                      child: GhostPlaceholder(
+                        width: double.infinity,
+                        height: 64,
+                        radius: FolkShape.tileRadius,
+                        showBars: false,
+                      ),
+                    ),
+                ],
+              ),
+            );
           }
 
           final active = snap.data!.where((a) => !a.isWithdrawn).toList()
@@ -305,7 +320,7 @@ class _ServiceBankScreenState extends State<ServiceBankScreen> {
           final assignedNumbers = active.map((a) => a.serviceNumber).toSet();
 
           return ListView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(FolkSpace.pagePadding),
             physics: const BouncingScrollPhysics(),
             children: [
               _sectionHeading("Assigned to Me"),
@@ -313,10 +328,10 @@ class _ServiceBankScreenState extends State<ServiceBankScreen> {
                 Container(
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16)),
-                  child: Text("No services assigned yet",
-                      style: TextStyle(color: Colors.grey.shade600)),
+                      color: colors.surface,
+                      borderRadius: BorderRadius.circular(FolkShape.tileRadius),
+                      boxShadow: colors.cardShadows),
+                  child: Text("No services assigned yet", style: text.small),
                 )
               else
                 ...active.map((a) {

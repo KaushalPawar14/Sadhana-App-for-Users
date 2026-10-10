@@ -2,7 +2,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:folk_app/services/PostAuthRouter.dart';
 import 'package:folk_app/utils/Snackbar.dart';
-import 'package:sizer/sizer.dart';
+
+import '../theme/FolkTheme.dart';
+import '../theme/FolkTokens.dart';
+import '../widgets/FolkScaffold.dart';
+import '../widgets/PrimaryButton.dart';
+import '../widgets/SadhanaFormWidgets.dart';
 
 /// Email/password sign-in — Master Task, 2026-09-14, Part 1. Added
 /// specifically so Google Play's reviewers have a way in: signing into a
@@ -115,19 +120,10 @@ class _EmailSignInPageState extends State<EmailSignInPage> {
     }
   }
 
-  InputDecoration _fieldDecoration(String hint) => InputDecoration(
-        border: InputBorder.none,
-        hintText: hint,
-      );
-
-  BoxDecoration _fieldBoxDecoration() => BoxDecoration(
-        color: const Color(0xFFF1F0F5),
-        border: Border.all(width: 1, color: const Color(0xFFD2D2D4)),
-        borderRadius: BorderRadius.circular(12),
-      );
-
   @override
   Widget build(BuildContext context) {
+    final colors = context.folk;
+    final text = context.folkText;
     // Same back-button-vs-keyboard fix used by Login.dart/Welcome.dart/
     // Questions.dart — a hardware back press with the keyboard open should
     // close the keyboard, not the screen.
@@ -141,123 +137,75 @@ class _EmailSignInPageState extends State<EmailSignInPage> {
         }
         Navigator.of(context).pop();
       },
-      child: Scaffold(
+      child: FolkScaffold(
+        title: 'Sign in with email',
+        onBack: () => Navigator.pop(context),
         body: SingleChildScrollView(
-          child: SafeArea(
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 7.w, vertical: 2.h),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(height: 2.h),
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.arrow_back),
-                    ),
-                    SizedBox(height: 2.h),
-                    Text(
-                      'Sign in with email',
-                      style: TextStyle(
-                        fontSize: 22.sp,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    SizedBox(height: 4.h),
-                    const Text(
-                      'Email',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                    ),
-                    Container(
-                      margin: EdgeInsets.symmetric(vertical: 0.8.h),
-                      padding:
-                          EdgeInsets.symmetric(horizontal: 5.w, vertical: .3.h),
-                      decoration: _fieldBoxDecoration(),
-                      child: TextFormField(
-                        controller: _emailController,
-                        keyboardType: TextInputType.emailAddress,
-                        style: const TextStyle(fontWeight: FontWeight.w500),
-                        decoration: _fieldDecoration('Your Email'),
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return 'Please enter your email';
-                          }
-                          final emailRegex =
-                              RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
-                          if (!emailRegex.hasMatch(value.trim())) {
-                            return 'Enter a valid email address';
-                          }
-                          return null;
-                        },
-                      ),
-                    ),
-                    SizedBox(height: 2.h),
-                    const Text(
-                      'Password',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                    ),
-                    Container(
-                      margin: EdgeInsets.symmetric(vertical: 0.8.h),
-                      padding:
-                          EdgeInsets.symmetric(horizontal: 5.w, vertical: .3.h),
-                      decoration: _fieldBoxDecoration(),
-                      child: TextFormField(
-                        controller: _passwordController,
-                        obscureText: !_isPasswordVisible,
-                        style: const TextStyle(fontWeight: FontWeight.w500),
-                        decoration: InputDecoration(
-                          border: InputBorder.none,
-                          hintText: 'Password',
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _isPasswordVisible
-                                  ? Icons.visibility_outlined
-                                  : Icons.visibility_off_outlined,
-                              color: Colors.grey,
-                              size: 16.sp,
-                            ),
-                            onPressed: () => setState(
-                                () => _isPasswordVisible = !_isPasswordVisible),
-                          ),
-                        ),
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter your password';
-                          }
-                          return null;
-                        },
-                      ),
-                    ),
-                    SizedBox(height: 4.h),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: _isLoading ? null : _signIn,
-                        style: ElevatedButton.styleFrom(
-                          elevation: 0,
-                          backgroundColor: const Color(0xFF835DF1),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          padding: EdgeInsets.symmetric(vertical: 16),
-                        ),
-                        child: _isLoading
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Text('Sign in',
-                                style: TextStyle(color: Colors.white)),
-                      ),
-                    ),
-                  ],
+          padding: const EdgeInsets.fromLTRB(FolkSpace.pagePadding,
+              FolkSpace.xl, FolkSpace.pagePadding, FolkSpace.xxl),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Email', style: text.bodyStrong),
+                const SizedBox(height: FolkSpace.sm),
+                TextFormField(
+                  controller: _emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  style: text.body,
+                  decoration: sadhanaFieldDecoration(context, hint: 'Your Email'),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Please enter your email';
+                    }
+                    final emailRegex =
+                        RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+                    if (!emailRegex.hasMatch(value.trim())) {
+                      return 'Enter a valid email address';
+                    }
+                    return null;
+                  },
                 ),
-              ),
+                const SizedBox(height: FolkSpace.xl),
+                Text('Password', style: text.bodyStrong),
+                const SizedBox(height: FolkSpace.sm),
+                TextFormField(
+                  controller: _passwordController,
+                  obscureText: !_isPasswordVisible,
+                  style: text.body,
+                  decoration: sadhanaFieldDecoration(
+                    context,
+                    hint: 'Password',
+                    suffixIcon: IconButton(
+                      tooltip: _isPasswordVisible
+                          ? 'Hide password'
+                          : 'Show password',
+                      icon: Icon(
+                        _isPasswordVisible
+                            ? Icons.visibility_outlined
+                            : Icons.visibility_off_outlined,
+                        color: colors.mutedText,
+                        size: 22,
+                      ),
+                      onPressed: () => setState(
+                          () => _isPasswordVisible = !_isPasswordVisible),
+                    ),
+                  ),
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Please enter your password';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 32),
+                PrimaryButton(
+                  label: 'Sign in',
+                  loading: _isLoading,
+                  onPressed: _isLoading ? null : _signIn,
+                ),
+              ],
             ),
           ),
         ),

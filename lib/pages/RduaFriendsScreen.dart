@@ -1,11 +1,20 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/SameGender.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
-import '../utils/ColorProvider.dart';
+import '../theme/FolkColors.dart';
+import '../theme/FolkTheme.dart';
+import '../theme/FolkTokens.dart';
 import '../utils/SeenMarkers.dart';
 import '../utils/Snackbar.dart';
+import '../widgets/FolkCard.dart';
+import '../widgets/FolkChip.dart';
+import '../widgets/FolkDialog.dart';
+import '../widgets/FolkScaffold.dart';
+import '../widgets/GhostPlaceholder.dart';
+import '../widgets/PrimaryButton.dart';
+import '../widgets/RoundIconButton.dart';
 
 /// RDUA Friends — friend requests, groups, and group voice rooms.
 ///
@@ -34,6 +43,11 @@ class _RduaFriendsScreenState extends State<RduaFriendsScreen>
   late final TabController _tabController;
   String? _uid;
   String? _myName;
+
+  /// Who is of my gender. A student sees, finds, and connects with students of
+  /// their own gender only; until this is read nothing about other students is
+  /// shown.
+  GenderDirectory? _directory;
 
   /// Firestore-listener-in-build() fix (2026-09-09, size/perf task) — these
   /// three used to be constructed fresh inside `_friendsTab`/`_requestsTab`/
@@ -85,8 +99,15 @@ class _RduaFriendsScreenState extends State<RduaFriendsScreen>
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
     final snap = await _firestore.collection('users').doc(user.uid).get();
+    GenderDirectory? directory;
+    try {
+      directory = await GenderDirectory.forCurrentUser();
+    } catch (_) {
+      // Without it no other student is shown or addable: this fails closed.
+    }
     if (!mounted) return;
     setState(() {
+      _directory = directory;
       _uid = user.uid;
       _myName = (snap.data()?['name'] ?? 'Student').toString();
       _friendsStream = _firestore
@@ -109,6 +130,15 @@ class _RduaFriendsScreenState extends State<RduaFriendsScreen>
   // ---------------------------------------------------------------------------
   // Search + send request
   // ---------------------------------------------------------------------------
+
+  // Documents (friends/{uid}/list) of students of my gender; the document id is
+  // the friend's uid. Nothing before the directory has been read.
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _sameGender(
+          Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs) =>
+      [
+        for (final d in docs)
+          if (_directory?.sameByUid(d.id) ?? false) d,
+      ];
 
   Future<void> _openSearch() async {
     final uid = _uid;
@@ -139,9 +169,14 @@ class _RduaFriendsScreenState extends State<RduaFriendsScreen>
               // filter client-side, matching this project's own repeated
               // precedent for collections at this scale.
               final snap = await _firestore.collection('users').get();
+              final directory = _directory;
               final matches = snap.docs
                   .where((d) {
                     if (d.id == uid) return false;
+                    // Only students of my gender can be found.
+                    if (directory == null || !directory.sameByData(d.data())) {
+                      return false;
+                    }
                     final name =
                         (d.data()['name'] ?? '').toString().toLowerCase();
                     return name.contains(trimmed);
@@ -154,6 +189,8 @@ class _RduaFriendsScreenState extends State<RduaFriendsScreen>
               });
             }
 
+            final colors = context.folk;
+            final text = context.folkText;
             return Padding(
               padding: EdgeInsets.only(
                 bottom: MediaQuery.of(context).viewInsets.bottom,
@@ -161,33 +198,36 @@ class _RduaFriendsScreenState extends State<RduaFriendsScreen>
               child: Container(
                 height: MediaQuery.of(context).size.height * .75,
                 padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                decoration: BoxDecoration(
+                  color: colors.surface,
+                  borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(FolkShape.cardRadius)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text("Find a friend",
-                        style: TextStyle(
-                            fontSize: 17, fontWeight: FontWeight.bold)),
+                    Text("Find a friend",
+                        style: text.topBarTitle.copyWith(fontSize: 18)),
                     const SizedBox(height: 14),
                     TextField(
                       autofocus: true,
                       onChanged: runSearch,
-                      decoration: InputDecoration(
-                        hintText: "Search by name",
-                        prefixIcon: const Icon(Icons.search),
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                      ),
+                      style: text.body,
+                      cursorColor: colors.text,
+                      decoration: FolkDialog.field(context,
+                              hint: "Search by name")
+                          .copyWith(
+                              prefixIcon:
+                                  Icon(Icons.search, color: colors.mutedText)),
                     ),
                     const SizedBox(height: 14),
                     Expanded(
                       child: !searched
                           ? const SizedBox()
                           : results.isEmpty
-                              ? const Center(child: Text("No students found"))
+                              ? Center(
+                                  child: Text("No students found",
+                                      style: text.body))
                               : ListView.builder(
                                   itemCount: results.length,
                                   itemBuilder: (context, i) {
@@ -205,36 +245,45 @@ class _RduaFriendsScreenState extends State<RduaFriendsScreen>
                                         "$guideId's group",
                                     ].join(' · ');
 
-                                    // This sheet's own outer Container has
-                                    // `decoration: BoxDecoration(color:
-                                    // Colors.white, ...)` with no Material
-                                    // between it and this ListTile, which
-                                    // triggers "ListTile background color
-                                    // or ink splashes may be invisible"
-                                    // (recurred three times in this
-                                    // project already — same fix each
-                                    // time).
+                                    // This sheet's own outer Container has a
+                                    // colour with no Material between it and
+                                    // this ListTile, which triggers "ListTile
+                                    // background color or ink splashes may be
+                                    // invisible" (recurred three times in this
+                                    // project already — same fix each time).
                                     return Material(
                                       color: Colors.transparent,
                                       child: ListTile(
-                                        leading: CircleAvatar(
-                                          backgroundColor:
-                                              Colors.deepPurple.shade50,
+                                        leading: Container(
+                                          width: 40,
+                                          height: 40,
+                                          alignment: Alignment.center,
+                                          decoration: const BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            gradient: FolkGradients.violet,
+                                          ),
                                           child: Text(
                                             name.isNotEmpty
                                                 ? name[0].toUpperCase()
                                                 : '?',
-                                            style: const TextStyle(
-                                                color: Colors.deepPurple),
+                                            style: text.bodyStrong.copyWith(
+                                                color: FolkColors.onGradient),
                                           ),
                                         ),
-                                        title: Text(name),
+                                        title:
+                                            Text(name, style: text.bodyStrong),
                                         subtitle: context2.isEmpty
                                             ? null
                                             : Text(context2,
-                                                style: const TextStyle(
-                                                    fontSize: 12)),
+                                                style: text.small
+                                                    .copyWith(fontSize: 12)),
                                         trailing: TextButton(
+                                          style: FolkDialog.quietButton(
+                                                  colors, text)
+                                              .copyWith(
+                                                  foregroundColor:
+                                                      WidgetStatePropertyAll(
+                                                          colors.text)),
                                           onPressed: () async {
                                             await _sendFriendRequest(
                                               fromUid: uid,
@@ -270,6 +319,18 @@ class _RduaFriendsScreenState extends State<RduaFriendsScreen>
     required String toName,
   }) async {
     try {
+      // A request can only go to a student of the same gender, whatever
+      // brought the other student here.
+      final toUserSnap = await _firestore.collection('users').doc(toUid).get();
+      final directory = _directory;
+      if (directory == null || !directory.sameByData(toUserSnap.data())) {
+        if (mounted) {
+          showSnackbar(context, "You can only add students of your own gender.",
+              Colors.orange, Icons.info_outline);
+        }
+        return;
+      }
+
       // Avoid a duplicate pending request to the same person — one
       // equality filter, checked in Dart, same shape this project always
       // uses (see the file-wide note on avoiding composite indexes).
@@ -333,6 +394,15 @@ class _RduaFriendsScreenState extends State<RduaFriendsScreen>
           await _firestore.collection('users').doc(fromUid).get();
       final toUserSnap = await _firestore.collection('users').doc(toUid).get();
 
+      // A request from a student of the other gender cannot be accepted.
+      if (genderOfData(fromUserSnap.data()) != genderOfData(toUserSnap.data())) {
+        if (mounted) {
+          showSnackbar(context, "You can only add students of your own gender.",
+              Colors.orange, Icons.info_outline);
+        }
+        return;
+      }
+
       final batch = _firestore.batch();
       batch.update(
         _firestore.collection('friendRequests').doc(requestId),
@@ -383,25 +453,34 @@ class _RduaFriendsScreenState extends State<RduaFriendsScreen>
     final controller = TextEditingController();
     final name = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text("New group"),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: "Group name"),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text("Cancel"),
+      builder: (dialogContext) {
+        final colors = dialogContext.folk;
+        final text = dialogContext.folkText;
+        return FolkDialog.alert(
+          dialogContext,
+          title: "New group",
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            style: text.body,
+            cursorColor: colors.text,
+            decoration: FolkDialog.field(dialogContext, hint: "Group name"),
           ),
-          ElevatedButton(
-            onPressed: () =>
-                Navigator.pop(dialogContext, controller.text.trim()),
-            child: const Text("Create"),
-          ),
-        ],
-      ),
+          actions: [
+            TextButton(
+              style: FolkDialog.quietButton(colors, text),
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text("Cancel"),
+            ),
+            ElevatedButton(
+              style: FolkDialog.primaryButton(colors, text),
+              onPressed: () =>
+                  Navigator.pop(dialogContext, controller.text.trim()),
+              child: const Text("Create"),
+            ),
+          ],
+        );
+      },
     );
     if (name == null || name.isEmpty) return;
 
@@ -419,6 +498,7 @@ class _RduaFriendsScreenState extends State<RduaFriendsScreen>
 
   Future<void> _manageGroupMembers(
       String uid, String groupId, List<String> currentMembers) async {
+    final sheetColor = context.folk.surface;
     final friendsSnap = await _firestore
         .collection('friends')
         .doc(uid)
@@ -429,27 +509,35 @@ class _RduaFriendsScreenState extends State<RduaFriendsScreen>
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      backgroundColor: sheetColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(FolkShape.cardRadius)),
+      ),
       builder: (sheetContext) {
         return StatefulBuilder(
           builder: (context, setSheetState) {
+            final colors = context.folk;
+            final text = context.folkText;
             return Padding(
               padding: const EdgeInsets.all(20),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text("Group members",
-                      style:
-                          TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  Text("Group members",
+                      style: text.topBarTitle.copyWith(fontSize: 18)),
                   const SizedBox(height: 10),
-                  if (friendsSnap.docs.isEmpty)
-                    const Text("You have no friends to add yet."),
-                  ...friendsSnap.docs.map((d) {
+                  if (_sameGender(friendsSnap.docs).isEmpty)
+                    Text("You have no friends to add yet.", style: text.body),
+                  ..._sameGender(friendsSnap.docs).map((d) {
                     final friendUid = d.id;
                     final name = (d.data()['name'] ?? '').toString();
                     return CheckboxListTile(
+                      activeColor: colors.primaryBg,
+                      checkColor: colors.primaryFg,
                       value: selected.contains(friendUid),
-                      title: Text(name),
+                      title: Text(name, style: text.bodyStrong),
                       onChanged: (v) => setSheetState(() {
                         if (v == true) {
                           selected.add(friendUid);
@@ -460,23 +548,20 @@ class _RduaFriendsScreenState extends State<RduaFriendsScreen>
                     );
                   }),
                   const SizedBox(height: 10),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () async {
-                        await _firestore
-                            .collection('friendGroups')
-                            .doc(uid)
-                            .collection('groups')
-                            .doc(groupId)
-                            .update({
-                          'memberUids': selected.toList(),
-                          'updatedAt': FieldValue.serverTimestamp(),
-                        });
-                        if (sheetContext.mounted) Navigator.pop(sheetContext);
-                      },
-                      child: const Text("Save"),
-                    ),
+                  PrimaryButton(
+                    label: "Save",
+                    onPressed: () async {
+                      await _firestore
+                          .collection('friendGroups')
+                          .doc(uid)
+                          .collection('groups')
+                          .doc(groupId)
+                          .update({
+                        'memberUids': selected.toList(),
+                        'updatedAt': FieldValue.serverTimestamp(),
+                      });
+                      if (sheetContext.mounted) Navigator.pop(sheetContext);
+                    },
                   ),
                 ],
               ),
@@ -529,115 +614,166 @@ class _RduaFriendsScreenState extends State<RduaFriendsScreen>
   Widget build(BuildContext context) {
     final uid = _uid;
     final name = _myName;
+    final colors = context.folk;
+    final text = context.folkText;
 
-    return Consumer<ColorProvider>(
-      builder: (context, colorProvider, child) {
-        return PopScope<Object?>(
-          canPop: false,
-          onPopInvokedWithResult: (didPop, result) {
-            if (didPop) return;
-            if (MediaQuery.of(context).viewInsets.bottom > 0) {
-              FocusScope.of(context).unfocus();
-              return;
-            }
-            Navigator.of(context).pop();
-          },
-          child: Scaffold(
-            backgroundColor: colorProvider.color,
-            appBar: AppBar(
-              backgroundColor: colorProvider.color,
-              elevation: 0,
-              iconTheme: IconThemeData(color: colorProvider.secondColor),
-              title: Text("RDUA Friends",
-                  style: TextStyle(
-                      color: colorProvider.secondColor,
-                      fontWeight: FontWeight.bold)),
-              actions: [
-                IconButton(
-                  icon: Icon(Icons.person_add_alt,
-                      color: colorProvider.secondColor),
-                  onPressed: uid == null ? null : _openSearch,
+    return PopScope<Object?>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (MediaQuery.of(context).viewInsets.bottom > 0) {
+          FocusScope.of(context).unfocus();
+          return;
+        }
+        Navigator.of(context).pop();
+      },
+      child: FolkScaffold(
+        title: "RDUA Friends",
+        actions: [
+          RoundIconButton(
+            icon: Icons.person_add_alt,
+            semanticLabel: 'Find a friend',
+            onPressed: uid == null ? null : _openSearch,
+          ),
+        ],
+        // The three tabs as chips; they drive the same TabController the
+        // swipeable TabBarView below uses.
+        bottom: Padding(
+          padding: const EdgeInsets.only(top: FolkSpace.lg),
+          child: AnimatedBuilder(
+            animation: _tabController.animation!,
+            builder: (context, _) {
+              final selectedIndex = _tabController.animation!.value.round();
+              const labels = ["Friends", "Requests", "Groups"];
+              return SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(
+                    horizontal: FolkSpace.pagePadding),
+                child: Row(
+                  children: [
+                    for (var i = 0; i < labels.length; i++)
+                      Padding(
+                        padding: EdgeInsets.only(
+                            right: i == labels.length - 1 ? 0 : FolkSpace.sm),
+                        child: FolkChip(
+                          label: labels[i],
+                          selected: i == selectedIndex,
+                          large: true,
+                          onTap: () => _tabController.animateTo(i),
+                        ),
+                      ),
+                  ],
                 ),
-              ],
-              bottom: TabBar(
-                controller: _tabController,
-                labelColor: Colors.deepPurple,
-                unselectedLabelColor: Colors.grey,
-                indicatorColor: Colors.deepPurple,
-                tabs: const [
-                  Tab(text: "Friends"),
-                  Tab(text: "Requests"),
-                  Tab(text: "Groups"),
+              );
+            },
+          ),
+        ),
+        floatingActionButton: uid == null
+            ? null
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  // Groups tab only. Previously a separate `Positioned`
+                  // FAB inside `_groupsTab`'s own Stack, anchored to this
+                  // SAME bottom-right corner — which is why it sat
+                  // directly underneath "Start Voice Room" below and
+                  // could not be reliably tapped. Folded into this
+                  // existing stacked-FAB column (Rule 1: the app's own
+                  // convention for two floating actions is already
+                  // "stack vertically with a gap") instead of a second,
+                  // independently-positioned button.
+                  if (_tabController.index == 2) ...[
+                    FloatingActionButton(
+                      heroTag: 'new-group',
+                      mini: true,
+                      elevation: 0,
+                      backgroundColor: colors.surface,
+                      foregroundColor: colors.text,
+                      onPressed: () => _createGroup(uid),
+                      child: const Icon(Icons.add),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  FloatingActionButton.extended(
+                    heroTag: 'join-code',
+                    elevation: 0,
+                    backgroundColor: colors.surface,
+                    foregroundColor: colors.text,
+                    onPressed: () => _joinByCode(uid),
+                    icon: const Icon(Icons.dialpad),
+                    label: Text("Join by Code", style: text.chip),
+                  ),
+                  const SizedBox(height: 12),
+                  FloatingActionButton.extended(
+                    heroTag: 'start-room',
+                    elevation: 0,
+                    backgroundColor: colors.primaryBg,
+                    foregroundColor: colors.primaryFg,
+                    onPressed: () => _startRoom(uid, name ?? 'Student'),
+                    icon: const Icon(Icons.mic),
+                    label: Text("Start Voice Room",
+                        style: text.chip.copyWith(color: colors.primaryFg)),
+                  ),
                 ],
               ),
-            ),
-            floatingActionButton: uid == null
-                ? null
-                : Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      // Groups tab only. Previously a separate `Positioned`
-                      // FAB inside `_groupsTab`'s own Stack, anchored to this
-                      // SAME bottom-right corner — which is why it sat
-                      // directly underneath "Start Voice Room" below and
-                      // could not be reliably tapped. Folded into this
-                      // existing stacked-FAB column (Rule 1: the app's own
-                      // convention for two floating actions is already
-                      // "stack vertically with a gap") instead of a second,
-                      // independently-positioned button.
-                      if (_tabController.index == 2) ...[
-                        FloatingActionButton(
-                          heroTag: 'new-group',
-                          mini: true,
-                          onPressed: () => _createGroup(uid),
-                          child: const Icon(Icons.add),
+        body: uid == null
+            ? GhostScope(
+                child: ListView(
+                  physics: const NeverScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(FolkSpace.pagePadding),
+                  children: [
+                    for (var i = 0; i < 4; i++)
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: FolkSpace.cardGap),
+                        child: GhostPlaceholder(
+                          width: double.infinity,
+                          height: 72,
+                          radius: FolkShape.tileRadius,
+                          showBars: false,
                         ),
-                        const SizedBox(height: 12),
-                      ],
-                      FloatingActionButton.extended(
-                        heroTag: 'join-code',
-                        backgroundColor: Colors.blueGrey,
-                        onPressed: () => _joinByCode(uid),
-                        icon: const Icon(Icons.dialpad),
-                        label: const Text("Join by Code"),
                       ),
-                      const SizedBox(height: 12),
-                      FloatingActionButton.extended(
-                        heroTag: 'start-room',
-                        backgroundColor: Colors.green.shade700,
-                        onPressed: () => _startRoom(uid, name ?? 'Student'),
-                        icon: const Icon(Icons.mic),
-                        label: const Text("Start Voice Room"),
-                      ),
-                    ],
-                  ),
-            body: uid == null
-                ? const Center(child: CircularProgressIndicator())
-                : TabBarView(
-                    controller: _tabController,
-                    children: [
-                      _friendsTab(uid),
-                      _requestsTab(uid),
-                      _groupsTab(uid),
-                    ],
-                  ),
-          ),
-        );
-      },
+                  ],
+                ),
+              )
+            : TabBarView(
+                controller: _tabController,
+                children: [
+                  _friendsTab(uid),
+                  _requestsTab(uid),
+                  _groupsTab(uid),
+                ],
+              ),
+      ),
+    );
+  }
+
+  Widget _avatar() {
+    final colors = context.folk;
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: colors.surfaceSecondary,
+      ),
+      child: Icon(Icons.person, color: colors.text),
     );
   }
 
   Widget _friendsTab(String uid) {
+    final text = context.folkText;
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _friendsStream,
       builder: (context, snap) {
-        final docs = snap.data?.docs ?? [];
+        final docs = _sameGender(snap.data?.docs ?? []);
         if (docs.isEmpty) {
-          return const Center(child: Text("No friends yet — tap + to search."));
+          return Center(
+              child:
+                  Text("No friends yet — tap + to search.", style: text.body));
         }
         return ListView.builder(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(FolkSpace.pagePadding),
           itemCount: docs.length,
           itemBuilder: (context, i) {
             final f = docs[i].data();
@@ -647,12 +783,26 @@ class _RduaFriendsScreenState extends State<RduaFriendsScreen>
               if (role.isNotEmpty) role,
               if (guideId.isNotEmpty) "$guideId's group",
             ].join(' · ');
-            return Card(
-              margin: const EdgeInsets.only(bottom: 10),
-              child: ListTile(
-                leading: const CircleAvatar(child: Icon(Icons.person)),
-                title: Text((f['name'] ?? '').toString()),
-                subtitle: ctx.isEmpty ? null : Text(ctx),
+            return FolkCard(
+              margin: const EdgeInsets.only(bottom: FolkSpace.cardGap),
+              radius: FolkShape.tileRadius,
+              padding: const EdgeInsets.symmetric(
+                  horizontal: FolkSpace.lg, vertical: 12),
+              child: Row(
+                children: [
+                  _avatar(),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text((f['name'] ?? '').toString(),
+                            style: text.bodyStrong),
+                        if (ctx.isNotEmpty) Text(ctx, style: text.small),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             );
           },
@@ -662,42 +812,57 @@ class _RduaFriendsScreenState extends State<RduaFriendsScreen>
   }
 
   Widget _requestsTab(String uid) {
+    final colors = context.folk;
+    final text = context.folkText;
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       // Single equality filter, both directions checked client-side after
       // the fact via two separate simple queries below — kept as two
       // StreamBuilders rather than one OR query for clarity here.
       stream: _requestsStream,
       builder: (context, incomingSnap) {
+        // Only requests from students of my gender are shown.
         final incoming = (incomingSnap.data?.docs ?? [])
             .where((d) => d.data()['status'] == 'pending')
+            .where((d) =>
+                _directory?.sameByUid(d.data()['fromUid']?.toString()) ?? false)
             .toList();
 
         return ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(FolkSpace.pagePadding),
           children: [
-            const Text("Incoming",
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+            Text("Incoming".toUpperCase(), style: text.label),
             const SizedBox(height: 8),
-            if (incoming.isEmpty) const Text("No pending requests"),
+            if (incoming.isEmpty) Text("No pending requests", style: text.body),
             ...incoming.map((d) {
               final data = d.data();
-              return Card(
-                margin: const EdgeInsets.only(bottom: 10),
-                child: ListTile(
-                  title: Text((data['fromName'] ?? '').toString()),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.check, color: Colors.green),
-                        onPressed: () => _respondToRequest(d.id, data, true),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close, color: Colors.red),
-                        onPressed: () => _respondToRequest(d.id, data, false),
-                      ),
-                    ],
-                  ),
+              return FolkCard(
+                margin: const EdgeInsets.only(bottom: FolkSpace.cardGap),
+                radius: FolkShape.tileRadius,
+                padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text((data['fromName'] ?? '').toString(),
+                          style: text.bodyStrong),
+                    ),
+                    IconButton(
+                      tooltip: 'Accept',
+                      constraints: const BoxConstraints(
+                          minWidth: FolkShape.touchTarget,
+                          minHeight: FolkShape.touchTarget),
+                      icon: const Icon(Icons.check,
+                          color: FolkCalendarTokens.legendSubmitted),
+                      onPressed: () => _respondToRequest(d.id, data, true),
+                    ),
+                    IconButton(
+                      tooltip: 'Decline',
+                      constraints: const BoxConstraints(
+                          minWidth: FolkShape.touchTarget,
+                          minHeight: FolkShape.touchTarget),
+                      icon: Icon(Icons.close, color: colors.calendarMissedText),
+                      onPressed: () => _respondToRequest(d.id, data, false),
+                    ),
+                  ],
                 ),
               );
             }),
@@ -708,49 +873,72 @@ class _RduaFriendsScreenState extends State<RduaFriendsScreen>
   }
 
   Widget _groupsTab(String uid) {
+    final colors = context.folk;
+    final text = context.folkText;
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _groupsStream,
       builder: (context, snap) {
         final docs = snap.data?.docs ?? [];
         if (docs.isEmpty) {
-          return const Center(
-              child: Text("No groups yet — tap + to create one."));
+          return Center(
+              child: Text("No groups yet — tap + to create one.",
+                  style: text.body));
         }
         return ListView.builder(
           // Bottom padding cleared for this tab's own 3-button FAB stack
           // (+ New Group, Join by Code, Start Voice Room) — see build()'s
           // floatingActionButton.
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 190),
+          padding: const EdgeInsets.fromLTRB(FolkSpace.pagePadding,
+              FolkSpace.pagePadding, FolkSpace.pagePadding, 190),
           itemCount: docs.length,
           itemBuilder: (context, i) {
             final g = docs[i].data();
-            final members =
-                (g['memberUids'] as List?)?.map((e) => e.toString()).toList() ??
-                    [];
-            return Card(
-              margin: const EdgeInsets.only(bottom: 10),
-              child: ListTile(
-                title: Text((g['groupName'] ?? '').toString()),
-                subtitle: Text("${members.length} member(s)"),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.group_add),
-                      onPressed: () =>
-                          _manageGroupMembers(uid, docs[i].id, members),
+            final members = ((g['memberUids'] as List?)
+                        ?.map((e) => e.toString())
+                        .toList() ??
+                    <String>[])
+                .where((m) => _directory?.sameByUid(m) ?? false)
+                .toList();
+            return FolkCard(
+              margin: const EdgeInsets.only(bottom: FolkSpace.cardGap),
+              radius: FolkShape.tileRadius,
+              padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text((g['groupName'] ?? '').toString(),
+                            style: text.bodyStrong),
+                        Text("${members.length} member(s)", style: text.small),
+                      ],
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.delete_outline),
-                      onPressed: () => _firestore
-                          .collection('friendGroups')
-                          .doc(uid)
-                          .collection('groups')
-                          .doc(docs[i].id)
-                          .delete(),
-                    ),
-                  ],
-                ),
+                  ),
+                  IconButton(
+                    tooltip: 'Manage members',
+                    constraints: const BoxConstraints(
+                        minWidth: FolkShape.touchTarget,
+                        minHeight: FolkShape.touchTarget),
+                    icon: Icon(Icons.group_add, color: colors.text),
+                    onPressed: () =>
+                        _manageGroupMembers(uid, docs[i].id, members),
+                  ),
+                  IconButton(
+                    tooltip: 'Delete group',
+                    constraints: const BoxConstraints(
+                        minWidth: FolkShape.touchTarget,
+                        minHeight: FolkShape.touchTarget),
+                    icon: Icon(Icons.delete_outline,
+                        color: colors.calendarMissedText),
+                    onPressed: () => _firestore
+                        .collection('friendGroups')
+                        .doc(uid)
+                        .collection('groups')
+                        .doc(docs[i].id)
+                        .delete(),
+                  ),
+                ],
               ),
             );
           },

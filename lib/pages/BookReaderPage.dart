@@ -1,89 +1,18 @@
-import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
-import 'package:archive/archive.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_cache_manager/flutter_cache_manager.dart';
-import 'package:xml/xml.dart';
 
-
-/// Paragraph-level decoration read from `<w:pPr>`.
-///
-/// Covers the shaded/bordered banner styling Word applies to headings:
-/// `<w:shd w:fill="RRGGBB"/>` for the fill, `<w:pBdr>` for per-side rules, and
-/// `<w:jc w:val="center"/>` for alignment.
-///
-/// Verified against the real library: every Heading 1 in
-/// *Beyond Birth and Death* carries `fill="008080"` (teal) with 3pt
-/// `800000` (maroon) top and bottom borders.
-class ParagraphDecoration {
-  final Color? fill;
-  final BorderSide? top;
-  final BorderSide? bottom;
-  final BorderSide? left;
-  final BorderSide? right;
-  final bool centered;
-
-  const ParagraphDecoration({
-    this.fill,
-    this.top,
-    this.bottom,
-    this.left,
-    this.right,
-    this.centered = false,
-  });
-
-  bool get isEmpty =>
-      fill == null &&
-      top == null &&
-      bottom == null &&
-      left == null &&
-      right == null;
-
-  Border? get border {
-    if (top == null && bottom == null && left == null && right == null) {
-      return null;
-    }
-    return Border(
-      top: top ?? BorderSide.none,
-      bottom: bottom ?? BorderSide.none,
-      left: left ?? BorderSide.none,
-      right: right ?? BorderSide.none,
-    );
-  }
-}
-
-/// A single chapter, delimited by a Heading 1 paragraph in the DOCX.
-///
-/// Each paragraph is a list of [InlineSpan]s rather than a plain string, so
-/// bold/italic/coloured runs, in-paragraph line breaks **and inline images**
-/// survive parsing.
-///
-/// ⚠️ `InlineSpan`, not `TextSpan` (widened 2026-08-19): an embedded image
-/// renders as a [WidgetSpan], which is an `InlineSpan` but not a `TextSpan`.
-/// Keeping the narrower type would have forced images out of the run sequence
-/// and into separate blocks, losing their authored position.
-class BookChapter {
-  final String title;
-
-  /// The heading's own formatted runs. Empty for a synthetic chapter (a
-  /// document with no Heading 1, or the text before the first one), in which
-  /// case [title] is rendered as plain text exactly as before.
-  final List<InlineSpan> titleSpans;
-
-  /// Shading/border/alignment for the heading, when Word authored any.
-  final ParagraphDecoration? titleDecoration;
-
-  final List<List<InlineSpan>> paragraphs;
-
-  const BookChapter({
-    required this.title,
-    required this.paragraphs,
-    this.titleSpans = const [],
-    this.titleDecoration,
-  });
-}
+import '../theme/FolkColors.dart';
+import '../theme/FolkTheme.dart';
+import '../theme/FolkTokens.dart';
+import '../utils/BookDocParser.dart';
+import '../utils/BookLoader.dart';
+import '../utils/ReaderContrast.dart';
+import '../widgets/FolkDialog.dart';
+import '../widgets/ReaderChrome.dart';
 
 /// Base style shared by every run of body text.
 const TextStyle kReaderParagraphStyle = TextStyle(
@@ -93,14 +22,6 @@ const TextStyle kReaderParagraphStyle = TextStyle(
   height: 1.6,
   color: Colors.black87,
 );
-
-/// Flattens formatted spans back to plain text (bookmark previews, headings).
-///
-/// A [WidgetSpan] (an inline image) contributes nothing, so an image never
-/// corrupts a bookmark preview or a chapter title.
-String spansToPlainText(List<InlineSpan> spans) => spans
-    .map((s) => s is TextSpan ? (s.text ?? '') : '')
-    .join();
 
 /// Reader background/text colours for one reading theme.
 ///
@@ -180,6 +101,12 @@ class BookReaderPage extends StatefulWidget {
   /// than inferred.
   final bool isRdua;
 
+  // Tests hand in their own book source; the app never sets this.
+  @visibleForTesting
+  final Stream<BookLoadUpdate> Function(String url, String title)? loader;
+  @visibleForTesting
+  final Future<List<Object?>> Function()? extras;
+
   const BookReaderPage({
     super.key,
     required this.dropboxUrl,
@@ -188,6 +115,8 @@ class BookReaderPage extends StatefulWidget {
     required this.level,
     required this.uid,
     this.isRdua = false,
+    this.loader,
+    this.extras,
   });
 
   @override
@@ -198,11 +127,15 @@ class _BookReaderPageState extends State<BookReaderPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final ScrollController _scrollController = ScrollController();
 
-  List<BookChapter> _chapters = [];
+  List<ParsedChapter> _chapters = [];
   int _currentChapter = 0;
 
-  /// Relationship id -> image bytes for the open document. Populated by
-  /// [_buildMediaMap] during parsing; empty when the book has no images.
+  /// False while only the first chapter has been read (the rest is still being
+  /// read in the background); the Next button waits for it.
+  bool _complete = true;
+
+  /// Relationship id -> image bytes for the open document; empty when the
+  /// book has no images.
   Map<String, Uint8List> _media = const {};
 
   bool _loading = true;
@@ -282,47 +215,82 @@ class _BookReaderPageState extends State<BookReaderPage> {
   }
 
   Future<void> _load() async {
+    // The three Firestore reads start at once, alongside the download and the
+    // parse, rather than after them.
+    final Future<List<Object?>> extrasFuture = widget.extras?.call() ??
+        Future.wait<Object?>([
+          _fetchBookmark(),
+          _fetchReadingPrefs(),
+          _fetchFinishedState(),
+        ]);
+
     try {
-      final file = await DefaultCacheManager()
-          .getSingleFile(_normalizeDropboxUrl(widget.dropboxUrl));
+      final updates = (widget.loader ?? _defaultLoader)(
+          _normalizeDropboxUrl(widget.dropboxUrl), widget.bookTitle);
+      var shown = false;
+      List<Object?>? extras;
 
-      final bytes = await file.readAsBytes();
-      final chapters = _parseDocx(bytes);
+      await for (final update in updates) {
+        if (!mounted) return;
+        extras ??= await extrasFuture;
+        final chapters = update.book.chapters;
 
-      final results = await Future.wait([
-        _fetchBookmark(),
-        _fetchReadingPrefs(),
-        _fetchFinishedState(),
-      ]);
-      final bookmark = results[0] as Map<String, int>?;
-      final prefs = results[1] as Map<String, Object?>;
-      final finished = results[2] as bool;
+        if (shown) {
+          // The rest of the book has been read: swap in the full list. The
+          // chapter on screen is the same one, so nothing on it moves.
+          setState(() {
+            _chapters = chapters;
+            _media = update.book.media;
+            _complete = update.complete;
+          });
+          continue;
+        }
 
-      if (!mounted) return;
+        final bookmark = extras[0] as Map<String, int>?;
+        final bookmarkChapter = bookmark?['chapter'];
+        // A bookmark further in than what has been read so far: wait for it.
+        if (bookmarkChapter != null &&
+            bookmarkChapter >= chapters.length &&
+            !update.complete) {
+          continue;
+        }
+        final prefs = extras[1] as Map<String, Object?>;
+        final finished = extras[2] as bool;
 
-      final bookmarkChapter = bookmark?['chapter'];
-      final startChapter =
-          (bookmarkChapter != null && bookmarkChapter < chapters.length)
-              ? bookmarkChapter
-              : 0;
+        final startChapter =
+            (bookmarkChapter != null && bookmarkChapter < chapters.length)
+                ? bookmarkChapter
+                : 0;
 
-      setState(() {
-        _chapters = chapters;
-        _bookmarkChapter = bookmarkChapter;
-        _bookmarkParagraph = bookmark?['paragraph'];
-        _currentChapter = startChapter;
-        _rebuildParagraphKeys();
-        _theme = (prefs['theme'] as String?) ?? 'light';
-        _fontScale = (prefs['fontScale'] as double?) ?? 1.0;
-        _finished = finished;
-        _loading = false;
-        // Timer starts only now that readable content is on screen.
-        _readingStartedAt = DateTime.now();
-      });
+        shown = true;
+        setState(() {
+          _chapters = chapters;
+          _media = update.book.media;
+          _complete = update.complete;
+          _bookmarkChapter = bookmarkChapter;
+          _bookmarkParagraph = bookmark?['paragraph'];
+          _currentChapter = startChapter;
+          _rebuildParagraphKeys();
+          _theme = (prefs['theme'] as String?) ?? 'light';
+          _fontScale = (prefs['fontScale'] as double?) ?? 1.0;
+          _finished = finished;
+          _loading = false;
+          // Timer starts only now that readable content is on screen.
+          _readingStartedAt = DateTime.now();
+        });
 
-      // Once the chapter has laid out, bring the bookmarked paragraph on screen.
-      if (_bookmarkChapter == _currentChapter) {
-        _scrollToBookmarkedParagraph();
+        // Once the chapter has laid out, bring the bookmarked paragraph on
+        // screen.
+        if (_bookmarkChapter == _currentChapter) {
+          _scrollToBookmarkedParagraph();
+        }
+      }
+
+      if (!shown && mounted) {
+        setState(() {
+          _loading = false;
+          _error = "Could not open this book.";
+        });
       }
     } catch (e) {
       if (!mounted) return;
@@ -333,400 +301,66 @@ class _BookReaderPageState extends State<BookReaderPage> {
     }
   }
 
-  /// Unzips the DOCX and splits `word/document.xml` into chapters.
-  List<BookChapter> _parseDocx(Uint8List bytes) {
-    final archive = ZipDecoder().decodeBytes(bytes);
+  Stream<BookLoadUpdate> _defaultLoader(String url, String title) =>
+      loadBook(url: url, fallbackTitle: title);
 
-    final entry = archive.files.firstWhere(
-      (f) => f.name == 'word/document.xml',
-      orElse: () => throw const FormatException('word/document.xml not found'),
-    );
-
-    // document.xml is UTF-8. Decoding byte-by-byte (String.fromCharCodes)
-    // splits multi-byte sequences into separate Latin-1 characters, which is
-    // what turned IAST diacritics into mojibake like "á¹›" and "â€".
-    final content = entry.content as List<int>;
-    final xmlString = utf8.decode(content, allowMalformed: true);
-
-    final document = XmlDocument.parse(xmlString);
-
-    // Image support: relationship id -> media bytes, resolved once up front.
-    //
-    // `word/_rels/document.xml.rels` maps the `r:embed` id on an `<a:blip>` to
-    // a target path like `media/image1.png`, which is relative to `word/`.
-    _media = _buildMediaMap(archive);
-
-    final chapters = <BookChapter>[];
-    String currentTitle = widget.bookTitle;
-    var currentTitleSpans = <InlineSpan>[];
-    ParagraphDecoration? currentTitleDecoration;
-    var currentParagraphs = <List<InlineSpan>>[];
-
-    // Each <w:p> stays its own paragraph — one entry per element, so
-    // consecutive paragraphs are never merged.
-    for (final p in document.findAllElements('p', namespace: '*')) {
-      // Heading style, if any: <w:pPr><w:pStyle w:val="Heading1"/></w:pPr>
-      String? styleVal;
-      for (final style in p.findAllElements('pStyle', namespace: '*')) {
-        styleVal = style.getAttribute('val', namespace: '*') ??
-            style.getAttribute('w:val');
-        break;
-      }
-
-      final isHeading1 = styleVal != null &&
-          styleVal.replaceAll(' ', '').toLowerCase() == 'heading1';
-
-      final spans = _extractSpans(p);
-      final plain = spansToPlainText(spans).trim();
-
-      if (isHeading1) {
-        // Close the previous chapter before starting a new one.
-        // ⚠️ Unchanged: this is the page-break / "Next Chapter" boundary, and
-        // the condition that opens a new chapter is exactly what it was.
-        if (currentParagraphs.isNotEmpty) {
-          chapters.add(BookChapter(
-            title: currentTitle,
-            titleSpans: List<InlineSpan>.from(currentTitleSpans),
-            titleDecoration: currentTitleDecoration,
-            paragraphs: List<List<InlineSpan>>.from(currentParagraphs),
-          ));
-          currentParagraphs = <List<InlineSpan>>[];
-        }
-        currentTitle = plain.isEmpty ? 'Untitled chapter' : plain;
-        // The heading's own runs and banner styling now travel with it. The
-        // plain title is still kept — it is what the bookmark UI and the
-        // chapter list use.
-        currentTitleSpans = spans;
-        currentTitleDecoration = _readParagraphDecoration(p);
-      } else if (plain.isNotEmpty || _containsImage(spans)) {
-        // A paragraph whose only content is an image has no text, so the
-        // original `plain.isNotEmpty` test alone would have dropped it.
-        currentParagraphs.add(spans);
-      }
-    }
-
-    if (currentParagraphs.isNotEmpty) {
-      chapters.add(BookChapter(
-        title: currentTitle,
-        titleSpans: currentTitleSpans,
-        titleDecoration: currentTitleDecoration,
-        paragraphs: currentParagraphs,
-      ));
-    }
-
-    // A document with no Heading 1 styles still reads as one chapter.
-    if (chapters.isEmpty) {
-      chapters.add(BookChapter(title: widget.bookTitle, paragraphs: const []));
-    }
-
-    return chapters;
+  /// One run list as text spans, each run in a colour that can be read on the
+  /// background it sits on in the current mode (see `ReaderContrast.dart`): a
+  /// run's own colour is kept when it already reaches 4.5:1, and replaced by
+  /// the mode's best text colour when it does not.
+  List<InlineSpan> _spansFor(
+    List<InlineItem> runs, {
+    int? bannerFill,
+    bool bookmarked = false,
+  }) {
+    final background =
+        backgroundFor(_theme, bannerFill: bannerFill, bookmarked: bookmarked);
+    final onBanner = bannerFill != null;
+    return [
+      for (final r in runs)
+        if (r is TextRun)
+          TextSpan(
+            text: r.text,
+            style: kReaderParagraphStyle.copyWith(
+              fontWeight: r.bold ? FontWeight.bold : null,
+              fontStyle: r.italic ? FontStyle.italic : null,
+              color: Color(_readable(r.color, background, onBanner)),
+              fontSize: r.size,
+            ),
+          )
+        else if (r is ImageRun)
+          _imageSpan(r.id),
+    ];
   }
 
-  /// True when any span in the paragraph is an inline image.
-  bool _containsImage(List<InlineSpan> spans) =>
-      spans.any((s) => s is WidgetSpan);
+  // Memo for the colour rule: the same few colours repeat across a chapter.
+  final Map<int, int> _readableMemo = {};
+  String _memoTheme = '';
 
-  /// Relationship id -> image bytes, for every embedded picture.
-  ///
-  /// Returns an empty map when the document has no relationships part or no
-  /// media, which is the common case in this library — verified 2026-08-19:
-  /// **neither book currently contains a single image.**
-  Map<String, Uint8List> _buildMediaMap(Archive archive) {
-    final out = <String, Uint8List>{};
-
-    ArchiveFile? relsEntry;
-    for (final f in archive.files) {
-      if (f.name == 'word/_rels/document.xml.rels') {
-        relsEntry = f;
-        break;
-      }
+  int _readable(int? runColor, int background, bool onBanner) {
+    if (_memoTheme != _theme) {
+      _readableMemo.clear();
+      _memoTheme = _theme;
     }
-    if (relsEntry == null) return out;
-
-    // Index the media entries by their in-zip path once.
-    final byPath = <String, Uint8List>{};
-    for (final f in archive.files) {
-      if (f.name.startsWith('word/media/')) {
-        byPath[f.name] = Uint8List.fromList(f.content as List<int>);
-      }
-    }
-    if (byPath.isEmpty) return out;
-
-    try {
-      final rels = XmlDocument.parse(
-        utf8.decode(relsEntry.content as List<int>, allowMalformed: true),
-      );
-
-      for (final rel in rels.findAllElements('Relationship', namespace: '*')) {
-        final id = rel.getAttribute('Id');
-        final target = rel.getAttribute('Target');
-        if (id == null || target == null) continue;
-
-        // Targets are relative to `word/`, and may be written "media/x.png"
-        // or "/word/media/x.png". Both are normalised here.
-        final clean = target.replaceAll('\\', '/').replaceFirst(RegExp(r'^/'), '');
-        final candidates = <String>[
-          'word/$clean',
-          clean,
-          'word/${clean.split('/').last}',
-          'word/media/${clean.split('/').last}',
-        ];
-
-        for (final c in candidates) {
-          final bytes = byPath[c];
-          if (bytes != null) {
-            out[id] = bytes;
-            break;
-          }
-        }
-      }
-    } catch (_) {
-      // A malformed relationships part must not stop the book from opening —
-      // it only means images cannot be resolved.
-    }
-
-    return out;
+    final key = Object.hash(runColor, background, onBanner);
+    return _readableMemo[key] ??= readableColor(runColor,
+        mode: _theme, background: background, onBanner: onBanner);
   }
 
-  /// Reads `<w:shd>`, `<w:pBdr>` and `<w:jc>` off a paragraph's `<w:pPr>`.
-  ///
-  /// Returns null when the paragraph carries none of them, so an undecorated
-  /// heading renders exactly as it did before this change.
-  ParagraphDecoration? _readParagraphDecoration(XmlElement paragraph) {
-    XmlElement? pPr;
-    for (final e in paragraph.findElements('pPr', namespace: '*')) {
-      pPr = e;
-      break;
-    }
-    if (pPr == null) return null;
-
-    Color? fill;
-    for (final shd in pPr.findElements('shd', namespace: '*')) {
-      final val = shd.getAttribute('fill', namespace: '*') ??
-          shd.getAttribute('w:fill');
-      final parsed = _hexColor(val);
-      if (parsed != null) fill = parsed;
-      break;
-    }
-
-    BorderSide? side(XmlElement pBdr, String name) {
-      for (final b in pBdr.findElements(name, namespace: '*')) {
-        final style = (b.getAttribute('val', namespace: '*') ??
-                b.getAttribute('w:val') ??
-                '')
-            .toLowerCase();
-        // "none" and "nil" both mean no rule on that edge.
-        if (style == 'none' || style == 'nil') return null;
-
-        final colour = _hexColor(b.getAttribute('color', namespace: '*') ??
-                b.getAttribute('w:color')) ??
-            Colors.black87;
-
-        // w:sz on a border is in EIGHTHS of a point (unlike w:sz on a run,
-        // which is half-points). 24 -> 3pt.
-        final szRaw =
-            b.getAttribute('sz', namespace: '*') ?? b.getAttribute('w:sz');
-        final eighths = int.tryParse(szRaw ?? '') ?? 8;
-        final width = (eighths / 8.0).clamp(0.5, 12.0);
-
-        return BorderSide(color: colour, width: width);
-      }
-      return null;
-    }
-
-    BorderSide? top, bottom, left, right;
-    for (final pBdr in pPr.findElements('pBdr', namespace: '*')) {
-      top = side(pBdr, 'top');
-      bottom = side(pBdr, 'bottom');
-      left = side(pBdr, 'left');
-      right = side(pBdr, 'right');
-      break;
-    }
-
-    var centered = false;
-    for (final jc in pPr.findElements('jc', namespace: '*')) {
-      final val =
-          jc.getAttribute('val', namespace: '*') ?? jc.getAttribute('w:val');
-      centered = (val ?? '').toLowerCase() == 'center';
-      break;
-    }
-
-    final decoration = ParagraphDecoration(
-      fill: fill,
-      top: top,
-      bottom: bottom,
-      left: left,
-      right: right,
-      centered: centered,
-    );
-
-    // Centring alone is worth carrying; nothing at all is not.
-    if (decoration.isEmpty && !centered) return null;
-    return decoration;
-  }
-
-  /// Parses a Word `RRGGBB` hex value. Returns null for "auto" or malformed.
-  Color? _hexColor(String? value) {
-    if (value == null) return null;
-    final v = value.trim().replaceAll('#', '');
-    if (v.isEmpty || v.toLowerCase() == 'auto') return null;
-    if (v.length != 6) return null;
-    final parsed = int.tryParse(v, radix: 16);
-    if (parsed == null) return null;
-    return Color(0xFF000000 | parsed);
-  }
-
-  /// Converts one `<w:p>` into formatted spans.
-  ///
-  /// Walks each `<w:r>` run in document order and reads its own `<w:rPr>` for
-  /// bold, italic, **colour and size**, then emits the run's children in order:
-  /// `<w:t>` as text, `<w:br/>` as a newline, `<w:tab/>` as a tab, and
-  /// `<w:drawing>` as an inline image.
-  ///
-  /// ⚠️ **Every property is read per run, never inherited from the previous
-  /// one.** Bold and italic already worked this way; colour and size were not
-  /// read at all before 2026-08-19. `style` is rebuilt from
-  /// [kReaderParagraphStyle] on each iteration, so an uncoloured run falls back
-  /// to the reader's default black rather than picking up the colour of the run
-  /// before it — which is what would happen if the style were hoisted out of
-  /// the loop.
-  List<InlineSpan> _extractSpans(XmlElement paragraph) {
-    final spans = <InlineSpan>[];
-
-    for (final run in paragraph.findAllElements('r', namespace: '*')) {
-      bool bold = false;
-      bool italic = false;
-      Color? colour;
-      double? fontSize;
-
-      // <w:rPr> is a direct child of the run it formats.
-      for (final rPr in run.findElements('rPr', namespace: '*')) {
-        bold = _isToggleOn(rPr, 'b');
-        italic = _isToggleOn(rPr, 'i');
-
-        for (final c in rPr.findElements('color', namespace: '*')) {
-          colour = _hexColor(c.getAttribute('val', namespace: '*') ??
-              c.getAttribute('w:val'));
-          break;
-        }
-
-        for (final sz in rPr.findElements('sz', namespace: '*')) {
-          final raw =
-              sz.getAttribute('val', namespace: '*') ?? sz.getAttribute('w:sz');
-          final halfPoints = int.tryParse(raw ?? '');
-          if (halfPoints != null && halfPoints > 0) {
-            // w:sz on a run is HALF-points: 28 -> 14pt. Clamped so a stray
-            // value cannot blow the layout apart.
-            fontSize = (halfPoints / 2.0).clamp(8.0, 40.0);
-          }
-          break;
-        }
-        break;
-      }
-
-      final style = kReaderParagraphStyle.copyWith(
-        fontWeight: bold ? FontWeight.bold : null,
-        fontStyle: italic ? FontStyle.italic : null,
-        // Null leaves kReaderParagraphStyle's own colour/size in place.
-        color: colour,
-        fontSize: fontSize,
-      );
-
-      for (final node in run.children.whereType<XmlElement>()) {
-        switch (node.name.local) {
-          case 't':
-            // innerText keeps xml:space="preserve" spacing intact.
-            if (node.innerText.isNotEmpty) {
-              spans.add(TextSpan(text: node.innerText, style: style));
-            }
-            break;
-          case 'br':
-            spans.add(TextSpan(text: '\n', style: style));
-            break;
-          case 'tab':
-            spans.add(TextSpan(text: '\t', style: style));
-            break;
-          // ⚠️ Three shapes, not one (fixed 2026-08-19). A direct-child match
-          // on `drawing` alone silently dropped two of the three ways Word
-          // actually embeds a picture — proven by probe, see the progress note:
-          //
-          //   <w:drawing>            modern DrawingML          -> <a:blip r:embed>
-          //   <w:pict>               legacy VML, older/converted docs
-          //                                                    -> <v:imagedata r:id>
-          //   <mc:AlternateContent>  a wrapper Word emits when it supplies a
-          //                          fallback; the drawing is a GRANDCHILD, so
-          //                          the direct-child test never matched it
-          //
-          // `_imageSpanFrom` searches descendants and returns on the first hit,
-          // so an AlternateContent carrying both a Choice and a Fallback for
-          // the same picture still yields exactly one image.
-          case 'drawing':
-          case 'pict':
-          case 'AlternateContent':
-            final image = _imageSpanFrom(node);
-            // Emitted at this exact point in the run sequence, so an image
-            // between two words stays between them.
-            if (image != null) spans.add(image);
-            break;
-        }
-      }
-    }
-
-    return spans;
-  }
-
-  /// Builds an inline image span from a picture-bearing element, or null when
-  /// nothing resolvable is found.
-  ///
-  /// Accepts `<w:drawing>`, legacy `<w:pict>`, or an `<mc:AlternateContent>`
-  /// wrapper around either, and looks for whichever id form is present:
-  ///   * `<a:blip r:embed="rIdN">`   — modern DrawingML
-  ///   * `<v:imagedata r:id="rIdN">` — legacy VML
-  ///
-  /// Both are resolved through the relationship map from [_buildMediaMap].
-  /// Returns on the first id that resolves, so a wrapper offering the same
-  /// picture twice (a Choice plus a Fallback) still produces one image.
-  InlineSpan? _imageSpanFrom(XmlElement source) {
-    Uint8List? bytes;
-
-    // Modern first — when a document offers both, DrawingML is the better one.
-    for (final blip in source.findAllElements('blip', namespace: '*')) {
-      final id = blip.getAttribute('embed', namespace: '*') ??
-          blip.getAttribute('r:embed');
-      if (id == null) continue;
-      bytes = _media[id];
-      if (bytes != null) break;
-    }
-
-    // Legacy VML fallback: <v:imagedata r:id="..."/>
-    if (bytes == null) {
-      for (final data in source.findAllElements('imagedata', namespace: '*')) {
-        final id = data.getAttribute('id', namespace: '*') ??
-            data.getAttribute('r:id');
-        if (id == null) continue;
-        bytes = _media[id];
-        if (bytes != null) break;
-      }
-    }
-
-    if (bytes == null) return null;
-
+  InlineSpan _imageSpan(String id) {
+    final bytes = _media[id];
+    if (bytes == null) return const TextSpan(text: '');
     return WidgetSpan(
       alignment: PlaceholderAlignment.middle,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 6),
         child: ConstrainedBox(
           // Bounded so a large picture cannot overflow the reader column.
-          // Width is capped by the layout; height is capped outright.
           constraints: const BoxConstraints(maxHeight: 420),
           child: Image.memory(
             bytes,
             fit: BoxFit.contain,
-            // ⚠️ Word also embeds legacy vector formats (EMF/WMF) that Flutter
-            // cannot decode at all. Those reach this point with real bytes and
-            // fail here, showing this line rather than nothing — so an unnamed
-            // blank is a parsing miss, whereas this text is a format Flutter
-            // will not render.
+            // Legacy vector formats (EMF/WMF) cannot be decoded by Flutter.
             errorBuilder: (context, error, stack) => Text(
               '[image could not be displayed]',
               style: TextStyle(
@@ -739,21 +373,6 @@ class _BookReaderPageState extends State<BookReaderPage> {
         ),
       ),
     );
-  }
-
-  /// Reads a WordprocessingML toggle such as `<w:b/>` or `<w:b w:val="0"/>`.
-  /// A bare element means "on"; an explicit value decides otherwise.
-  bool _isToggleOn(XmlElement runProperties, String tag) {
-    for (final el in runProperties.findElements(tag, namespace: '*')) {
-      final val =
-          el.getAttribute('val', namespace: '*') ?? el.getAttribute('w:val');
-
-      if (val == null) return true;
-
-      final normalized = val.toLowerCase();
-      return normalized == 'true' || normalized == '1' || normalized == 'on';
-    }
-    return false;
   }
 
   // ---------------------------------------------------------------------------
@@ -810,7 +429,7 @@ class _BookReaderPageState extends State<BookReaderPage> {
   Future<void> _saveBookmarkAt(int paragraphIndex) async {
     final paragraphs = _chapters[_currentChapter].paragraphs;
     final text = paragraphIndex < paragraphs.length
-        ? spansToPlainText(paragraphs[paragraphIndex])
+        ? runsToPlainText(paragraphs[paragraphIndex])
         : '';
 
     try {
@@ -885,24 +504,35 @@ class _BookReaderPageState extends State<BookReaderPage> {
 
     final remove = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text("Remove bookmark?"),
-        content: Text(
-          "Saved at chapter ${_bookmarkChapter! + 1}, paragraph ${_bookmarkParagraph! + 1}.",
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text("Cancel"),
+      builder: (dialogContext) {
+        final colors = dialogContext.folk;
+        final text = dialogContext.folkText;
+        return FolkDialog.alert(
+          dialogContext,
+          title: "Remove bookmark?",
+          content: Text(
+            "Saved at chapter ${_bookmarkChapter! + 1}, paragraph ${_bookmarkParagraph! + 1}.",
+            style: text.small,
           ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text("Remove", style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
+          actions: [
+            TextButton(
+              style: FolkDialog.quietButton(colors, text),
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text("Cancel"),
+            ),
+            ElevatedButton(
+              style: FolkDialog.primaryButton(colors, text).copyWith(
+                backgroundColor:
+                    const WidgetStatePropertyAll(FolkCalendarTokens.legendMissed),
+                foregroundColor:
+                    const WidgetStatePropertyAll(FolkColors.onGradient),
+              ),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text("Remove"),
+            ),
+          ],
+        );
+      },
     );
 
     if (remove == true) await _removeBookmark();
@@ -959,30 +589,6 @@ class _BookReaderPageState extends State<BookReaderPage> {
     }
   }
 
-  /// Rewrites only the spans that fell back to the reader's own default
-  /// colour (`kReaderParagraphStyle.color`, baked in by `_extractSpans` when
-  /// the DOCX run carried no explicit `<w:color>`) to the current theme's
-  /// text colour. A run whose colour WAS authored in the document keeps it
-  /// exactly as parsed — theming must never repaint over deliberate document
-  /// formatting, only over the reader's own unstyled default.
-  ///
-  /// Applied at build time, not at parse time: `_chapters` is parsed once and
-  /// cached, so recolouring here (rather than reparsing the DOCX) is what
-  /// lets a theme change apply immediately without reopening the book.
-  List<InlineSpan> _recolor(List<InlineSpan> spans) {
-    if (_theme == 'light') return spans; // parsed colour already matches
-    return spans.map((s) {
-      if (s is TextSpan && s.style?.color == kReaderParagraphStyle.color) {
-        return TextSpan(
-          text: s.text,
-          children: s.children,
-          style: s.style!.copyWith(color: _palette.text),
-        );
-      }
-      return s;
-    }).toList();
-  }
-
   void _setTheme(String theme) {
     if (theme == _theme) return;
     setState(() => _theme = theme);
@@ -1000,47 +606,62 @@ class _BookReaderPageState extends State<BookReaderPage> {
       context: context,
       backgroundColor: _palette.chrome,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(
+            top: Radius.circular(FolkShape.cardRadius)),
       ),
       builder: (sheetContext) {
         return StatefulBuilder(
           builder: (context, setSheetState) {
+            final text = context.folkText;
             Widget themeSwatch(String key, String label) {
               final palette = kReaderPalettes[key]!;
               final selected = _theme == key;
               return Expanded(
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(12),
-                  onTap: () {
-                    // Outer state must update BEFORE the sheet redraws, or
-                    // the swatch highlight would read the pre-tap value.
-                    _setTheme(key);
-                    setSheetState(() {});
-                  },
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 4),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    decoration: BoxDecoration(
-                      color: palette.background,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: selected ? Colors.deepPurple : Colors.grey.shade400,
-                        width: selected ? 2 : 1,
-                      ),
-                    ),
-                    child: Column(
-                      children: [
-                        Text('Aa', style: TextStyle(color: palette.text, fontSize: 18)),
-                        const SizedBox(height: 6),
-                        Text(
-                          label,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: _palette.onChrome,
-                            fontWeight: selected ? FontWeight.w700 : FontWeight.normal,
-                          ),
+                child: Semantics(
+                  button: true,
+                  selected: selected,
+                  label: '$label background',
+                  excludeSemantics: true,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(FolkShape.tileRadius),
+                    onTap: () {
+                      // Outer state must update BEFORE the sheet redraws, or
+                      // the swatch highlight would read the pre-tap value.
+                      _setTheme(key);
+                      setSheetState(() {});
+                    },
+                    child: Container(
+                      constraints: const BoxConstraints(
+                          minHeight: FolkShape.touchTarget),
+                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: palette.background,
+                        borderRadius:
+                            BorderRadius.circular(FolkShape.tileRadius),
+                        border: Border.all(
+                          color: selected
+                              ? FolkCalendarTokens.selectedRing
+                              : _palette.secondaryText.withValues(alpha: .35),
+                          width: selected ? 3 : 1,
                         ),
-                      ],
+                      ),
+                      child: Column(
+                        children: [
+                          Text('Aa',
+                              style: TextStyle(
+                                  color: palette.text, fontSize: 18)),
+                          const SizedBox(height: 6),
+                          Text(
+                            label,
+                            style: text.caption.copyWith(
+                              color: _palette.onChrome,
+                              fontWeight:
+                                  selected ? FontWeight.w700 : FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -1052,7 +673,7 @@ class _BookReaderPageState extends State<BookReaderPage> {
             );
             final safeIndex = stepIndex < 0 ? 1 : stepIndex;
 
-            return Padding(
+            return SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -1060,19 +681,19 @@ class _BookReaderPageState extends State<BookReaderPage> {
                 children: [
                   Text(
                     'Reading settings',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: _palette.onChrome,
-                    ),
+                    style: text.topBarTitle.copyWith(color: _palette.onChrome),
                   ),
                   const SizedBox(height: 18),
-                  Text('Font size', style: TextStyle(fontSize: 12, color: _palette.secondaryText)),
+                  Text('Font size',
+                      style: text.caption
+                          .copyWith(color: _palette.secondaryText)),
                   const SizedBox(height: 6),
                   Row(
                     children: [
                       IconButton(
-                        icon: Icon(Icons.text_decrease, color: _palette.onChrome),
+                        tooltip: 'Smaller text',
+                        icon: Icon(Icons.text_decrease,
+                            color: _palette.onChrome),
                         onPressed: safeIndex <= 0
                             ? null
                             : () {
@@ -1084,11 +705,14 @@ class _BookReaderPageState extends State<BookReaderPage> {
                         child: Text(
                           '${(kReaderFontScaleSteps[safeIndex] * 100).round()}%',
                           textAlign: TextAlign.center,
-                          style: TextStyle(color: _palette.onChrome, fontWeight: FontWeight.w600),
+                          style: text.bodyStrong
+                              .copyWith(color: _palette.onChrome),
                         ),
                       ),
                       IconButton(
-                        icon: Icon(Icons.text_increase, color: _palette.onChrome),
+                        tooltip: 'Larger text',
+                        icon: Icon(Icons.text_increase,
+                            color: _palette.onChrome),
                         onPressed: safeIndex >= kReaderFontScaleSteps.length - 1
                             ? null
                             : () {
@@ -1099,7 +723,9 @@ class _BookReaderPageState extends State<BookReaderPage> {
                     ],
                   ),
                   const SizedBox(height: 14),
-                  Text('Background', style: TextStyle(fontSize: 12, color: _palette.secondaryText)),
+                  Text('Background',
+                      style: text.caption
+                          .copyWith(color: _palette.secondaryText)),
                   const SizedBox(height: 8),
                   Row(
                     children: [
@@ -1207,27 +833,30 @@ class _BookReaderPageState extends State<BookReaderPage> {
 
     final choice = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text("Add a bookmark before leaving?"),
-        content: Text(
-          "You are on chapter ${_currentChapter + 1} of ${_chapters.length}.",
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, 'leave'),
-            child: const Text("Leave"),
+      builder: (dialogContext) {
+        final colors = dialogContext.folk;
+        final text = dialogContext.folkText;
+        return FolkDialog.alert(
+          dialogContext,
+          title: "Add a bookmark before leaving?",
+          content: Text(
+            "You are on chapter ${_currentChapter + 1} of ${_chapters.length}.",
+            style: text.small,
           ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple),
-            onPressed: () => Navigator.pop(dialogContext, 'bookmark'),
-            child: const Text(
-              "Add Bookmark",
-              style: TextStyle(color: Colors.white),
+          actions: [
+            TextButton(
+              style: FolkDialog.quietButton(colors, text),
+              onPressed: () => Navigator.pop(dialogContext, 'leave'),
+              child: const Text("Leave"),
             ),
-          ),
-        ],
-      ),
+            ElevatedButton(
+              style: FolkDialog.primaryButton(colors, text),
+              onPressed: () => Navigator.pop(dialogContext, 'bookmark'),
+              child: const Text("Add Bookmark"),
+            ),
+          ],
+        );
+      },
     );
 
     if (choice == null) return; // dismissed — stay on the page
@@ -1259,7 +888,7 @@ class _BookReaderPageState extends State<BookReaderPage> {
   /// gated entirely behind [BookReaderPage.isRdua].
   ///
   /// RDUA: shows the REAL upcoming chapter's own title (already parsed by
-  /// `_parseDocx` from that section's actual Heading 1 text — e.g.
+  /// `parseDocx` from that section's actual Heading 1 text — e.g.
   /// "Reflection Questions"), not a hardcoded label list. Confirmed via
   /// real-file investigation (16 files sampled across 8 topics) that every
   /// RDUA document produces the same 3-heading sequence in the same order,
@@ -1281,13 +910,13 @@ class _BookReaderPageState extends State<BookReaderPage> {
   ///
   /// ⚠️ **Purely a visual wrapper.** Chapter splitting, the page-break boundary
   /// and the "Next Chapter" button are all driven by the `_chapters` list built
-  /// in `_parseDocx`, and none of that is touched here — this only decides how
+  /// in `parseDocx`, and none of that is touched here — this only decides how
   /// the heading of the already-selected chapter is painted.
   ///
   /// Falls back to the original plain bold `Text` whenever the heading has no
   /// runs of its own (a synthetic first chapter) or no decoration, so an
   /// undecorated book looks exactly as it did before.
-  Widget _chapterHeading(BookChapter chapter) {
+  Widget _chapterHeading(ParsedChapter chapter) {
     const base = TextStyle(
       // Device serif face — see the note in _paragraphTile.
       fontFamily: 'serif',
@@ -1297,26 +926,28 @@ class _BookReaderPageState extends State<BookReaderPage> {
     );
 
     final decoration = chapter.titleDecoration;
+    final fill = decoration?.fill;
 
-    // A decorated heading (banner fill/border) renders against its OWN
-    // authored background, not the reader's page background, so its text
-    // must keep exactly the colour Word gave it — recolouring only applies
-    // to an undecorated heading, which sits directly on the page.
-    final headingSpans =
-        decoration == null ? _recolor(chapter.titleSpans) : chapter.titleSpans;
+    // Each run is drawn in a colour that reads on what is behind it: the page
+    // colour for a plain heading, the banner's own fill for a shaded one.
+    final headingSpans = _spansFor(chapter.titleRuns, bannerFill: fill);
 
     // With no authored runs there is nothing to colour, so the plain title
     // stands. This is the path a document without Heading 1 styles takes.
-    final Widget content = chapter.titleSpans.isEmpty
-        ? Text(chapter.title, style: base.copyWith(
-            color: decoration == null ? _palette.text : null))
+    final Widget content = chapter.titleRuns.isEmpty
+        ? Text(chapter.title,
+            style: base.copyWith(
+                color: decoration == null
+                    ? _palette.text
+                    : Color(_readable(
+                        null,
+                        backgroundFor(_theme, bannerFill: fill),
+                        fill != null))))
         : RichText(
             textAlign:
                 decoration?.centered == true ? TextAlign.center : TextAlign.start,
-            // Same reason as _paragraphTile: RichText ignores the ambient
-            // MediaQuery, so most real headings (this branch is what an
-            // authored Heading 1 actually takes) would otherwise never scale
-            // even though the body now does.
+            // RichText ignores the ambient MediaQuery, so the heading would
+            // never scale with the reader's font size without this.
             textScaler: TextScaler.linear(_fontScale),
             text: TextSpan(
               // The heading's own run colours and sizes win; this only supplies
@@ -1334,18 +965,32 @@ class _BookReaderPageState extends State<BookReaderPage> {
       return content;
     }
 
+    BorderSide? side(ParsedBorder? b) =>
+        b == null ? null : BorderSide(color: Color(b.color), width: b.width);
+    final top = side(decoration.top);
+    final bottom = side(decoration.bottom);
+    final left = side(decoration.left);
+    final right = side(decoration.right);
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: decoration.fill,
-        border: decoration.border,
+        color: fill == null ? null : Color(fill),
+        border: (top == null && bottom == null && left == null && right == null)
+            ? null
+            : Border(
+                top: top ?? BorderSide.none,
+                bottom: bottom ?? BorderSide.none,
+                left: left ?? BorderSide.none,
+                right: right ?? BorderSide.none,
+              ),
       ),
       child: content,
     );
   }
 
-  Widget _paragraphTile(List<InlineSpan> spans, int index) {
+  Widget _paragraphTile(List<InlineItem> runs, int index) {
     final isBookmarked =
         _bookmarkChapter == _currentChapter && _bookmarkParagraph == index;
 
@@ -1362,7 +1007,7 @@ class _BookReaderPageState extends State<BookReaderPage> {
       textScaler: TextScaler.linear(_fontScale),
       text: TextSpan(
         style: kReaderParagraphStyle,
-        children: _recolor(spans),
+        children: _spansFor(runs, bookmarked: isBookmarked),
       ),
     );
 
@@ -1396,6 +1041,16 @@ class _BookReaderPageState extends State<BookReaderPage> {
 
   @override
   Widget build(BuildContext context) {
+    final text = context.folkText;
+    // The title bar grows with the text size so the two-line title (book name
+    // and the bookmark hint) never clips.
+    final scaler = MediaQuery.textScalerOf(context);
+    final toolbarHeight = math.max(
+      kToolbarHeight,
+      scaler.scale(16) * 1.5 +
+          (_selectionMode ? scaler.scale(11) * 1.5 + 12 : 0) +
+          16,
+    );
     return PopScope<Object?>(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
@@ -1407,9 +1062,12 @@ class _BookReaderPageState extends State<BookReaderPage> {
         appBar: AppBar(
           backgroundColor: _palette.chrome,
           foregroundColor: _palette.onChrome,
+          surfaceTintColor: Colors.transparent,
           elevation: 1,
+          toolbarHeight: toolbarHeight,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
+            tooltip: 'Back',
+            icon: const Icon(Icons.chevron_left_rounded, size: 30),
             onPressed: _handleExit,
           ),
           title: Column(
@@ -1420,18 +1078,12 @@ class _BookReaderPageState extends State<BookReaderPage> {
                 widget.bookTitle,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style:
-                    const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                style: text.bodyStrong.copyWith(color: _palette.onChrome),
               ),
-              if (_selectionMode)
-                const Text(
-                  "Tap a paragraph to bookmark",
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.deepPurple,
-                  ),
-                ),
+              if (_selectionMode) ...[
+                const SizedBox(height: 4),
+                const ReaderPill(label: "Tap a paragraph to bookmark"),
+              ],
             ],
           ),
           actions: [
@@ -1445,14 +1097,24 @@ class _BookReaderPageState extends State<BookReaderPage> {
               tooltip: _selectionMode
                   ? "Cancel"
                   : (_hasBookmark ? "Remove bookmark" : "Add a bookmark"),
-              icon: Icon(
-                _selectionMode
-                    ? Icons.close
-                    : (_hasBookmark ? Icons.bookmark : Icons.bookmark_border),
-                color: (_selectionMode || _hasBookmark)
-                    ? Colors.deepPurple
-                    : _palette.onChrome.withOpacity(.7),
-              ),
+              icon: (_selectionMode || _hasBookmark)
+                  ? Container(
+                      width: 36,
+                      height: 36,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: FolkGradients.violet,
+                      ),
+                      child: Icon(
+                        _selectionMode ? Icons.close : Icons.bookmark,
+                        size: 20,
+                        color: FolkColors.onGradient,
+                      ),
+                    )
+                  : Icon(
+                      Icons.bookmark_border,
+                      color: _palette.onChrome.withValues(alpha: .7),
+                    ),
               onPressed:
                   (_loading || _error != null) ? null : _onBookmarkPressed,
             ),
@@ -1468,6 +1130,7 @@ class _BookReaderPageState extends State<BookReaderPage> {
   }
 
   Widget _buildBody() {
+    final text = context.folkText;
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -1478,18 +1141,20 @@ class _BookReaderPageState extends State<BookReaderPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.error_outline, size: 48, color: Colors.orange),
+            const Icon(Icons.error_outline,
+                size: 48, color: FolkCalendarTokens.legendMissed),
             const SizedBox(height: 14),
             Text(
               _error!,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 16),
+              style: text.body.copyWith(
+                  fontSize: 16, color: _palette.onChrome),
             ),
             const SizedBox(height: 8),
             Text(
               "The file may not be a .docx, or the link may not allow direct download.",
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+              style: text.small.copyWith(color: _palette.secondaryText),
             ),
           ],
         ),
@@ -1497,45 +1162,25 @@ class _BookReaderPageState extends State<BookReaderPage> {
     }
 
     final chapter = _chapters[_currentChapter];
-    final isLast = _currentChapter >= _chapters.length - 1;
+    final atEnd = _currentChapter >= _chapters.length - 1;
+    // While the rest of the book is still being read, the last chapter READ so
+    // far is not the last chapter: the Next button waits for the next one.
+    final isLast = atEnd && _complete;
+    final waitingForNext = atEnd && !_complete;
 
     return Column(
       children: [
         /// Chapter progress
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-          color: _theme == 'light'
-              ? Colors.deepPurple.withOpacity(.06)
-              : _palette.chrome,
-          child: Row(
-            children: [
-              Text(
-                "Chapter ${_currentChapter + 1} of ${_chapters.length}",
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.deepPurple,
-                ),
-              ),
-              const Spacer(),
-              if (_hasBookmark)
-                Row(
-                  children: [
-                    const Icon(Icons.bookmark,
-                        size: 13, color: Colors.deepPurple),
-                    const SizedBox(width: 4),
-                    Text(
-                      "Saved at ch ${_bookmarkChapter! + 1} · para ${_bookmarkParagraph! + 1}",
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: Colors.deepPurple,
-                      ),
-                    ),
-                  ],
-                ),
-            ],
-          ),
+        ReaderChapterStrip(
+          background: Color.alphaBlend(
+              _palette.onChrome.withValues(alpha: .05), _palette.chrome),
+          textColor: _palette.onChrome,
+          chapterLabel: _complete
+              ? "Chapter ${_currentChapter + 1} of ${_chapters.length}"
+              : "Chapter ${_currentChapter + 1}",
+          bookmarkLabel: _hasBookmark
+              ? "Saved at ch ${_bookmarkChapter! + 1} · para ${_bookmarkParagraph! + 1}"
+              : null,
         ),
 
         Expanded(
@@ -1577,19 +1222,19 @@ class _BookReaderPageState extends State<BookReaderPage> {
                       // completion state below has been set.
                       Container(
                         width: double.infinity,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        constraints: const BoxConstraints(
+                            minHeight: FolkShape.buttonHeight),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
-                          color: Colors.green.withOpacity(.08),
-                          borderRadius: BorderRadius.circular(14),
+                          gradient: FolkGradients.green,
+                          borderRadius:
+                              BorderRadius.circular(FolkShape.buttonRadius),
                         ),
-                        child: const Text(
+                        child: Text(
                           "Finished",
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.green,
-                          ),
+                          style: text.button
+                              .copyWith(color: FolkColors.onGradient),
                         ),
                       ),
                       const SizedBox(height: 10),
@@ -1600,75 +1245,43 @@ class _BookReaderPageState extends State<BookReaderPage> {
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             const Icon(Icons.check_circle,
-                                size: 18, color: Colors.green),
+                                size: 18,
+                                color: FolkCalendarTokens.legendSubmitted),
                             const SizedBox(width: 6),
-                            Text(
-                              widget.isRdua
-                                  ? "Marked as read"
-                                  : "Marked as finished",
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: _palette.secondaryText,
+                            Flexible(
+                              child: Text(
+                                widget.isRdua
+                                    ? "Marked as read"
+                                    : "Marked as finished",
+                                style: text.small.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  color: _palette.secondaryText,
+                                ),
                               ),
                             ),
                           ],
                         )
                       else
-                        SizedBox(
-                          width: double.infinity,
-                          height: 48,
-                          child: ElevatedButton.icon(
-                            onPressed: _finishing ? null : _finishBook,
-                            icon: _finishing
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : Icon(
-                                    widget.isRdua
-                                        ? Icons.check_circle_outline
-                                        : Icons.flag_circle,
-                                    size: 20),
-                            label: Text(
-                                widget.isRdua ? "Mark as Read" : "Finish Book"),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green.shade700,
-                              foregroundColor: Colors.white,
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                            ),
-                          ),
+                        ReaderGradientButton(
+                          onPressed: _finishing ? null : _finishBook,
+                          loading: _finishing,
+                          gradient: FolkGradients.green,
+                          icon: widget.isRdua
+                              ? Icons.check_circle_outline
+                              : Icons.flag_circle,
+                          label: widget.isRdua ? "Mark as Read" : "Finish Book",
                         ),
                     ],
                   )
-                : SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: ElevatedButton(
-                      onPressed: () => _goToChapter(_currentChapter + 1),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.deepPurple,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      child: Text(
-                        _nextButtonLabel(),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
+                : ReaderGradientButton(
+                    onPressed: waitingForNext
+                        ? null
+                        : () => _goToChapter(_currentChapter + 1),
+                    loading: waitingForNext,
+                    gradient: FolkGradients.violet,
+                    label: waitingForNext
+                        ? "Loading next chapter…"
+                        : _nextButtonLabel(),
                   ),
           ),
         ),

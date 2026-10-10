@@ -7,11 +7,17 @@ import 'package:flutter/material.dart';
 /// ones a viewer would need to learn separately.
 class UnseenDot extends StatelessWidget {
   final double size;
-  const UnseenDot({super.key, this.size = 9});
+
+  /// The ring that separates the dot from what it sits on. Defaults to the
+  /// scaffold colour; pass the colour of the surface the dot is drawn on when
+  /// that differs (the dark pill navigation).
+  final Color? ringColor;
+  const UnseenDot({super.key, this.size = 9, this.ringColor});
 
   @override
   Widget build(BuildContext context) {
-    final ringColor = Theme.of(context).scaffoldBackgroundColor;
+    final ringColor =
+        this.ringColor ?? Theme.of(context).scaffoldBackgroundColor;
     return Container(
       width: size,
       height: size,
@@ -64,6 +70,9 @@ class UnseenBadge extends StatelessWidget {
   final double dotSize;
   final Offset offset;
 
+  /// Passed to [UnseenDot.ringColor]; null keeps the default.
+  final Color? ringColor;
+
   /// `true` only when the parent gives TIGHT, bounded constraints and
   /// [child] has no explicit size of its own to fall back on (a grid
   /// cell) — not used anywhere in this app today, kept for parity with
@@ -76,6 +85,7 @@ class UnseenBadge extends StatelessWidget {
     required this.show,
     this.dotSize = 9,
     this.offset = const Offset(2, -2),
+    this.ringColor,
     this.fillParent = false,
   });
 
@@ -89,7 +99,7 @@ class UnseenBadge extends StatelessWidget {
         Positioned(
           top: offset.dy,
           right: offset.dx,
-          child: UnseenDot(size: dotSize),
+          child: UnseenDot(size: dotSize, ringColor: ringColor),
         ),
       ],
     );

@@ -1,13 +1,28 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:folk_app/utils/Snackbar.dart';
 import 'package:intl/intl.dart';
-import 'package:provider/provider.dart';
+import '../theme/FolkColors.dart';
+import '../theme/FolkTheme.dart';
+import '../theme/FolkTokens.dart';
 import '../utils/BookCurrentBook.dart';
-import '../utils/ColorProvider.dart';
-import '../utils/MalaLoading.dart';
+import '../utils/BookLibrary.dart';
+import '../utils/BookSections.dart';
+import '../utils/ReadingLanguages.dart';
 import '../utils/SeenMarkers.dart';
+import '../widgets/BookCardActions.dart';
+import '../widgets/BookLevelSection.dart';
+import '../widgets/CommitmentDateDialog.dart';
+import '../widgets/CompletedBookTile.dart';
+import '../widgets/FolkCard.dart';
+import '../widgets/FolkChip.dart';
+import '../widgets/FolkDialog.dart';
+import '../widgets/FolkScaffold.dart';
+import '../widgets/LanguageButton.dart';
+import '../widgets/GhostPlaceholder.dart';
+import '../widgets/PrimaryButton.dart';
 import 'BookReaderPage.dart';
 
 /// Book library screen.
@@ -19,15 +34,33 @@ import 'BookReaderPage.dart';
 ///   users/{uid}.totalReadingSeconds   -> lifetime reading seconds
 ///   users/{uid}/dailyReading/{dd-MM-yyyy}.secondsToday -> today's reading seconds
 class BooksSelectionScreen extends StatefulWidget {
-  const BooksSelectionScreen({super.key});
+  const BooksSelectionScreen(
+      {super.key, this.library, this.uid, this.markCompleted});
+
+  // Tests hand in their own data and student; the app never sets these.
+  @visibleForTesting
+  final BookLibrary? library;
+  @visibleForTesting
+  final String? uid;
+  @visibleForTesting
+  final Future<bool> Function({
+    required String uid,
+    required String level,
+    required String bookKey,
+    required String title,
+    required String today,
+  })? markCompleted;
 
   @override
   State<BooksSelectionScreen> createState() => _BooksSelectionScreenState();
 }
 
 class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseAuth _auth = FirebaseAuth.instance;
+  // Looked up when first used, so a screen built with test data never touches
+  // Firebase.
+  FirebaseFirestore get _firestore => FirebaseFirestore.instance;
+  FirebaseAuth get _auth => FirebaseAuth.instance;
+  String? get _uid => widget.uid ?? _auth.currentUser?.uid;
 
   static const List<String> levels = ['level-1', 'level-2', 'level-3'];
 
@@ -55,46 +88,49 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
   /// to the exact same "No link" / "Book link not available yet" treatment
   /// every book already gets when `{level}_links` has no entry for it, so a
   /// language with zero content today shows correctly rather than erroring.
-  static const Map<String, String> kSupportedLanguages = {
-    'en': 'English',
-    'hi': 'हिन्दी',
-    'gu': 'ગુજરાતી',
-    'te': 'తెలుగు',
-  };
+  static const Map<String, String> kSupportedLanguages = kReadingLanguages;
 
   String? _userName;
   String? _role;
   String _language = 'en';
 
-  /// Firestore-listener-in-build() fix (2026-09-09, size/perf task) — both
-  /// used to be constructed fresh directly in `build()` on every rebuild
-  /// (e.g. every `_setLanguage` call's `setState`, or a dark-mode toggle).
-  /// Hoisted to fields, built once in `initState()`.
+  /// The data behind the list. Both Firestore reads (the book titles and links,
+  /// and this student's progress) are listened to at once, from the moment this
+  /// screen opens, and shown as each arrives; the titles and links are also
+  /// kept on the device so a later visit draws the list immediately. See
+  /// `BookLibrary`.
   ///
-  /// Safe unconditionally: `_booksStream` has no filter to depend on at all,
-  /// and `_booksReadStream`'s only filter is `user.uid`, fixed for this
-  /// screen's whole life the same way as `ABCDEScreen.dart`'s own fields —
-  /// neither stream depends on `_language` (that only picks which links
-  /// document a one-off `.get()`-style read inside `build()` looks up, not
-  /// either of these two live listeners).
-  late final Stream<QuerySnapshot<Map<String, dynamic>>> _booksStream;
-  late final Stream<QuerySnapshot<Map<String, dynamic>>> _booksReadStream;
+  /// (Neither stream depends on `_language`; that only picks which links
+  /// document a book's URL is read from, in memory.)
+  late final BookLibrary _library;
 
   @override
   void initState() {
     super.initState();
-    _booksStream = _firestore.collection('books').snapshots();
-    _booksReadStream = _firestore
-        .collection('booksRead')
-        .where('uid', isEqualTo: _auth.currentUser?.uid ?? '')
-        .snapshots();
-    _loadUserMeta();
+    _library = widget.library ??
+        BookLibrary(
+          booksStream: _firestore.collection('books').snapshots().map((snap) => {
+                for (final doc in snap.docs) doc.id: doc.data(),
+              }),
+          entriesStream: _firestore
+              .collection('booksRead')
+              .where('uid', isEqualTo: _uid ?? '')
+              .snapshots()
+              .map((snap) => [for (final doc in snap.docs) doc.data()]),
+        );
+    if (widget.library == null) _loadUserMeta();
     // Master Task 2026-09-10, Part 6 — opening this screen is "seen" for
     // guide-driven book commitments.
-    final uid = _auth.currentUser?.uid;
-    if (uid != null && uid.isNotEmpty) {
+    final uid = _uid;
+    if (widget.library == null && uid != null && uid.isNotEmpty) {
       SeenMarkers.markSeen(uid, 'bookCommitments');
     }
+  }
+
+  @override
+  void dispose() {
+    _library.dispose();
+    super.dispose();
   }
 
   /// Name and role are needed to write the daily sadhana reading value, which
@@ -127,10 +163,10 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
     if (language == _language) return;
     setState(() => _language = language);
 
-    final user = _auth.currentUser;
-    if (user == null) return;
+    final uid = _uid;
+    if (uid == null) return;
     try {
-      await _firestore.collection('users').doc(user.uid).set({
+      await _firestore.collection('users').doc(uid).set({
         'readingPrefs': {'language': language},
       }, SetOptions(merge: true));
     } catch (_) {
@@ -263,9 +299,13 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
   /// silently resurrected to `true` by this gate's own write, which the
   /// unconditional version below it would otherwise have done.
   ///
-  /// Returns false only if leaving this function unable to proceed (widget
-  /// unmounted mid-flow) — the dialog itself cannot be dismissed without a
-  /// date, per the "not skippable" requirement.
+  /// Returns false when the book must NOT go ahead: the student closed the
+  /// dialog without choosing a date (Cancel, tap outside, back), the date could
+  /// not be saved, or the widget was unmounted mid-flow. In the first case
+  /// nothing at all has been written: the only write in this function is below
+  /// `if (chosen == null || !mounted) return false;`, so a closed dialog never
+  /// reaches it — the book is not started, not marked current, and the caller
+  /// opens neither the reader nor the Update sheet.
   Future<bool> _ensureCommitmentDate({
     required String uid,
     required String level,
@@ -285,8 +325,9 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
       data = null;
     }
 
-    final isFinished = (data?['endDate'] as String?)?.trim().isNotEmpty == true;
-    if (isFinished) return true;
+    // A completed book (end date, or marked finished by the student or the
+    // guide) is exempt, and is never turned back into a current book here.
+    if (isBookCompleted(data)) return true;
 
     final isCurrent = data?['isCurrentBook'] == true;
     final hasCommitment =
@@ -299,16 +340,29 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
     if (chosen == null || !mounted) return false;
 
     try {
-      await docRef.set({
-        'uid': uid,
-        'level': level,
-        'bookKey': bookKey,
-        'bookTitle': title,
-        'isCurrentBook': true,
-        'commitmentDate': chosen,
-        'commitmentSetAt': FieldValue.serverTimestamp(),
-        'commitmentSetBy': 'student',
-      }, SetOptions(merge: true));
+      // A transaction, so the doc is read again at the moment of writing: a
+      // book that has been completed in the meantime (or whose first read
+      // above failed) is never turned back into a current book. A failed
+      // read fails the transaction too, which shows the message below.
+      final stillOpen = await _firestore.runTransaction<bool>((tx) async {
+        final latest = await tx.get(docRef);
+        if (isBookCompleted(latest.data())) return false;
+        tx.set(
+            docRef,
+            {
+              'uid': uid,
+              'level': level,
+              'bookKey': bookKey,
+              'bookTitle': title,
+              'isCurrentBook': true,
+              'commitmentDate': chosen,
+              'commitmentSetAt': FieldValue.serverTimestamp(),
+              'commitmentSetBy': 'student',
+            },
+            SetOptions(merge: true));
+        return true;
+      });
+      if (!stillOpen) return true; // completed meanwhile: nothing to commit to
     } catch (_) {
       if (!mounted) return false;
       showSnackbar(
@@ -323,115 +377,11 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
     return true;
   }
 
-  /// Non-dismissible: no cancel action, no barrier tap-to-close, and the
-  /// system back gesture is blocked (`PopScope(canPop: false)`, the same
-  /// idiom `BookReaderPage` already uses for its own exit confirmation) — a
-  /// commitment date is mandatory before reading begins, per the product
-  /// owner's explicit "not skippable" instruction.
-  Future<String?> _showCommitmentDateDialog({required String title}) {
-    DateTime? picked;
-
-    return showDialog<String>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return PopScope<Object?>(
-              canPop: false,
-              child: AlertDialog(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                title: const Text("Set your commitment date"),
-                content: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      "Choose a target date to finish this book. This is "
-                      "required before you can start reading.",
-                      style: TextStyle(fontSize: 13),
-                    ),
-                    const SizedBox(height: 16),
-                    InkWell(
-                      onTap: () async {
-                        final result = await showDatePicker(
-                          context: dialogContext,
-                          initialDate: picked ?? DateTime.now(),
-                          firstDate: DateTime.now(),
-                          lastDate: DateTime(2100),
-                        );
-                        if (result != null) {
-                          setDialogState(() => picked = result);
-                        }
-                      },
-                      borderRadius: BorderRadius.circular(12),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 12,
-                        ),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: Colors.grey.shade300),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.calendar_today,
-                                size: 18, color: Colors.grey.shade600),
-                            const SizedBox(width: 12),
-                            Text(
-                              picked == null
-                                  ? "Tap to choose a date"
-                                  : picked!.toIso8601String().split('T')[0],
-                              style: TextStyle(
-                                color: picked == null
-                                    ? Colors.grey.shade500
-                                    : Colors.black87,
-                                fontWeight: picked == null
-                                    ? FontWeight.normal
-                                    : FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                actions: [
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.deepPurple,
-                    ),
-                    onPressed: picked == null
-                        ? null
-                        : () => Navigator.pop(
-                              dialogContext,
-                              picked!.toIso8601String().split('T')[0],
-                            ),
-                    child: const Text(
-                      "Start Reading",
-                      style: TextStyle(color: Colors.white),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
+  /// The dialog itself is `showCommitmentDateDialog` (widgets/CommitmentDateDialog
+  /// .dart): Cancel, a tap outside or the system back button close it and answer
+  /// null, which [_ensureCommitmentDate] treats as "do nothing at all".
+  Future<String?> _showCommitmentDateDialog({required String title}) =>
+      showCommitmentDateDialog(context, title: title);
 
   /// Revert task (2026-08-30) — no sequential lock any more. A student may
   /// read any book, in any order, at any time; the product owner saw the
@@ -442,6 +392,9 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
     required String dropboxUrl,
     required String level,
     required String bookKey,
+    // A book that is already current (it has its commitment date) opens at
+    // once, with no questions.
+    bool skipCommitmentGate = false,
   }) async {
     if (dropboxUrl.trim().isEmpty) {
       showSnackbar(
@@ -453,16 +406,18 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
       return;
     }
 
-    final user = _auth.currentUser;
-    if (user == null) return;
+    final uid = _uid;
+    if (uid == null) return;
 
-    final committed = await _ensureCommitmentDate(
-      uid: user.uid,
-      level: level,
-      bookKey: bookKey,
-      title: title,
-    );
-    if (!committed || !mounted) return;
+    if (!skipCommitmentGate) {
+      final committed = await _ensureCommitmentDate(
+        uid: uid,
+        level: level,
+        bookKey: bookKey,
+        title: title,
+      );
+      if (!committed || !mounted) return;
+    }
 
     // The reader owns the timer — it starts only once the DOCX has been parsed
     // and text is on screen — and returns the elapsed seconds on pop. All
@@ -475,7 +430,7 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
           bookTitle: title,
           bookKey: bookKey,
           level: level,
-          uid: user.uid,
+          uid: uid,
         ),
       ),
     );
@@ -547,7 +502,7 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
     // the system already has on record; the sheet below has no control
     // that can change it, and `save()` re-derives the final value itself
     // (`resolvedIsCurrentBook`) rather than trusting this local copy.
-    final wasCurrentBook = freshEntry?['isCurrentBook'] == true;
+    final wasCurrentBook = isCurrentBookEntry(freshEntry);
     bool? madeNotes = freshEntry?['madeNotes'] is bool
         ? freshEntry!['madeNotes'] as bool
         : null;
@@ -660,18 +615,21 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
               }
             }
 
+            final colors = context.folk;
+            final text = context.folkText;
             return Padding(
               padding: EdgeInsets.only(
                 bottom: MediaQuery.of(context).viewInsets.bottom,
               ),
               child: Container(
                 padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius:
-                      BorderRadius.vertical(top: Radius.circular(24)),
+                decoration: BoxDecoration(
+                  color: colors.surface,
+                  borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(FolkShape.cardRadius)),
                 ),
-                child: Column(
+                child: SingleChildScrollView(
+                  child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -680,27 +638,15 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
                         width: 42,
                         height: 4,
                         decoration: BoxDecoration(
-                          color: Colors.grey.shade300,
+                          color: colors.surfaceSecondary,
                           borderRadius: BorderRadius.circular(4),
                         ),
                       ),
                     ),
                     const SizedBox(height: 18),
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    Text(title, style: text.topBarTitle),
                     const SizedBox(height: 4),
-                    Text(
-                      levelTitles[level] ?? level,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
+                    Text(levelTitles[level] ?? level, style: text.caption),
                     const SizedBox(height: 20),
 
                     /// Auto-advance task, Part 1 items 1/2 — READ-ONLY.
@@ -714,60 +660,58 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 12, vertical: 10),
                         decoration: BoxDecoration(
-                          color: Colors.deepPurple.withOpacity(.08),
-                          borderRadius: BorderRadius.circular(10),
+                          gradient: FolkGradients.violet,
+                          borderRadius:
+                              BorderRadius.circular(FolkShape.tileRadius),
                         ),
-                        child: const Row(
+                        child: Row(
                           children: [
-                            Icon(Icons.menu_book,
-                                size: 16, color: Colors.deepPurple),
-                            SizedBox(width: 8),
-                            Text(
-                              "This is your current book",
-                              style: TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.deepPurple,
-                                  fontSize: 13),
+                            const Icon(Icons.menu_book,
+                                size: 16, color: FolkColors.onGradient),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                "This is your current book",
+                                style: text.onGradientSmall.copyWith(
+                                    fontWeight: FontWeight.w700),
+                              ),
                             ),
                           ],
                         ),
                       ),
 
-                    const Divider(height: 24),
+                    const SizedBox(height: 16),
 
                     /// Made notes (mandatory)
                     Row(
                       children: [
-                        const Text(
-                          "Have you made notes?",
-                          style: TextStyle(fontWeight: FontWeight.w600),
-                        ),
+                        Text("Have you made notes?", style: text.bodyStrong),
                         const SizedBox(width: 6),
-                        const Text("*", style: TextStyle(color: Colors.red)),
+                        Text("*",
+                            style: text.bodyStrong
+                                .copyWith(color: colors.calendarMissedText)),
                       ],
                     ),
                     const SizedBox(height: 8),
                     Row(
                       children: [
-                        ChoiceChip(
-                          label: const Text("Yes"),
+                        FolkChip(
+                          label: "Yes",
                           selected: madeNotes == true,
-                          selectedColor: Colors.green.shade100,
-                          onSelected: (_) =>
-                              setSheetState(() => madeNotes = true),
+                          selectedStyle: FolkGradientStyle.green,
+                          onTap: () => setSheetState(() => madeNotes = true),
                         ),
                         const SizedBox(width: 10),
-                        ChoiceChip(
-                          label: const Text("No"),
+                        FolkChip(
+                          label: "No",
                           selected: madeNotes == false,
-                          selectedColor: Colors.red.shade100,
-                          onSelected: (_) =>
-                              setSheetState(() => madeNotes = false),
+                          selectedStyle: FolkGradientStyle.coral,
+                          onTap: () => setSheetState(() => madeNotes = false),
                         ),
                       ],
                     ),
 
-                    const Divider(height: 24),
+                    const SizedBox(height: 16),
 
                     /// Start date (mandatory)
                     _dateRow(
@@ -792,37 +736,13 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
 
                     const SizedBox(height: 24),
 
-                    SizedBox(
-                      width: double.infinity,
-                      height: 48,
-                      child: ElevatedButton(
-                        onPressed: saving ? null : save,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.deepPurple,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                        child: saving
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Text(
-                                "Save",
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                      ),
+                    PrimaryButton(
+                      label: "Save",
+                      loading: saving,
+                      onPressed: saving ? null : save,
                     ),
                   ],
+                ),
                 ),
               ),
             );
@@ -848,45 +768,52 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
     required VoidCallback onTap,
     VoidCallback? onClear,
   }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          border: Border.all(color: Colors.grey.shade300),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.calendar_today, size: 18, color: Colors.grey.shade600),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Row(
-                children: [
-                  Text(
-                    label,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  if (required)
-                    const Text(" *", style: TextStyle(color: Colors.red)),
-                ],
+    final colors = context.folk;
+    final text = context.folkText;
+    return Semantics(
+      button: true,
+      label: label,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(FolkShape.tileRadius),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: FolkShape.touchTarget),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(
+            color: colors.surfaceSecondary,
+            borderRadius: BorderRadius.circular(FolkShape.tileRadius),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.calendar_today, size: 18, color: colors.mutedText),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Row(
+                  children: [
+                    Flexible(child: Text(label, style: text.bodyStrong)),
+                    if (required)
+                      Text(" *",
+                          style: text.bodyStrong
+                              .copyWith(color: colors.calendarMissedText)),
+                  ],
+                ),
               ),
-            ),
-            Text(
-              value ?? "Not set",
-              style: TextStyle(
-                color: value == null ? Colors.grey.shade500 : Colors.black87,
-                fontWeight: value == null ? FontWeight.normal : FontWeight.w600,
+              Text(
+                value ?? "Not set",
+                style: value == null ? text.small : text.bodyStrong,
               ),
-            ),
-            if (onClear != null)
-              IconButton(
-                icon: const Icon(Icons.close, size: 16),
-                onPressed: onClear,
-                visualDensity: VisualDensity.compact,
-              ),
-          ],
+              if (onClear != null)
+                IconButton(
+                  icon: const Icon(Icons.close, size: 16),
+                  color: colors.mutedText,
+                  tooltip: 'Clear $label',
+                  constraints: const BoxConstraints(
+                      minWidth: FolkShape.touchTarget,
+                      minHeight: FolkShape.touchTarget),
+                  onPressed: onClear,
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -896,122 +823,60 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
   // UI
   // ---------------------------------------------------------------------------
 
-  /// Standing reading-language picker (Part 4). One chip row, chosen once —
-  /// not per book — and applied to every level below by changing which
-  /// `{level}_links` sibling document `_bookCard` reads its URL from.
-  Widget _languageSelector(ColorProvider colorProvider) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: colorProvider.thirdColor,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            "Reading language",
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: Colors.white70,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: kSupportedLanguages.entries.map((entry) {
-              final selected = _language == entry.key;
-              return ChoiceChip(
-                label: Text(entry.value),
-                selected: selected,
-                onSelected: (_) => _setLanguage(entry.key),
-                // Both states are fully opaque colours, not alpha-blended
-                // against this container's own background — a translucent
-                // `Colors.white24` chip (the prior bug) depends on exactly
-                // what's visually behind it to land on a readable result,
-                // and on a real device it didn't: white label text ended up
-                // on a chip barely lighter than white itself.
-                //
-                // This container's own background is `colorProvider.thirdColor`,
-                // which is `0xFF835DF1` in every branch of ColorProvider
-                // (light init, dark init, and both toggle directions — see
-                // ColorProvider.dart) — i.e. invariant to the app's light/dark
-                // toggle, so a fix reasoned against this one fixed colour
-                // holds in both of the app's theme states by construction.
-                //
-                // Selected: opaque white bg + deepPurple text — already high
-                // contrast (deepPurple's luminance is low, white is maximal),
-                // unchanged.
-                // Unselected: an opaque, deliberately darker purple
-                // (`#6647B8`, not a translucent overlay) + opaque white text.
-                // White (luminance 1.0) against `#6647B8` (relative luminance
-                // ≈0.108, computed via the WCAG formula) is a ≈6.6:1 contrast
-                // ratio — comfortably past the 4.5:1 WCAG AA threshold for
-                // normal-size text, and still visibly a "chip" against the
-                // lighter `#835DF1` row behind it rather than blending in.
-                selectedColor: Colors.white,
-                backgroundColor: const Color(0xFF6647B8),
-                labelStyle: TextStyle(
-                  color: selected ? Colors.deepPurple : Colors.white,
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.normal,
-                ),
-              );
-            }).toList(),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _statusChip(Map<String, dynamic>? entry) {
+    final colors = context.folk;
+    final text = context.folkText;
+    // Progress has not arrived yet: a ghost, never a wrong "Not Started".
+    if (!_library.entriesLoaded) {
+      return const GhostPlaceholder(
+          width: 76, height: 22, radius: 11, showBars: false);
+    }
     String label;
-    Color color;
+    LinearGradient? gradient;
 
-    if (entry?['isCurrentBook'] == true) {
-      label = "Current Book";
-      color = Colors.blue;
-    } else if ((entry?['endDate'] as String?)?.trim().isNotEmpty == true) {
+    // Completed wins over any stored `isCurrentBook`: a finished book is never
+    // shown as the current one.
+    if (isBookCompleted(entry)) {
       label = "Completed";
-      color = Colors.green;
+      gradient = FolkGradients.green;
+    } else if (isCurrentBookEntry(entry)) {
+      label = "Current Book";
+      gradient = FolkGradients.violet;
     } else {
       label = "Not Started";
-      color = Colors.grey;
+      gradient = null;
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(.12),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(.4)),
+        gradient: gradient,
+        color: gradient == null ? colors.surface : null,
+        borderRadius: BorderRadius.circular(14),
       ),
       child: Text(
         label,
-        style: TextStyle(
+        style: text.caption.copyWith(
           fontSize: 11,
           fontWeight: FontWeight.w700,
-          color: color,
+          color: gradient == null ? colors.mutedText : FolkColors.onGradient,
         ),
       ),
     );
   }
 
   Widget _levelBadge(String level) {
+    final colors = context.folk;
+    final text = context.folkText;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.deepPurple.withOpacity(.1),
-        borderRadius: BorderRadius.circular(6),
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(14),
       ),
       child: Text(
         levelTitles[level] ?? level,
-        style: const TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          color: Colors.deepPurple,
-        ),
+        style: text.caption.copyWith(fontSize: 11, fontWeight: FontWeight.w700),
       ),
     );
   }
@@ -1073,6 +938,91 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
     }
   }
 
+  /// "Mark as already completed" — for a book the student finished before (or
+  /// outside) the app. Asks first; on confirm there is ONE write: `endDate` =
+  /// today (the same `yyyy-MM-dd` every other end date uses) and
+  /// `isCurrentBook: false` together, the same shape as the update sheet's
+  /// completion write. It never overwrites an existing end date (a book that is
+  /// already completed is left alone), and keeps an existing `startDate`.
+  ///
+  /// A book with no record yet gets one carrying the fields a normal start
+  /// writes (`uid`, `level`, `bookKey`, `bookTitle`) plus `endDate`,
+  /// `isCurrentBook: false` and `startDate` = today — exactly what the guide's
+  /// "Mark finished" writes for a book that was never started. No reader of
+  /// `booksRead` (Student app, Guide app, functions) needs a commitment date
+  /// or a start date to treat a book as finished; they look at `endDate`.
+  Future<void> _markAlreadyCompleted({
+    required String level,
+    required String bookKey,
+    required String title,
+  }) async {
+    final uid = _uid;
+    if (uid == null) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        final colors = dialogContext.folk;
+        final text = dialogContext.folkText;
+        return FolkDialog.alert(
+          dialogContext,
+          title: "Mark as completed",
+          content: Text(
+            "Mark '$title' as completed? Today's date will be saved as the end date.",
+            style: text.small,
+          ),
+          actions: [
+            TextButton(
+              style: FolkDialog.quietButton(colors, text),
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text("Cancel"),
+            ),
+            ElevatedButton(
+              style: FolkDialog.primaryButton(colors, text),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text("Mark completed"),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true || !mounted) return;
+
+    final today = DateTime.now().toIso8601String().split('T')[0];
+    final ref = _firestore.collection('booksRead').doc('${uid}_${level}_$bookKey');
+    try {
+      final written = widget.markCompleted != null
+          ? await widget.markCompleted!(
+              uid: uid, level: level, bookKey: bookKey, title: title, today: today)
+          : await _firestore.runTransaction<bool>((tx) async {
+              final latest = (await tx.get(ref)).data();
+              // Never overwrites an existing end date (or a completion mark).
+              final fields = alreadyCompletedFields(
+                latest: latest,
+                uid: uid,
+                level: level,
+                bookKey: bookKey,
+                title: title,
+                today: today,
+              );
+              if (fields == null) return false;
+              tx.set(ref, fields, SetOptions(merge: true));
+              return true;
+            });
+      if (!mounted) return;
+      showSnackbar(
+        context,
+        written ? "Marked as completed" : "This book is already completed",
+        written ? Colors.green : Colors.orange,
+        written ? Icons.check_circle : Icons.info,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      showSnackbar(
+          context, "Could not mark this book as completed", Colors.red, Icons.error);
+    }
+  }
+
   /// Revert task (2026-08-30) — no `locked`/`blockingTitle`/`orderedKeys`/
   /// `orderedTitles` any more (no lock, no cross-level advance). Shows the
   /// student's own commitment date and who set it (Part 3 item 4 — a guide
@@ -1084,12 +1034,13 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
     required String title,
     required String url,
     required Map<String, dynamic>? entry,
+    // Current books: tapping the title opens the reader, like Read.
+    bool titleOpens = false,
   }) {
     final madeNotes = entry?['madeNotes'] == true;
     final hasEntry = entry != null;
     final startDate = (entry?['startDate'] as String?)?.trim();
-    final isCurrent = entry?['isCurrentBook'] == true &&
-        !((entry?['endDate'] as String?)?.trim().isNotEmpty == true);
+    final isCurrent = isCurrentBookEntry(entry);
     final commitmentDate = (entry?['commitmentDate'] as String?)?.trim();
     final commitmentSetBy = (entry?['commitmentSetBy'] as String?)?.trim();
     // Master Task Part 2 item 3 — same convention as `commitmentSetBy`
@@ -1100,28 +1051,21 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
     // Absent/anything else (including the student's own completion, which
     // never writes this field) shows the plain "Completed" chip/no note —
     // both read as "you did this," which is the correct default either way.
-    final isFinished =
-        (entry?['endDate'] as String?)?.trim().isNotEmpty == true;
+    final isFinished = isBookCompleted(entry);
     final endedBy = (entry?['endedBy'] as String?)?.trim();
     final today = DateTime.now().toIso8601String().split('T')[0];
     final commitmentPassed =
         commitmentDate != null && commitmentDate.compareTo(today) < 0;
     final user = _auth.currentUser;
 
-    return Container(
+    final colors = context.folk;
+    final text = context.folkText;
+
+    return FolkCard(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(.06),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          )
-        ],
-      ),
+      radius: FolkShape.tileRadius,
+      color: colors.surfaceSecondary,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1131,25 +1075,33 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Colors.deepPurple.withOpacity(.1),
-                  borderRadius: BorderRadius.circular(10),
+                  gradient: FolkGradients.violet,
+                  borderRadius: BorderRadius.circular(14),
                 ),
                 child: const Icon(Icons.menu_book,
-                    size: 20, color: Colors.deepPurple),
+                    size: 20, color: FolkColors.onGradient),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 14,
-                        height: 1.3,
-                      ),
-                    ),
+                    if (titleOpens)
+                      InkWell(
+                        onTap: () => _openBook(
+                          title: title,
+                          dropboxUrl: url,
+                          level: level,
+                          bookKey: bookKey,
+                          skipCommitmentGate:
+                              (commitmentDate ?? '').isNotEmpty,
+                        ),
+                        borderRadius: BorderRadius.circular(8),
+                        child: Text(title,
+                            style: text.bodyStrong.copyWith(height: 1.3)),
+                      )
+                    else
+                      Text(title, style: text.bodyStrong.copyWith(height: 1.3)),
                     const SizedBox(height: 6),
                     Wrap(
                       spacing: 6,
@@ -1161,6 +1113,20 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
                       ],
                     ),
                   ],
+                ),
+              ),
+              // Small and quiet: for a book the student has already finished.
+              IconButton(
+                tooltip: 'Mark as already completed',
+                icon: Icon(Icons.task_alt, size: 20, color: colors.mutedText),
+                constraints: const BoxConstraints(
+                    minWidth: FolkShape.touchTarget,
+                    minHeight: FolkShape.touchTarget),
+                padding: EdgeInsets.zero,
+                onPressed: () => _markAlreadyCompleted(
+                  level: level,
+                  bookKey: bookKey,
+                  title: title,
                 ),
               ),
             ],
@@ -1177,18 +1143,20 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
                     : Icons.remove_circle_outline,
                 size: 15,
                 color: hasEntry
-                    ? (madeNotes ? Colors.green : Colors.red)
-                    : Colors.grey,
+                    ? (madeNotes
+                        ? FolkCalendarTokens.legendSubmitted
+                        : FolkCalendarTokens.legendMissed)
+                    : colors.mutedText,
               ),
               const SizedBox(width: 5),
               Text(
                 hasEntry
                     ? (madeNotes ? "Notes made" : "No notes")
                     : "Notes not set",
-                style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+                style: text.caption.copyWith(fontSize: 11),
               ),
               const SizedBox(width: 14),
-              Icon(Icons.event, size: 15, color: Colors.grey.shade600),
+              Icon(Icons.event, size: 15, color: colors.mutedText),
               const SizedBox(width: 5),
               Expanded(
                 child: Text(
@@ -1197,7 +1165,7 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
                       : "Not started",
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+                  style: text.caption.copyWith(fontSize: 11),
                 ),
               ),
             ],
@@ -1211,19 +1179,21 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
               children: [
                 Icon(Icons.flag,
                     size: 14,
-                    color:
-                        commitmentPassed ? Colors.red : Colors.deepPurple),
+                    color: commitmentPassed
+                        ? colors.calendarMissedText
+                        : colors.text),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
                     commitmentSetBy == 'guide'
                         ? "Committed to finish by $commitmentDate (set by guide)"
                         : "Committed to finish by $commitmentDate",
-                    style: TextStyle(
+                    style: text.caption.copyWith(
                         fontSize: 11.5,
                         fontWeight: FontWeight.w600,
-                        color:
-                            commitmentPassed ? Colors.red : Colors.deepPurple),
+                        color: commitmentPassed
+                            ? colors.calendarMissedText
+                            : colors.text),
                   ),
                 ),
                 if (commitmentPassed && user != null)
@@ -1235,11 +1205,14 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
                       currentCommitmentDate: commitmentDate,
                     ),
                     style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-                    child: const Text("Change date",
-                        style: TextStyle(fontSize: 11.5)),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      minimumSize: const Size(
+                          FolkShape.touchTarget, FolkShape.touchTarget),
+                      foregroundColor: colors.text,
+                      textStyle: text.caption.copyWith(
+                          fontSize: 11.5, fontWeight: FontWeight.w700),
+                    ),
+                    child: const Text("Change date"),
                   ),
               ],
             ),
@@ -1253,15 +1226,15 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
             Row(
               children: [
                 const Icon(Icons.check_circle,
-                    size: 14, color: Colors.green),
+                    size: 14, color: FolkCalendarTokens.legendSubmitted),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
                     "Marked complete by your guide",
-                    style: TextStyle(
+                    style: text.caption.copyWith(
                         fontSize: 11.5,
                         fontWeight: FontWeight.w600,
-                        color: Colors.green.shade700),
+                        color: colors.text),
                   ),
                 ),
               ],
@@ -1270,204 +1243,191 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
 
           const SizedBox(height: 12),
 
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () => _openBook(
-                    title: title,
-                    dropboxUrl: url,
-                    level: level,
-                    bookKey: bookKey,
-                  ),
-                  icon: const Icon(Icons.chrome_reader_mode, size: 17),
-                  label: const Text("Read"),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.deepPurple,
-                    side: const BorderSide(color: Colors.deepPurple),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () => _openUpdateSheet(
-                    level: level,
-                    bookKey: bookKey,
-                    title: title,
-                    entry: entry,
-                  ),
-                  icon: const Icon(Icons.edit_note, size: 18),
-                  label: const Text("Update"),
-                  style: ElevatedButton.styleFrom(
-                    elevation: 0,
-                    backgroundColor: Colors.deepPurple,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                ),
-              ),
-            ],
+          BookCardActions(
+            onRead: () => _openBook(
+              title: title,
+              dropboxUrl: url,
+              level: level,
+              bookKey: bookKey,
+            ),
+            onUpdate: () => _openUpdateSheet(
+              level: level,
+              bookKey: bookKey,
+              title: title,
+              entry: entry,
+            ),
           ),
         ],
       ),
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final user = _auth.currentUser;
+  Widget _loadingGhost() => const GhostScope(
+        child: Padding(
+          padding: EdgeInsets.all(FolkSpace.pagePadding),
+          child: Column(
+            children: [
+              GhostPlaceholder(
+                  width: double.infinity, height: 72, showBars: false),
+              SizedBox(height: FolkSpace.cardGap),
+              GhostPlaceholder(
+                  width: double.infinity, height: 72, showBars: false),
+              SizedBox(height: FolkSpace.cardGap),
+              GhostPlaceholder(
+                  width: double.infinity, height: 72, showBars: false),
+            ],
+          ),
+        ),
+      );
 
-    return Consumer<ColorProvider>(
-      builder: (context, colorProvider, child) {
-        return Scaffold(
-          backgroundColor: colorProvider.color,
-          appBar: AppBar(
-            backgroundColor: colorProvider.color,
-            elevation: 0,
-            title: Text(
-              "My Books",
-              style: TextStyle(
-                color: colorProvider.secondColor,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            leading: IconButton(
-              icon: Icon(Icons.arrow_back, color: colorProvider.secondColor),
-              onPressed: () => Navigator.pop(context),
+  /// Opens a book in the reader. A completed book is just opened (no
+  /// commitment-date prompt); so is a current book that already has its date.
+  void _openRow(BookRow row, BookDocs docs, {bool skipGate = false}) {
+    final links = docs[linksDocId(row.level, _language)];
+    _openBook(
+      title: row.title,
+      dropboxUrl: (links?[row.bookKey] ?? '').toString(),
+      level: row.level,
+      bookKey: row.bookKey,
+      skipCommitmentGate: skipGate,
+    );
+  }
+
+  Widget _fullCards(List<BookRow> rows, BookDocs docs,
+      {bool titleOpens = false}) {
+    return Column(
+      children: [
+        for (final r in rows)
+          _bookCard(
+            level: r.level,
+            bookKey: r.bookKey,
+            title: r.title,
+            url: (docs[linksDocId(r.level, _language)]?[r.bookKey] ?? '')
+                .toString(),
+            entry: r.entry,
+            titleOpens: titleOpens,
+          ),
+      ],
+    );
+  }
+
+  String _countLabel(int n) => n == 1 ? '1 book' : '$n books';
+
+  Widget _list(BookDocs docs) {
+    final text = context.folkText;
+    final entries = _library.entries;
+    final loaded = entries != null;
+    final sections = loaded
+        ? classifyBooks(
+            levels: levels,
+            titlesByLevel: {
+              for (final l in levels) l: _sortedBooks(docs[l]),
+            },
+            entries: entries,
+          )
+        : null;
+
+    // Progress not read yet: a level section's body shows ghosts, never a
+    // guess (a started book listed as "not started").
+    Widget ghosts() => const GhostScope(
+          child: Column(
+            children: [
+              GhostPlaceholder(
+                  width: double.infinity, height: 72, showBars: false),
+              SizedBox(height: FolkSpace.cardGap),
+              GhostPlaceholder(
+                  width: double.infinity, height: 72, showBars: false),
+            ],
+          ),
+        );
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(
+          FolkSpace.pagePadding, FolkSpace.lg, FolkSpace.pagePadding,
+          FolkSpace.xxl),
+      physics: const BouncingScrollPhysics(),
+      // Every child is keyed, so a section that is open stays open when the
+      // others come and go. Each section starts CLOSED and builds nothing
+      // until it is opened. A book is in exactly one of them.
+      children: [
+        if (sections != null && sections.current.isNotEmpty)
+          BookLevelSection(
+            key: const ValueKey('section-current'),
+            title: 'Current books',
+            subtitle: _countLabel(sections.current.length),
+            bodyBuilder: (context) => _fullCards(sections.current, docs,
+                titleOpens: true),
+          ),
+        for (final level in levels)
+          BookLevelSection(
+            key: ValueKey('section-$level'),
+            title: levelTitles[level] ?? level,
+            subtitle: sections == null
+                ? null
+                : _countLabel(sections.notStartedByLevel[level]!.length),
+            bodyBuilder: (context) {
+              if (sections == null) return ghosts();
+              final rows = sections.notStartedByLevel[level]!;
+              if (rows.isEmpty) {
+                return Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    sections.bookCountByLevel[level] == 0
+                        ? "No books found for this level"
+                        : "Every book in this level is current or completed",
+                    style: text.body,
+                  ),
+                );
+              }
+              return _fullCards(rows, docs);
+            },
+          ),
+        if (sections != null && sections.completed.isNotEmpty)
+          BookLevelSection(
+            key: const ValueKey('section-completed'),
+            title: 'Completed books · ${sections.completed.length}',
+            bodyBuilder: (context) => Column(
+              children: [
+                for (final r in sections.completed)
+                  CompletedBookTile(
+                    title: r.title,
+                    onOpen: () => _openRow(r, docs, skipGate: true),
+                  ),
+              ],
             ),
           ),
-          body: user == null
-              ? const Center(child: Text("Not signed in"))
-              : StreamBuilder<QuerySnapshot>(
-                  stream: _booksStream,
-                  builder: (context, booksSnap) {
-                    if (booksSnap.connectionState == ConnectionState.waiting) {
-                      return const CustomLoader();
-                    }
+      ],
+    );
+  }
 
-                    if (booksSnap.hasError) {
-                      return Center(
-                          child: Text("Error: ${booksSnap.error}"));
-                    }
+  @override
+  Widget build(BuildContext context) {
+    final text = context.folkText;
 
-                    final Map<String, Map<String, dynamic>> bookDocs = {
-                      for (var doc in booksSnap.data?.docs ?? [])
-                        doc.id: (doc.data() as Map<String, dynamic>)
-                    };
-
-                    return StreamBuilder<QuerySnapshot>(
-                      stream: _booksReadStream,
-                      builder: (context, entriesSnap) {
-                        // Entry lookup keyed by "{level}:{bookKey}".
-                        final Map<String, Map<String, dynamic>> entries = {};
-                        for (var doc in entriesSnap.data?.docs ?? []) {
-                          final data = doc.data() as Map<String, dynamic>;
-                          final lvl = (data['level'] ?? '').toString();
-                          final key = (data['bookKey'] ?? '').toString();
-                          if (lvl.isNotEmpty && key.isNotEmpty) {
-                            entries['$lvl:$key'] = data;
-                          }
-                        }
-
-                        return ListView(
-                          padding: const EdgeInsets.all(16),
-                          physics: const BouncingScrollPhysics(),
-                          children: [
-                            _languageSelector(colorProvider),
-                            const SizedBox(height: 14),
-                            ...levels.map((level) {
-                            final books = _sortedBooks(bookDocs[level]);
-                            final links =
-                                bookDocs[linksDocId(level, _language)];
-
-                            return Theme(
-                              data: Theme.of(context)
-                                  .copyWith(dividerColor: Colors.transparent),
-                              child: Container(
-                                margin: const EdgeInsets.only(bottom: 16),
-                                // Colour lives on the Material below, not on a
-                                // decoration, so the tile's ink and splash
-                                // effects render against a real Material.
-                                child: Material(
-                                  color: colorProvider.thirdColor,
-                                  borderRadius: BorderRadius.circular(20),
-                                  clipBehavior: Clip.antiAlias,
-                                  child: ExpansionTile(
-                                  key: PageStorageKey(level),
-                                  initiallyExpanded: level == 'level-1',
-                                  tilePadding: const EdgeInsets.symmetric(
-                                      horizontal: 18, vertical: 4),
-                                  childrenPadding: const EdgeInsets.fromLTRB(
-                                      14, 0, 14, 14),
-                                  iconColor: Colors.white,
-                                  collapsedIconColor: Colors.white,
-                                  title: Text(
-                                    levelTitles[level] ?? level,
-                                    style: const TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                  subtitle: Text(
-                                    "${books.length} books",
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.white70,
-                                    ),
-                                  ),
-                                  children: books.isEmpty
-                                      ? [
-                                          const Padding(
-                                            padding: EdgeInsets.all(16),
-                                            child: Text(
-                                              "No books found for this level",
-                                              style: TextStyle(
-                                                  color: Colors.white),
-                                            ),
-                                          )
-                                        ]
-                                      : books.map((b) {
-                                          // Revert task (2026-08-30) — no
-                                          // hierarchy lock, so every book
-                                          // renders identically regardless
-                                          // of position; multiple books may
-                                          // be current at once (Part 2 item
-                                          // 4), so there is no single
-                                          // level-level "Current: X" banner
-                                          // any more — each card shows its
-                                          // own status and commitment date.
-                                          final entryData =
-                                              entries['$level:${b.key}'];
-
-                                          return _bookCard(
-                                            level: level,
-                                            bookKey: b.key,
-                                            title: b.value,
-                                            url: (links?[b.key] ?? '')
-                                                .toString(),
-                                            entry: entryData,
-                                          );
-                                        }).toList(),
-                                  ),
-                                ),
-                              ),
-                            );
-                            }),
-                          ],
-                        );
-                      },
-                    );
-                  },
-                ),
-        );
-      },
+    return FolkScaffold(
+      title: "My Books",
+      onBack: () => Navigator.pop(context),
+      // One compact language button in the top bar (EN -> हि -> ગુ -> తె).
+      actions: [
+        LanguageButton(language: _language, onChanged: _setLanguage),
+      ],
+      body: _uid == null
+          ? Center(child: Text("Not signed in", style: text.body))
+          : ListenableBuilder(
+              listenable: _library,
+              builder: (context, _) {
+                final docs = _library.books;
+                if (docs == null) {
+                  if (_library.booksError != null) {
+                    return Center(
+                        child: Text("Error: ${_library.booksError}",
+                            style: text.body));
+                  }
+                  return _loadingGhost();
+                }
+                return _list(docs);
+              },
+            ),
     );
   }
 }

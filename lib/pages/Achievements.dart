@@ -1,9 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import '../utils/ColorProvider.dart';
+import '../theme/FolkTokens.dart';
 import '../utils/CompetitionRules.dart';
-import '../utils/MalaLoading.dart';
+import '../widgets/FolkScaffold.dart';
+import '../widgets/Group2Widgets.dart';
+import '../widgets/GhostPlaceholder.dart';
+import '../widgets/PrimaryButton.dart';
 
 class AchievementsPage extends StatefulWidget {
   final String username;
@@ -63,8 +65,13 @@ class _AchievementsPageState extends State<AchievementsPage>
   }
 
   /// 🔥 COMPACT BADGE CARD (TOP SECTION)
-  Widget compactBadgeCard(
-      String badgeName, int count, Color textColor, int index) {
+  Widget compactBadgeCard(String badgeName, int count, int index) {
+    // The entrance is skipped under "reduce animations" (the count-up inside
+    // the card honours it too).
+    final reduced = FolkMotion.reduced(context);
+    final card = AchievementBadgeCard(badgeName: badgeName, count: count);
+
+    if (reduced) return card;
     return FadeTransition(
       opacity: Tween<double>(begin: 0, end: 1).animate(
         CurvedAnimation(parent: _controller, curve: Interval(0.1 * index, 1.0)),
@@ -75,169 +82,88 @@ class _AchievementsPageState extends State<AchievementsPage>
               parent: _controller,
               curve: Interval(0.1 * index, 1.0, curve: Curves.easeOut)),
         ),
-        child: Container(
-          width: 170,
-          margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 20),
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            gradient: LinearGradient(
-              colors: [
-                Colors.white.withOpacity(0.25),
-                Colors.white.withOpacity(0.05),
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            border: Border.all(color: Colors.white.withOpacity(0.2)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black26,
-                blurRadius: 1,
-                offset: const Offset(0, 4),
-              )
-            ],
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              /// Badge icon
-              Container(
-                height: 120,
-                width: 120,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withOpacity(0.2),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: Image.asset("assets/images/$badgeName.webp"),
-                ),
-              ),
-
-              const SizedBox(height: 10),
-
-              /// Badge name
-              Text(
-                badgeName.replaceAll("_", " ").toUpperCase(),
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: textColor,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-
-              const SizedBox(height: 6),
-
-              /// Count animation
-              TweenAnimationBuilder<double>(
-                tween: Tween(begin: 0, end: count.toDouble()),
-                duration: const Duration(milliseconds: 900),
-                builder: (context, value, child) {
-                  return Text(
-                    value.toInt().toString(),
-                    style: const TextStyle(
-                      color: Colors.green,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  );
-                },
-              ),
-            ],
-          ),
-        ),
+        child: card,
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ColorProvider>(builder: (context, colorProvider, child) {
-      return Scaffold(
-        backgroundColor: colorProvider.color,
-        appBar: AppBar(
-          title: Text(
-            "Achievements",
-            style: TextStyle(
-              color: colorProvider.secondColor,
-              fontWeight: FontWeight.bold,
-              fontSize: 22.01,
-            ),
-          ),
-          leading: IconButton(
-            icon: Icon(Icons.arrow_back, color: colorProvider.secondColor),
-            onPressed: () => Navigator.pop(context),
-          ),
-          backgroundColor: colorProvider.color,
-          elevation: 0,
-        ),
-        body: FutureBuilder<Map<String, int>>(
-          future: fetchBadges(),
-          builder: (context, snapshot) {
-            if (!snapshot.hasData) return const CustomLoader();
+    return FolkScaffold(
+      title: "Achievements",
+      onBack: () => Navigator.pop(context),
+      body: FutureBuilder<Map<String, int>>(
+        future: fetchBadges(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) {
+            // Ghost badge cards while the counts load.
+            return const GhostScope(
+              child: Padding(
+                padding: EdgeInsets.all(FolkSpace.pagePadding),
+                child: Row(
+                  children: [
+                    Expanded(
+                        child: GhostPlaceholder(
+                            height: 220, showBars: false)),
+                    SizedBox(width: FolkSpace.cardGap),
+                    Expanded(
+                        child: GhostPlaceholder(
+                            height: 220, showBars: false)),
+                  ],
+                ),
+              ),
+            );
+          }
 
-            final badges = snapshot.data!;
-            final textColor = colorProvider.secondColor;
+          final badges = snapshot.data!;
 
-            final badgeList = [
-              {"name": "gold_badge", "count": badges["gold_badge"]!},
-              {"name": "silver_badge", "count": badges["silver_badge"]!},
-              {"name": "bronze_badge", "count": badges["bronze_badge"]!},
-              {"name": "1st_badge", "count": badges["weekly_winner"]!},
-            ];
+          final badgeList = [
+            {"name": "gold_badge", "count": badges["gold_badge"]!},
+            {"name": "silver_badge", "count": badges["silver_badge"]!},
+            {"name": "bronze_badge", "count": badges["bronze_badge"]!},
+            {"name": "1st_badge", "count": badges["weekly_winner"]!},
+          ];
 
-            return Column(
+          return SingleChildScrollView(
+            padding: const EdgeInsets.only(top: FolkSpace.lg, bottom: 32),
+            child: Column(
               children: [
-
                 /// 🔥 BADGES LIST (horizontal scroll)
-                SizedBox(
-                  height: MediaQuery.of(context).size.height * 0.32,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    physics: const BouncingScrollPhysics(),
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    itemCount: badgeList.length,
-                    itemBuilder: (context, index) {
-                      return compactBadgeCard(
-                        badgeList[index]["name"] as String,
-                        badgeList[index]["count"] as int,
-                        textColor,
-                        index,
-                      );
-                    },
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (var index = 0; index < badgeList.length; index++)
+                        compactBadgeCard(
+                          badgeList[index]["name"] as String,
+                          badgeList[index]["count"] as int,
+                          index,
+                        ),
+                    ],
                   ),
                 ),
 
-                const SizedBox(height: 50),
+                const SizedBox(height: 40),
 
-                /// 🔥 BUTTON (OUTSIDE SCROLL)
+                /// 🔥 BUTTON
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      minimumSize: const Size(double.infinity, 50),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      backgroundColor: colorProvider.secondColor
-                    ),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: FolkSpace.pagePadding),
+                  child: PrimaryButton(
+                    label: "View Sadhana Rules 📿",
                     onPressed: () {
                       showSadhanaRulesDialog(context);
                     },
-                    child: Text(
-                      "View Sadhana Rules 📿",
-                      style: TextStyle(fontSize: 16, color: colorProvider.color),
-                    ),
                   ),
                 ),
-
               ],
-            );
-          },
-        ),
-      );
-    });
+            ),
+          );
+        },
+      ),
+    );
   }
 }

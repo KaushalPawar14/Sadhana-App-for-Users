@@ -1,18 +1,20 @@
 import 'package:flutter/material.dart';
 
+import '../theme/FolkTheme.dart';
+import '../widgets/FolkDialog.dart';
+
 void showSadhanaRulesDialog(BuildContext context) {
   showDialog(
     context: context,
     builder: (context) {
-      return AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
-        title: const Text(
-          "🪔 Hare Krishna!",
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
-        content: SingleChildScrollView(
+      final colors = context.folk;
+      final text = context.folkText;
+      return FolkDialog.alert(
+        context,
+        title: "🪔 Hare Krishna!",
+        content: DefaultTextStyle.merge(
+          style: text.body.copyWith(fontSize: 14),
+          child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: const [
@@ -71,9 +73,11 @@ void showSadhanaRulesDialog(BuildContext context) {
               ),
             ],
           ),
+          ),
         ),
         actions: [
           TextButton(
+            style: FolkDialog.quietButton(colors, text),
             onPressed: () => Navigator.pop(context),
             child: const Text("OK"),
           ),

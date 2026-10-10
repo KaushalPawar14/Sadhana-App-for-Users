@@ -1,183 +1,256 @@
+import 'package:flutter/foundation.dart' show ValueListenable, visibleForTesting;
 import 'package:flutter/material.dart';
-import 'package:folk_app/pages/GraphPage.dart';
 import 'package:folk_app/pages/Scorecard.dart';
 import 'package:folk_app/scores/MonthlyResults.dart';
 import 'package:folk_app/scores/WeeklyResults.dart';
-import 'package:folk_app/utils/BadgeDialog.dart';
 import 'package:folk_app/utils/Snackbar.dart';
-import 'package:provider/provider.dart';
-import '../utils/ColorProvider.dart';
+import '../theme/FolkTheme.dart';
+import '../theme/FolkTokens.dart';
+import '../utils/InsightsData.dart';
+import '../utils/SadhanaReportSource.dart';
+import '../widgets/EntryAnimation.dart';
+import '../widgets/FloatingPillNavBar.dart';
+import '../widgets/FolkCard.dart';
+import '../widgets/InsightsGraphCarousel.dart';
+import '../widgets/InsightsPeriodSwitch.dart';
+import '../widgets/InsightTile.dart';
+import '../widgets/JourneyMosaic.dart';
 
+// The Insights tab: a Weekly / Monthly switch, a graph card the student swipes
+// through (their own data only), and five tiles — Leaderboard wide, then four
+// squares.
 class CompetitionPage extends StatefulWidget {
   final String role;
-  const CompetitionPage({super.key, required this.role});
+
+  // The student's name: their reports are filed under it.
+  final String username;
+
+  // Tests hand in their own reports and clock; the app never sets these.
+  @visibleForTesting
+  final Future<Reports> Function(String username)? loadReports;
+  @visibleForTesting
+  final DateTime Function()? clock;
+
+  const CompetitionPage({
+    super.key,
+    required this.role,
+    this.username = '',
+    this.loadReports,
+    this.clock,
+  });
 
   @override
   State<CompetitionPage> createState() => _CompetitionPageState();
 }
 
-class _CompetitionPageState extends State<CompetitionPage> with TickerProviderStateMixin {
-  int? selectedIndex;
-  late List<AnimationController> _controllers;
-  late List<Animation<double>> _animations;
+class _CompetitionPageState extends State<CompetitionPage> {
+  InsightPeriod _period = InsightPeriod.weekly;
+  Reports? _reports;
+  bool _failed = false;
+  DateTime? _fetchedAt;
+  ValueListenable<bool>? _tickerMode;
+
+  DateTime _today() => (widget.clock ?? DateTime.now)();
 
   @override
   void initState() {
     super.initState();
+    _load();
+  }
 
-    _controllers = List.generate(6, (index) {
-      return AnimationController(
-        vsync: this,
-        duration: Duration(seconds: 2 + index % 3), // slightly different durations
-      )..repeat(reverse: true);
-    });
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final notifier = TickerMode.getNotifier(context);
+    if (!identical(notifier, _tickerMode)) {
+      _tickerMode?.removeListener(_shown);
+      _tickerMode = notifier..addListener(_shown);
+    }
+  }
 
-    _animations = _controllers.map((controller) {
-      return Tween<double>(begin: 0, end: 8).animate(
-        CurvedAnimation(parent: controller, curve: Curves.easeInOut),
-      );
-    }).toList();
+  // The tab is kept alive underneath the others; when it is shown again the
+  // graphs are read again (quietly, keeping what is on screen) if they are old,
+  // so a report submitted since shows up.
+  void _shown() {
+    if (!(_tickerMode?.value ?? false)) return;
+    final at = _fetchedAt;
+    if (at == null || _today().difference(at) > const Duration(seconds: 30)) {
+      _load();
+    }
   }
 
   @override
   void dispose() {
-    for (var controller in _controllers) {
-      controller.dispose();
-    }
+    _tickerMode?.removeListener(_shown);
     super.dispose();
   }
 
+  // The student's own reports, both residence collections merged by date (the
+  // one existing read).
+  Future<void> _load() async {
+    _fetchedAt = _today();
+    try {
+      final name = widget.username.trim();
+      final reports = await (widget.loadReports ?? fetchMergedDateReports)(name);
+      if (!mounted) return;
+      setState(() {
+        _reports = reports;
+        _failed = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _failed = _reports == null);
+    }
+  }
+
+  void _retry() {
+    setState(() => _failed = false);
+    _load();
+  }
+
+  bool get _hostelForm => isHostelForm(widget.role);
+
+  void _comingSoon() => showSnackbar(
+        context,
+        'Coming soon',
+        Colors.yellow,
+        Icons.watch_later_outlined,
+      );
+
+  // Role gating and navigation, as before: Hostel and Localite students get
+  // "Coming soon" on these tiles.
+  void _open(String title) {
+    if (_hostelForm) {
+      _comingSoon();
+      return;
+    }
+    if (title == 'Leaderboard') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => ScorecardPage()),
+      );
+    } else if (title == 'Weekly Performance') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => WeeklyResultsPage()),
+      );
+    } else if (title == 'Monthly Performance') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => MonthlyResultsPage()),
+      );
+    } else {
+      _comingSoon();
+    }
+  }
+
+  // Every tile is the same widget with the same layout (see `InsightTile`); the
+  // wide one differs only in its width. Each is at least as tall as a square.
+  InsightTile _tile(
+    String title,
+    String subtitle,
+    FolkGradientStyle style,
+    IconData icon,
+    double minHeight,
+  ) =>
+      InsightTile(
+        style: style,
+        title: title,
+        subtitle: subtitle,
+        icon: icon,
+        minHeight: minHeight,
+        onTap: () => _open(title),
+      );
+
   @override
   Widget build(BuildContext context) {
-    final List<Map<String, dynamic>> cards = [
-      {"title": "Leaderboard", "icon": Icons.emoji_events, "color": Colors.deepPurpleAccent.shade100},
-      {"title": "Graphical Analysis", "icon": Icons.show_chart, "color": Colors.deepPurpleAccent.shade700},
-      {"title": "Weekly Performance", "icon": Icons.weekend_outlined, "color": Colors.deepPurpleAccent.shade200},
-      {"title": "Monthly Performance", "icon": Icons.calendar_month_outlined, "color": Colors.deepPurpleAccent.shade200},
-      {"title": "Best Performer", "icon": Icons.star, "color": Colors.deepPurpleAccent.shade700},
-      {"title": "Want to improve?", "icon": Icons.add_task, "color": Colors.deepPurpleAccent.shade100},
-    ];
+    final text = context.folkText;
+    final columnWidth = (MediaQuery.of(context).size.width -
+            2 * FolkSpace.pagePadding -
+            FolkSpace.cardGap) /
+        2;
+    final reports = _reports;
+    final graphs = reports == null ? kInsightGraphs.toList() : applicableGraphs(reports, widget.role);
 
-    return Consumer<ColorProvider>(builder: (context, colorProvider, child) {
-      return Scaffold(
-        backgroundColor: colorProvider.color,
-        body: Padding(
-          padding: const EdgeInsets.only(top: 50, left: 16, right: 16),
-          child: Column(
-            children: [
-              /// Phase 7 — "Competitions upgrade". An upgrade to this screen
-              /// rather than a new feature, so it is noted here instead of
-              /// getting its own placeholder screen. Purely informational:
-              /// nothing below is disabled or changed.
-              
-              Expanded(
-                child: GridView.builder(
-            itemCount: cards.length,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              mainAxisSpacing: 35,
-              crossAxisSpacing: 20,
-              childAspectRatio: 1,
-            ),
-            itemBuilder: (context, index) {
-              final card = cards[index];
-              return GestureDetector(
-                onTap: () {
-                  // Localites (Master Task, 2026-09-03) are gated exactly
-                  // like Hostel residents here.
-                  if ((widget.role == "Stay at Hostel" ||
-                          widget.role == "Stay at Localite") &&
-                      card['title'] != "Graphical Analysis") {
-
-                    showSnackbar(
-                      context,
-                      'Coming soon',
-                      Colors.yellow,
-                      Icons.watch_later_outlined,
-                    );
-                    return; // 🚨 stop further execution
-                  }
-                  if (card['title'] == "Leaderboard") {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => ScorecardPage()),
-                    );
-                  } else if (card['title'] == "Graphical Analysis") {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => Graphpagedashboard(role: widget.role,)),
-                    );
-                  } else if (card['title'] == "Weekly Performance") {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => WeeklyResultsPage()),
-                    );
-                  } else if (card['title'] == "Monthly Performance") {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => MonthlyResultsPage()),
-                    );
-                  } else {
-                    showSnackbar(
-                      context,
-                      'Coming soon',
-                      Colors.yellow,
-                      Icons.watch_later_outlined,
-                    );
-                  }
-                },
-                child: AnimatedBuilder(
-                  animation: _animations[index],
-                  builder: (context, child) {
-                    return Transform.translate(
-                      offset: Offset(0, -_animations[index].value),
-                      child: child,
-                    );
-                  },
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 300),
-                    curve: Curves.easeInOut,
-                    decoration: BoxDecoration(
-                      color: card['color'],
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: colorProvider.secondColor.withOpacity(0.5),
-
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                      border: selectedIndex == index
-                          ? Border.all(color: Colors.yellowAccent, width: 3)
-                          : null,
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(card['icon'], size: 50, color: Colors.white),
-                        const SizedBox(height: 16),
-                        Text(
-                          card['title'],
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            },
-                ),
-              ),
-            ],
-          ),
+    return Scaffold(
+      // The tab host paints the page background (with the top fade).
+      backgroundColor: Colors.transparent,
+      body: ListView(
+        physics: const BouncingScrollPhysics(),
+        padding: EdgeInsets.fromLTRB(
+          FolkSpace.pagePadding,
+          FolkSpace.sm,
+          FolkSpace.pagePadding,
+          // Leaves room for the floating pill navigation.
+          FloatingPillNavBar.reservedHeight(context) + 12,
         ),
-      );
-    });
+        children: [
+          EntryAnimation(
+            index: 0,
+            child: InsightsPeriodSwitch(
+              period: _period,
+              onChanged: (p) => setState(() => _period = p),
+            ),
+          ),
+          const SizedBox(height: FolkSpace.cardGap),
+          EntryAnimation(
+            index: 1,
+            child: _failed
+                ? FolkCard(
+                    padding: const EdgeInsets.all(18),
+                    child: Column(
+                      children: [
+                        Text("Couldn't load your reports just now.",
+                            textAlign: TextAlign.center, style: text.small),
+                        const SizedBox(height: 8),
+                        TextButton(
+                          onPressed: _retry,
+                          child: const Text('Try again'),
+                        ),
+                      ],
+                    ),
+                  )
+                : InsightsGraphCarousel(
+                    graphs: graphs,
+                    period: _period,
+                    reports: reports,
+                    today: _today(),
+                  ),
+          ),
+          const SizedBox(height: FolkSpace.cardGap),
+          // Leaderboard: full width, as tall as the squares below it.
+          EntryAnimation(
+            index: 2,
+            child: _tile(
+              'Leaderboard',
+              'Your group ranking',
+              FolkGradientStyle.saffron,
+              Icons.emoji_events,
+              columnWidth,
+            ),
+          ),
+          const SizedBox(height: FolkSpace.cardGap),
+          EntryAnimation(
+            index: 3,
+            child: JourneyPair(
+              left: _tile('Weekly Performance', "This week's results",
+                  FolkFeatureGradients.weeklyPerformance, Icons.weekend_outlined, columnWidth),
+              right: _tile('Monthly Performance', "This month's results",
+                  FolkFeatureGradients.monthlyPerformance, Icons.calendar_month_outlined, columnWidth),
+            ),
+          ),
+          const SizedBox(height: FolkSpace.cardGap),
+          EntryAnimation(
+            index: 4,
+            child: JourneyPair(
+              left: _tile('Best Performer', 'Coming soon',
+                  FolkGradientStyle.saffron, Icons.star, columnWidth),
+              right: _tile('Want to improve?', 'Coming soon',
+                  FolkFeatureGradients.wantToImprove, Icons.add_task, columnWidth),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

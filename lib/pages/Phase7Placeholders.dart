@@ -1,10 +1,14 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
-import '../utils/ColorProvider.dart';
+import '../theme/FolkColors.dart';
+import '../theme/FolkTheme.dart';
+import '../theme/FolkTokens.dart';
 import '../utils/UnseenFeatureBadge.dart';
+import '../widgets/FolkScaffold.dart';
+import '../widgets/JourneyMosaic.dart';
+import '../widgets/MinHeightBox.dart';
 import 'PodcastModulesScreen.dart';
 import 'RduaFriendsScreen.dart';
 import 'RduaScreen.dart';
@@ -88,236 +92,159 @@ class Phase7Section extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ColorProvider>(
-        builder: (context, colorProvider, child)
-    {
-      return Container(
-        color: colorProvider.color,
-          child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+    final text = context.folkText;
+    // The Journey list already insets everything by the page padding and
+    // paints the page background, so this only lays out its own column.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // The "coming soon" heading only has something to head while a shell
+        // is listed (none is, today); the live tiles below are not "coming".
+        if (kPhase7Items.isNotEmpty) ...[
           Padding(
-            padding: const EdgeInsets.fromLTRB(24, 26, 24, 4),
-            child: Text(
-              "Coming to your journey",
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.bold,
-                color: colorProvider.secondColor,
-              ),
-            ),
+            padding: const EdgeInsets.fromLTRB(4, 14, 4, 4),
+            child: Text("Coming to your journey", style: text.topBarTitle),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
+            padding: const EdgeInsets.fromLTRB(4, 0, 4, 12),
             child: Text(
               "Being prepared — not available yet",
-              style: TextStyle(fontSize: 12, color: colorProvider.secondColor),
+              style: text.small,
             ),
           ),
-          ...kPhase7Items.map((item) => _card(context, item)),
-
-          /// Live features sit apart from the shell above, and are styled to read
-          /// as working rather than "coming soon".
-          _rduaCard(context),
-          _rduaFriendsCard(context),
-          _podcastCard(context),
         ],
-      ),
-      );
-    });
+        ...kPhase7Items.map((item) => _card(context, item)),
+
+        /// Live features sit apart from the shell above, and are styled to read
+        /// as working rather than "coming soon": RDUA and RDUA Friends stacked
+        /// on the left, Podcast Modules the tall tile on the right.
+        JourneyPair(
+          left: JourneyStack(
+            top: _rduaCard(context),
+            bottom: _rduaFriendsCard(context),
+          ),
+          right: _podcastCard(context),
+        ),
+      ],
+    );
   }
 
-  /// RDUA Friends — sibling entry point to RDUA Modules (Part 1 item 5),
-  /// not nested inside `RduaScreen`. Friend requests, groups, and group
-  /// voice rooms.
-  Widget _rduaFriendsCard(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(12, 5, 12, 5),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF2E7D32), Color(0xFF66BB6A)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16),
+  /// One live feature tile: a gradient tile with an icon, title and one
+  /// description. The whole tile is the tap target. [square] tiles keep their
+  /// description to two lines (and reserve both, so a stacked pair is the same
+  /// size); the tall tile shows it in full.
+  Widget _liveCard(
+    BuildContext context, {
+    required FolkGradientStyle style,
+    required Widget Function(Widget iconCircle) leading,
+    required IconData icon,
+    required String title,
+    required String description,
+    required WidgetBuilder pageBuilder,
+    bool tall = false,
+    bool square = false,
+  }) {
+    final text = context.folkText;
+    final iconCircle = Container(
+      width: square ? 40 : 44,
+      height: square ? 40 : 44,
+      decoration: const BoxDecoration(
+        shape: BoxShape.circle,
+        color: FolkColors.onGradientIconTile,
       ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const RduaFriendsScreen()),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                // Master Task 2026-09-10, Part 6 — unseen = a pending
-                // friend request addressed to this student. Single
-                // equality filter (`toUid`), `status` matched in Dart —
-                // same no-composite-index convention `RduaFriendsScreen.
-                // dart`'s own query already follows.
-                UnseenFeatureBadge(
-                  featureKey: 'friendRequests',
-                  timestampField: 'createdAt',
-                  extractTimestamp: (data) => data['status'] == 'pending'
-                      ? data['createdAt'] as Timestamp?
-                      : null,
-                  latestQuery: (uid) => FirebaseFirestore.instance
-                      .collection('friendRequests')
-                      .where('toUid', isEqualTo: uid)
-                      .snapshots(),
-                  child: const Icon(Icons.people_alt_outlined,
-                      color: Colors.white, size: 26),
-                ),
-                const SizedBox(width: 14),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        "RDUA Friends",
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                        ),
-                      ),
-                      SizedBox(height: 3),
-                      Text(
-                        "Add friends, make groups, start a voice room",
-                        style: TextStyle(fontSize: 12, color: Colors.white70),
-                      ),
-                    ],
-                  ),
-                ),
-                const Icon(Icons.chevron_right, color: Colors.white70),
-              ],
-            ),
-          ),
-        ),
+      child: Icon(icon, size: square ? 22 : 24),
+    );
+    return JourneyTile(
+      style: style,
+      title: title,
+      tall: tall,
+      square: square,
+      watermark: icon,
+      leading: leading(iconCircle),
+      line: square
+          ? MinHeightBox(
+              minHeight: ghostHeight(context, 2 * 17.2),
+              child: Text(
+                description,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: text.onGradientCaption,
+              ),
+            )
+          : Text(description, style: text.onGradientCaption),
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: pageBuilder),
       ),
     );
   }
 
+  /// RDUA Friends — sibling entry point to RDUA Modules (Part 1 item 5),
+  /// not nested inside `RduaScreen`. Friend requests, groups, and group
+  /// voice rooms. Green: connection.
+  Widget _rduaFriendsCard(BuildContext context) {
+    return _liveCard(
+      context,
+      style: FolkFeatureGradients.rduaFriends,
+      square: true,
+      // Master Task 2026-09-10, Part 6 — unseen = a pending
+      // friend request addressed to this student. Single
+      // equality filter (`toUid`), `status` matched in Dart —
+      // same no-composite-index convention `RduaFriendsScreen.
+      // dart`'s own query already follows.
+      icon: Icons.people_alt_outlined,
+      leading: (iconCircle) => UnseenFeatureBadge(
+        featureKey: 'friendRequests',
+        timestampField: 'createdAt',
+        extractTimestamp: (data) => data['status'] == 'pending'
+            ? data['createdAt'] as Timestamp?
+            : null,
+        latestQuery: (uid) => FirebaseFirestore.instance
+            .collection('friendRequests')
+            .where('toUid', isEqualTo: uid)
+            .snapshots(),
+        child: iconCircle,
+      ),
+      title: "RDUA Friends",
+      description: "Add friends, make groups, start a voice room",
+      pageBuilder: (_) => const RduaFriendsScreen(),
+    );
+  }
+
   /// RDUA Modules — 50 real topics, 100 chapters. Live, so styled like the
-  /// podcast card rather than the muted "coming soon" shell.
+  /// podcast card rather than the muted "coming soon" shell. Violet: learning.
   ///
   /// Takes no uid — the modules are not gated by level (product-owner
   /// instruction), so there is nothing about the student to look up before
   /// showing the list.
   Widget _rduaCard(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(12, 14, 12, 5),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF4527A0), Color(0xFF7B4FE0)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const RduaScreen()),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                const Icon(Icons.school_outlined,
-                    color: Colors.white, size: 26),
-                const SizedBox(width: 14),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        "RDUA Modules",
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                        ),
-                      ),
-                      SizedBox(height: 3),
-                      Text(
-                        "50 topics, 2 chapters each — open to everyone",
-                        style: TextStyle(fontSize: 12, color: Colors.white70),
-                      ),
-                    ],
-                  ),
-                ),
-                const Icon(Icons.chevron_right, color: Colors.white70),
-              ],
-            ),
-          ),
-        ),
-      ),
+    return _liveCard(
+      context,
+      style: FolkFeatureGradients.rduaModules,
+      square: true,
+      icon: Icons.school_outlined,
+      leading: (iconCircle) => iconCircle,
+      title: "RDUA Modules",
+      description: "50 topics, 2 chapters each — open to everyone",
+      pageBuilder: (_) => const RduaScreen(),
     );
   }
 
   /// FOLK-2/4/8/12/16 audiobooks. Live, so styled like the assistant card
-  /// rather than the muted shell cards.
+  /// rather than the muted shell cards. Violet: learning.
   ///
   /// Takes no uid — the modules are not gated by level, so there is nothing
   /// about the student to look up.
   Widget _podcastCard(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(12, 14, 12, 5),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF00695C), Color(0xFF00897B)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const PodcastModulesScreen()),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                const Icon(Icons.headphones, color: Colors.white, size: 26),
-                const SizedBox(width: 14),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        "Podcast Modules",
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                        ),
-                      ),
-                      SizedBox(height: 3),
-                      Text(
-                        "FOLK-2 to FOLK-16 — listen to all of them, any time",
-                        style: TextStyle(fontSize: 12, color: Colors.white70),
-                      ),
-                    ],
-                  ),
-                ),
-                const Icon(Icons.chevron_right, color: Colors.white70),
-              ],
-            ),
-          ),
-        ),
-      ),
+    return _liveCard(
+      context,
+      style: FolkFeatureGradients.podcastModules,
+      icon: Icons.headphones,
+      leading: (iconCircle) => iconCircle,
+      tall: true,
+      title: "Podcast Modules",
+      description: "FOLK-2 to FOLK-16 — listen to all of them, any time",
+      pageBuilder: (_) => const PodcastModulesScreen(),
     );
   }
 
@@ -415,69 +342,45 @@ class Phase7PlaceholderScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ColorProvider>(
-      builder: (context, colorProvider, child) {
-        return Scaffold(
-          backgroundColor: colorProvider.color,
-          appBar: AppBar(
-            backgroundColor: colorProvider.color,
-            elevation: 0,
-            iconTheme: IconThemeData(color: colorProvider.secondColor),
-            title: Text(
-              item.title,
-              style: TextStyle(
-                color: colorProvider.secondColor,
-                fontWeight: FontWeight.bold,
+    final text = context.folkText;
+    return FolkScaffold(
+      title: item.title,
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(22),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: item.colour.withValues(alpha: .14),
+                ),
+                child: Icon(item.icon, size: 46, color: item.colour),
               ),
-            ),
-          ),
-          body: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(22),
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: item.colour.withOpacity(.10),
-                    ),
-                    child: Icon(item.icon, size: 46, color: item.colour),
-                  ),
-                  const SizedBox(height: 24),
-                  const Text(
-                    "Not available yet",
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    item.description,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 14,
-                      height: 1.5,
-                      color: Colors.grey.shade700,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    "Your guide will let you know when it is ready.",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade600,
-                    ),
-                  ),
-                ],
+              const SizedBox(height: 24),
+              Text(
+                "Not available yet",
+                textAlign: TextAlign.center,
+                style: text.topBarTitle,
               ),
-            ),
+              const SizedBox(height: 10),
+              Text(
+                item.description,
+                textAlign: TextAlign.center,
+                style: text.body.copyWith(height: 1.5),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                "Your guide will let you know when it is ready.",
+                textAlign: TextAlign.center,
+                style: text.small,
+              ),
+            ],
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }
