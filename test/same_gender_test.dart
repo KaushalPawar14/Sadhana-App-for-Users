@@ -284,9 +284,9 @@ void main() {
       expect(genderOfData({'gender': 'female'}) != genderOfData({}), isTrue);
     });
 
-    test('voice-room participants and the Chanting Competition contributors / winners', () {
-      final room = read('lib/pages/VoiceRoomScreen.dart');
-      expect(room, contains('.where((d) => directory.sameByData(d.data()))'));
+    test('the Chanting Competition contributors / winners', () {
+      // (the voice-room screen has no way in from the app, and its file was deleted)
+      expect(File('lib/pages/VoiceRoomScreen.dart').existsSync(), isFalse);
       final cc = read('lib/pages/ChantingCompetition.dart');
       expect(cc, contains("_directory?.sameByName(data['studentName']?.toString())"));
       expect(cc, contains("directory.sameByName(d['studentName']?.toString())"));

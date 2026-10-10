@@ -9,7 +9,6 @@ import 'package:intl/intl.dart';
 import '../theme/FolkTheme.dart';
 import '../theme/FolkTokens.dart';
 import '../widgets/Group2Widgets.dart';
-import '../widgets/FolkScaffold.dart';
 import '../widgets/GhostPlaceholder.dart';
 import '../widgets/PrimaryButton.dart';
 
@@ -59,15 +58,21 @@ import '../widgets/PrimaryButton.dart';
 ///     opens this page no longer sees an arbitrarily old result pop up; a
 ///     live active->ended transition witnessed while this screen is open is
 ///     unaffected (it is, by definition, happening within the window).
-class ChantingCompetitionPage extends StatefulWidget {
-  const ChantingCompetitionPage({super.key});
+///
+/// Now the FIRST SECTION of "My Competitions" (`MyCompetitionsPage.dart`): the
+/// same widget, logic, streams, 6-second winner timer and `summarySeenBy` write
+/// the old Chanting Competition page had, drawn without its own scaffold or
+/// scrolling, so the page can scroll as one.
+class ChantingCompetitionSection extends StatefulWidget {
+  const ChantingCompetitionSection({super.key});
 
   @override
-  State<ChantingCompetitionPage> createState() =>
-      _ChantingCompetitionPageState();
+  State<ChantingCompetitionSection> createState() =>
+      _ChantingCompetitionSectionState();
 }
 
-class _ChantingCompetitionPageState extends State<ChantingCompetitionPage> {
+class _ChantingCompetitionSectionState
+    extends State<ChantingCompetitionSection> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   bool _loadingGuide = true;
@@ -419,44 +424,39 @@ class _ChantingCompetitionPageState extends State<ChantingCompetitionPage> {
 
   @override
   Widget build(BuildContext context) {
-    return FolkScaffold(
-      title: "Chanting Competition",
-      onBack: () => Navigator.pop(context),
-      body: _loadingGuide
-          ? const GhostScope(
-              child: Padding(
-                padding: EdgeInsets.all(FolkSpace.pagePadding),
-                child: Column(
-                  children: [
-                    GhostPlaceholder(
-                        width: double.infinity,
-                        height: 170,
-                        showBars: false),
-                    SizedBox(height: FolkSpace.cardGap),
-                    GhostPlaceholder(
-                        width: double.infinity,
-                        height: 64,
-                        radius: FolkShape.tileRadius,
-                        showBars: false),
-                  ],
-                ),
+    return _loadingGuide
+        ? const GhostScope(
+            child: Padding(
+              padding: EdgeInsets.all(FolkSpace.pagePadding),
+              child: Column(
+                children: [
+                  GhostPlaceholder(
+                      width: double.infinity, height: 170, showBars: false),
+                  SizedBox(height: FolkSpace.cardGap),
+                  GhostPlaceholder(
+                      width: double.infinity,
+                      height: 64,
+                      radius: FolkShape.tileRadius,
+                      showBars: false),
+                ],
               ),
-            )
-          : _showWinner
-              ? _winnerCard()
-              : (_trackedChallenge == null
-                  ? _idleState()
-                  : _activeState(_trackedChallenge!)),
-    );
+            ),
+          )
+        : _showWinner
+            ? _winnerCard()
+            : (_trackedChallenge == null
+                ? _idleState()
+                : _activeState(_trackedChallenge!));
   }
 
   Widget _idleState() {
     final colors = context.folk;
     final text = context.folkText;
     return Center(
-      child: SingleChildScrollView(
+      child: Padding(
         padding: const EdgeInsets.all(32),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.self_improvement, size: 56, color: colors.mutedText),
@@ -491,9 +491,11 @@ class _ChantingCompetitionPageState extends State<ChantingCompetitionPage> {
     final collectiveFraction =
         target <= 0 ? 0.0 : (total / target).clamp(0.0, 1.0);
 
-    return ListView(
+    return Padding(
       padding: const EdgeInsets.fromLTRB(FolkSpace.pagePadding, FolkSpace.lg,
-          FolkSpace.pagePadding, 28),
+          FolkSpace.pagePadding, 0),
+      child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         ChallengeSummaryCard(
           name: name,
@@ -568,6 +570,7 @@ class _ChantingCompetitionPageState extends State<ChantingCompetitionPage> {
           },
         ),
       ],
+    ),
     );
   }
 
@@ -602,7 +605,7 @@ class _ChantingCompetitionPageState extends State<ChantingCompetitionPage> {
         .toList();
 
     return Center(
-      child: SingleChildScrollView(
+      child: Padding(
         padding: const EdgeInsets.all(24),
         child: ChallengeResultCard(
           achieved: achieved,

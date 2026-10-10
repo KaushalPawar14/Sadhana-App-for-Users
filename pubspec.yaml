@@ -34,7 +34,6 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
-  animate_do: ^3.3.4
   sizer: ^3.0.5
   firebase_core: ^3.9.0
   firebase_auth: ^5.3.4
@@ -43,11 +42,8 @@ dependencies:
   # Needed to call the studentChat callable (Phase 7). Same major as the
   # Guide app's existing cloud_functions dependency.
   cloud_functions: ^5.6.2
-  curved_navigation_bar: ^1.0.6
-  googleapis_auth: ^1.6.0
   firebase_messaging: ^15.1.6
   flutter_local_notifications: ^18.0.1
-  http: ^1.2.2
   intl: ^0.20.1
   provider: ^6.1.2
   shared_preferences: ^2.3.4
@@ -92,6 +88,7 @@ dev_dependencies:
 # following page: https://dart.dev/tools/pub/pubspec
 
 # The following section is specific to Flutter packages.
+  firebase_core_platform_interface: any
 flutter:
 
   # The following line ensures that the Material Icons font is
@@ -104,13 +101,11 @@ flutter:
     - assets/images/
     - assets/audio/hare_krishna_mantra.wav
     - assets/audio/round_complete_chime.wav
-    - assets/gifs/Tomato plant.gif
     - assets/emoji/1st_medal.json
     - assets/emoji/2nd_medal.json
     - assets/emoji/3rd_medal.json
     - assets/emoji/party.json
     - assets/emoji/splash_screen.json
-    - assets/emoji/mala.json
   #   - images/a_dot_ham.jpeg
 
   # An image asset can refer to one or more resolution-specific "variants", see

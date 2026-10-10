@@ -186,7 +186,6 @@ void main() {
     final sites = {
       'lib/main.dart': 'snapshot.data == true',
       'lib/pages/CompleteProfile.dart': 'CurvedNavBar(resolvedRole)',
-      'lib/pages/Login.dart': 'CurvedNavBar(role)',
       'lib/services/PostAuthRouter.dart': 'CurvedNavBar(role)',
     };
     for (final e in sites.entries) {

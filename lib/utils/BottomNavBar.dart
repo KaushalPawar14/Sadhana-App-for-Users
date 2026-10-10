@@ -5,7 +5,6 @@ import 'package:folk_app/pages/ABCDEScreen.dart';
 import 'package:folk_app/pages/Calendar.dart';
 import 'package:folk_app/pages/Competition.dart';
 import 'package:folk_app/pages/Profile.dart';
-import 'package:folk_app/pages/Scorecard.dart';
 import 'package:folk_app/services/DailyMessageService.dart';
 import 'package:folk_app/theme/FolkTheme.dart';
 import 'package:folk_app/theme/FolkTokens.dart';

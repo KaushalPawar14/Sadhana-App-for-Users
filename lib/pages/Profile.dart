@@ -2,10 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:folk_app/pages/Achievements.dart';
-import 'package:folk_app/pages/AssignedTasks.dart';
-import 'package:folk_app/pages/BookPageList.dart';
-import 'package:folk_app/pages/ChantingCompetition.dart';
+import 'package:folk_app/pages/MyCompetitions.dart';
 import 'package:folk_app/pages/NotificationPreferences.dart';
 import 'package:folk_app/pages/Welcome.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -16,7 +13,6 @@ import '../main.dart' show studentNavigatorKey;
 import '../theme/FolkColors.dart';
 import '../theme/FolkTheme.dart';
 import '../theme/FolkTokens.dart';
-import '../widgets/ProfileMenuIconTile.dart';
 import '../theme/FolkTypography.dart';
 import '../theme/ThemeModeController.dart';
 import '../widgets/EntryAnimation.dart';
@@ -25,7 +21,7 @@ import '../widgets/FolkSegmented.dart';
 import '../widgets/GhostPlaceholder.dart';
 import '../widgets/GradientCard.dart';
 import '../widgets/LogoutButton.dart';
-import '../widgets/PressScale.dart';
+import '../widgets/ProfileMenuRow.dart';
 import '../widgets/ProfileStatTiles.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -51,6 +47,9 @@ class _ProfilePageState extends State<ProfilePage>
   /// The most rounds / reading minutes the student ever reported in one day, from
   /// the user document (kept by the `updateBestStatsOn*` triggers). 0 until set.
   int bestChantRounds = 0;
+
+  /// The guide the student is assigned to (`users.guideId`); empty when none.
+  String guideId = '';
   int bestReadingMinutes = 0;
 
   late String uid;
@@ -149,6 +148,7 @@ class _ProfilePageState extends State<ProfilePage>
             commitmentRounds = rawCommitment is num && rawCommitment > 0
                 ? rawCommitment.toInt()
                 : null;
+            guideId = (data['guideId'] ?? '').toString();
             final rawBestChant = data['bestChantRounds'];
             bestChantRounds = rawBestChant is num ? rawBestChant.toInt() : 0;
             final rawBestReading = data['bestReadingMinutes'];
@@ -306,9 +306,9 @@ class _ProfilePageState extends State<ProfilePage>
   }
 
   /// While the profile document loads: the name card, the three stat tiles, the
-  /// six-row menu card,
+  /// five-row menu card,
   /// the Appearance row and the Log Out button as ghosts, with the same page
-  /// padding, gaps and sizes as the real page (88 / 6 rows of 64 + 12 / 72 / 56).
+  /// padding, gaps and sizes as the real page (88 / 5 rows of 64 + 12 / 72 / 56).
   /// The stream that ends this is unchanged.
   Widget _ghostBody() {
     return SingleChildScrollView(
@@ -328,7 +328,7 @@ class _ProfilePageState extends State<ProfilePage>
             ProfileStatTilesGhost(),
             SizedBox(height: FolkSpace.cardGap),
             GhostPlaceholder(
-                width: double.infinity, height: 6 * 64 + 12, showBars: false),
+                width: double.infinity, height: 5 * 64 + 12, showBars: false),
             SizedBox(height: FolkSpace.cardGap),
             GhostPlaceholder(
                 width: double.infinity, height: 72, showBars: false),
@@ -437,40 +437,29 @@ class _ProfilePageState extends State<ProfilePage>
             EntryAnimation(
               index: 2,
               child: _menuCard([
+                // Books lives on Journey; the chanting competition and the badges
+                // are one page now.
                 _menuRow(
-                  'Book read',
-                  'Share your books reading history',
-                  CupertinoIcons.book,
-                  () {
-                    Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (context) => BooksSelectionScreen()));
-                  },
-                ),
-                _menuRow(
-                  'My Achievements',
-                  "Your All Badges and Tags",
-                  CupertinoIcons.mail,
+                  'My Competitions',
+                  "Chanting competition and your badges",
+                  Icons.emoji_events_outlined,
                   () {
                     Navigator.push(
                         context,
                         MaterialPageRoute(
                             builder: (context) =>
-                                AchievementsPage(username: name ?? "")));
-                  }, // can leave empty
-                ),
-                _menuRow(
-                  'Chanting Competition',
-                  "See the group's live rounds target",
-                  CupertinoIcons.flame,
-                  () {
-                    Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (context) =>
-                                const ChantingCompetitionPage()));
+                                MyCompetitionsPage(username: name ?? "")));
                   },
+                ),
+
+                /// MY GUIDE — display only: the guide the student is assigned to
+                /// (`users.guideId`, the adminUsers document id, which is the
+                /// guide's name), or "Not assigned yet".
+                _menuRow(
+                  'My Guide',
+                  guideRowSubtitle(guideId),
+                  CupertinoIcons.person_2,
+                  null,
                 ),
 
                 /// NOTIFICATIONS — what this student wants to be told
@@ -588,39 +577,9 @@ class _ProfilePageState extends State<ProfilePage>
   /// One tappable row: an icon tile, a title, a one-line subtitle, a chevron.
   /// Press feedback is the shared 0.97 scale.
   Widget _menuRow(
-      String title, String subtitle, IconData iconData, VoidCallback onTap) {
-    final colors = context.folk;
-    final text = context.folkText;
-    return PressScale(
-      child: Material(
-        type: MaterialType.transparency,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(FolkShape.tileRadius),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 8),
-            child: Row(
-              children: [
-                ProfileMenuIconTile(iconData),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(title, style: text.bodyStrong),
-                      const SizedBox(height: 1),
-                      Text(subtitle, style: text.caption),
-                    ],
-                  ),
-                ),
-                Icon(Icons.chevron_right, size: 18, color: colors.mutedText),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+          String title, String subtitle, IconData iconData, VoidCallback? onTap) =>
+      ProfileMenuRow(
+          title: title, subtitle: subtitle, icon: iconData, onTap: onTap);
 
   /// Log Out: a filled red button (the same in light and dark), white label and
   /// icon, opening the same confirm dialog.

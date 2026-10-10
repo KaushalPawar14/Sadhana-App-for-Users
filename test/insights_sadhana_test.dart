@@ -562,19 +562,14 @@ void main() {
       }
     }
 
-    test('Graphical Analysis is unreachable from the Student app: nothing imports GraphPage.dart, and Competition has no Graphical Analysis tile', () {
-      final graphPage = File('lib/pages/GraphPage.dart');
-      expect(graphPage.existsSync(), isTrue, reason: 'file left in place, unreferenced');
-      final importers = <String>[];
+    test('Graphical Analysis is gone from the Student app: its files are deleted and Competition has no such tile', () {
+      expect(File('lib/pages/GraphPage.dart').existsSync(), isFalse);
+      expect(File('lib/scores/AllGraphs.dart').existsSync(), isFalse);
       for (final f in Directory('lib').listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.dart'))) {
         final src = f.readAsStringSync();
-        if (RegExp(r"import\s+'[^']*GraphPage\.dart'").hasMatch(src)) importers.add(f.path);
-        if (!f.path.endsWith('GraphPage.dart') && !f.path.endsWith('AllGraphs.dart')) {
-          expect(src.contains('Graphpagedashboard'), isFalse, reason: f.path);
-          expect(RegExp(r'\bAllGraph\(').hasMatch(src), isFalse, reason: f.path);
-        }
+        expect(src.contains('Graphpagedashboard'), isFalse, reason: f.path);
+        expect(RegExp(r'AllGraph\(').hasMatch(src), isFalse, reason: f.path);
       }
-      expect(importers, isEmpty);
       expect(File('lib/pages/Competition.dart').readAsStringSync().contains('Graphical Analysis'), isFalse);
     });
   });

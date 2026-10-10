@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../main.dart';
 import '../pages/BookPageList.dart';
 import '../pages/Calendar.dart';
-import '../pages/ChantingCompetition.dart';
+import '../pages/MyCompetitions.dart';
 import '../pages/RduaFriendsScreen.dart';
 
 /// Notification deep-linking — Master Task, 2026-09-10, Part 3.
@@ -136,7 +136,7 @@ Future<void> _dispatch(Map<String, dynamic> data) async {
 
       case 'student_chanting':
         navState.push(
-          MaterialPageRoute(builder: (_) => const ChantingCompetitionPage()),
+          MaterialPageRoute(builder: (_) => const MyCompetitionsPage()),
         );
         break;
 

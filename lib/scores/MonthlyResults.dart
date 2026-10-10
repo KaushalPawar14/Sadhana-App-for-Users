@@ -10,7 +10,6 @@ import '../widgets/FolkCard.dart';
 import '../widgets/FolkScaffold.dart';
 import '../widgets/GradientCard.dart';
 import '../widgets/ScoreWidgets.dart';
-import 'TopWeekResults.dart';
 
 class MonthlyResultsPage extends StatefulWidget {
   const MonthlyResultsPage({Key? key}) : super(key: key);

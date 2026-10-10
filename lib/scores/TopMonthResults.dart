@@ -9,7 +9,6 @@ import '../theme/FolkTheme.dart';
 import '../theme/FolkTokens.dart';
 import '../widgets/FolkScaffold.dart';
 import '../widgets/ScoreWidgets.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class MonthlyLeaderboardPage extends StatefulWidget {
 

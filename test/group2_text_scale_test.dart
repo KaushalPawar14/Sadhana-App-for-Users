@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:folk_app/scores/AllGraphs.dart';
 import 'package:folk_app/theme/FolkTheme.dart';
 import 'package:folk_app/theme/FolkTokens.dart';
 import 'package:folk_app/widgets/FolkCard.dart';
@@ -281,35 +280,6 @@ void main() {
           await tester.pump();
           expect(tester.takeException(), isNull, reason: s);
           inside(tester, find.byType(DailyHistoryCard), s);
-        });
-      });
-
-      group('Graphs — $s', () {
-        testWidgets('line, bar and pie charts with their footers and legends: no overflow', (tester) async {
-          phone(tester, scale);
-          const rounds = [16, 16, 12, 20, 16, 8, 16];
-          await tester.pumpWidget(page(
-            Column(children: [
-              FolkCard(
-                child: Column(children: [
-                  const SizedBox(height: 240, child: MyLineChart(chantingRounds: rounds)),
-                  const SizedBox(height: 16),
-                  Text('Total: ${rounds.fold(0, (a, b) => a + b)} rounds'),
-                ]),
-              ),
-              const SizedBox(height: 12),
-              const FolkCard(child: TempleEntryChart(data: [330, 360, 400, 300, 450, 380])),
-              const SizedBox(height: 12),
-              const FolkCard(child: FinishTimingChart(data: [700, 800, 1000, 900])),
-              const SizedBox(height: 12),
-              const FolkCard(child: MyPieChart(data: {'Fully': 20, 'Partial': 6, 'Missed': 4}, title: 'Class Hearing 🎧')),
-            ]),
-            dark: dark,
-            reduce: true,
-          ));
-          await tester.pump();
-          expect(tester.takeException(), isNull, reason: s);
-          expect(find.byType(LegendItem), findsNWidgets(9));
         });
       });
     }

@@ -1,5 +1,4 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../models/HostelSadhana.dart';
 import '../models/Scorecard.dart';
 
 class ScorecardService {

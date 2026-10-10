@@ -7,6 +7,7 @@ import 'package:folk_app/theme/FolkColors.dart';
 import 'package:folk_app/theme/FolkTheme.dart';
 import 'package:folk_app/theme/FolkTokens.dart';
 import 'package:folk_app/widgets/ProfileMenuIconTile.dart';
+import 'package:folk_app/widgets/ProfileMenuRow.dart';
 
 import 'text_scale_test.dart' show scales, loadAppFonts;
 
@@ -24,59 +25,28 @@ void phone(WidgetTester tester, double scale) {
 }
 
 const rows = [
-  ('Book read', 'Share your books reading history', CupertinoIcons.book),
-  ('My Achievements', 'Your All Badges and Tags', CupertinoIcons.mail),
-  ('Chanting Competition', "See the group's live rounds target", CupertinoIcons.flame),
-  ('Notifications', 'Choose what you are notified about', CupertinoIcons.bell),
-  ('Date of Birth', 'Tap to add your date of birth', CupertinoIcons.gift),
-  ('Chanting Commitment', 'Tap to set your daily rounds commitment', CupertinoIcons.flame_fill),
+  ('My Competitions', 'Chanting competition and your badges', Icons.emoji_events_outlined, true),
+  ('My Guide', 'SBSD', CupertinoIcons.person_2, false),
+  ('Notifications', 'Choose what you are notified about', CupertinoIcons.bell, true),
+  ('Date of Birth', 'Tap to add your date of birth', CupertinoIcons.gift, true),
+  ('Chanting Commitment', 'Tap to set your daily rounds commitment', CupertinoIcons.flame_fill, true),
 ];
 
+// The real row the Profile uses (My Guide has no tap: display only).
 Widget menu(bool dark) => MaterialApp(
       theme: dark ? FolkTheme.dark : FolkTheme.light,
       home: Scaffold(
-        body: Builder(
-          builder: (context) => SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: Column(
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Column(
             children: [
               for (final r in rows)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 8),
-                  child: Row(
-                    children: [
-                      ProfileMenuIconTile(r.$3),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(r.$1, style: context.folkTextForTest.bodyStrong),
-                            Text(r.$2, style: context.folkTextForTest.caption),
-                          ],
-                        ),
-                      ),
-                      const Icon(Icons.chevron_right, size: 18),
-                    ],
-                  ),
-                ),
+                ProfileMenuRow(title: r.$1, subtitle: r.$2, icon: r.$3, onTap: r.$4 ? () {} : null),
             ],
-          ),
           ),
         ),
       ),
     );
-
-extension on BuildContext {
-  _T get folkTextForTest => _T(this);
-}
-
-class _T {
-  _T(this.c);
-  final BuildContext c;
-  TextStyle get bodyStrong => Theme.of(c).textTheme.bodyLarge!.copyWith(fontWeight: FontWeight.w700);
-  TextStyle get caption => Theme.of(c).textTheme.bodySmall!;
-}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -89,11 +59,16 @@ void main() {
     expect(FolkGradients.profileMenuIcon, FolkGradients.saffron);
   });
 
-  test('Profile uses the tile for all six rows and hardcodes nothing', () {
+  test('Profile uses the tile for all five rows and hardcodes nothing', () {
     final src = File('lib/pages/Profile.dart').readAsStringSync();
-    expect(RegExp(r'ProfileMenuIconTile\(').allMatches(src).length, 1, reason: 'one shared _menuRow');
-    for (final label in ['Book read', 'My Achievements', 'Chanting Competition', 'Notifications', 'Date of Birth', 'Chanting Commitment']) {
+    final row = File('lib/widgets/ProfileMenuRow.dart').readAsStringSync();
+    expect(RegExp(r'ProfileMenuIconTile\(').allMatches(row).length, 1, reason: 'one shared row widget');
+    expect(src.contains('ProfileMenuIconTile('), isFalse);
+    for (final label in ['My Competitions', 'My Guide', 'Notifications', 'Date of Birth', 'Chanting Commitment']) {
       expect(src, contains("'$label'"));
+    }
+    for (final gone in ['Book read', 'My Achievements', "'Chanting Competition'"]) {
+      expect(src.contains(gone), isFalse, reason: '$gone was removed');
     }
     final tile = File('lib/widgets/ProfileMenuIconTile.dart').readAsStringSync();
     expect(tile.contains('0xFF'), isFalse, reason: 'colours come from tokens');
@@ -101,12 +76,12 @@ void main() {
 
   for (final dark in [false, true]) {
     for (final scale in scales) {
-      testWidgets('${dark ? 'dark' : 'light'}, text scale $scale, 360 dp: six rows, dark tiles, golden icons, no overflow', (tester) async {
+      testWidgets('${dark ? 'dark' : 'light'}, text scale $scale, 360 dp: five rows, dark tiles, golden icons, no overflow', (tester) async {
         phone(tester, scale);
         await tester.pumpWidget(menu(dark));
         await tester.pump();
         expect(tester.takeException(), isNull, reason: 'dark=$dark scale=$scale');
-        expect(find.byType(ProfileMenuIconTile), findsNWidgets(6));
+        expect(find.byType(ProfileMenuIconTile), findsNWidgets(5));
         for (final e in tester.widgetList<ProfileMenuIconTile>(find.byType(ProfileMenuIconTile))) {
           final f = find.byWidget(e);
           final box = tester.widget<Container>(find.descendant(of: f, matching: find.byType(Container)).first);

@@ -5,7 +5,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:folk_app/theme/FolkColors.dart';
 import 'package:folk_app/theme/FolkTheme.dart';
 import 'package:folk_app/utils/BottomNavBar.dart' show hostHeader, hostNavItems, kHostTabTitles;
-import 'package:folk_app/utils/MalaLoading.dart';
 import 'package:folk_app/widgets/FloatingPillNavBar.dart';
 import 'package:folk_app/widgets/NavHostGhost.dart';
 import 'package:folk_app/widgets/StartupWaiting.dart';
@@ -39,7 +38,7 @@ Finder anySpinner() => find.byWidgetPredicate((w) =>
     w is CircularProgressIndicator ||
     w is LinearProgressIndicator ||
     w is RefreshProgressIndicator ||
-    w is CustomLoader);
+    w.runtimeType.toString() == 'CustomLoader');
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -116,6 +115,7 @@ void main() {
     final src = File('lib/main.dart').readAsStringSync();
     expect(src.contains('CustomLoader'), isFalse);
     expect(src.contains('MalaLoading'), isFalse);
+    expect(File('lib/utils/MalaLoading.dart').existsSync(), isFalse, reason: 'the old loader is deleted');
     expect(src.contains('CircularProgressIndicator'), isFalse);
     expect(src, contains('return StartupWaiting(signedIn: currentUser != null);'));
 

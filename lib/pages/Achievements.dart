@@ -1,35 +1,59 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/material.dart';
 import '../theme/FolkTokens.dart';
 import '../utils/CompetitionRules.dart';
-import '../widgets/FolkScaffold.dart';
 import '../widgets/Group2Widgets.dart';
 import '../widgets/GhostPlaceholder.dart';
 import '../widgets/PrimaryButton.dart';
 
-class AchievementsPage extends StatefulWidget {
+// The badges and the Sadhana rules button: the second part of "My Competitions".
+// The same badge cards in the same horizontal scroll, the same one read of the
+// student's own counts, the same ghost while it loads and the same rules dialog.
+class AchievementsSection extends StatefulWidget {
+  // The student's name (their `users` document is found by it). Empty: the
+  // student's own document, by uid.
   final String username;
-  const AchievementsPage({super.key, required this.username});
+
+  // Tests hand in their own counts; the app never sets it.
+  @visibleForTesting
+  final Future<Map<String, int>> Function()? badgesLoader;
+
+  const AchievementsSection(
+      {super.key, required this.username, this.badgesLoader});
 
   @override
-  State<AchievementsPage> createState() => _AchievementsPageState();
+  State<AchievementsSection> createState() => _AchievementsSectionState();
 }
 
-class _AchievementsPageState extends State<AchievementsPage>
+class _AchievementsSectionState extends State<AchievementsSection>
     with SingleTickerProviderStateMixin {
-  final firestore = FirebaseFirestore.instance;
+  // Looked up only when the counts are read, so a test's own counts never need Firebase.
+  FirebaseFirestore get firestore => FirebaseFirestore.instance;
   late AnimationController _controller;
+  late final Future<Map<String, int>> _badges =
+      (widget.badgesLoader ?? fetchBadges)();
 
   /// 🔥 FETCH BADGES FROM USERS COLLECTION USING 'name' FIELD
   Future<Map<String, int>> fetchBadges() async {
-    final query = await firestore
-        .collection("users")
-        .where("name", isEqualTo: widget.username)
-        .limit(1)
-        .get();
+    Map<String, dynamic>? data;
+    if (widget.username.isNotEmpty) {
+      final query = await firestore
+          .collection("users")
+          .where("name", isEqualTo: widget.username)
+          .limit(1)
+          .get();
+      data = query.docs.isEmpty ? null : query.docs.first.data();
+    } else {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null) {
+        data = (await firestore.collection("users").doc(uid).get()).data();
+      }
+    }
 
-    if (query.docs.isEmpty) {
-      // If no user found, return zeros
+    // If no user found, zeros
+    if (data == null) {
       return {
         "gold_badge": 0,
         "silver_badge": 0,
@@ -37,8 +61,6 @@ class _AchievementsPageState extends State<AchievementsPage>
         "weekly_winner": 0,
       };
     }
-
-    final data = query.docs.first.data();
 
     return {
       "gold_badge": data["monthly-gold"] ?? 0,
@@ -55,7 +77,6 @@ class _AchievementsPageState extends State<AchievementsPage>
       vsync: this,
       duration: const Duration(milliseconds: 700),
     )..forward();
-
   }
 
   @override
@@ -89,81 +110,72 @@ class _AchievementsPageState extends State<AchievementsPage>
 
   @override
   Widget build(BuildContext context) {
-    return FolkScaffold(
-      title: "Achievements",
-      onBack: () => Navigator.pop(context),
-      body: FutureBuilder<Map<String, int>>(
-        future: fetchBadges(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            // Ghost badge cards while the counts load.
-            return const GhostScope(
-              child: Padding(
-                padding: EdgeInsets.all(FolkSpace.pagePadding),
-                child: Row(
-                  children: [
-                    Expanded(
-                        child: GhostPlaceholder(
-                            height: 220, showBars: false)),
-                    SizedBox(width: FolkSpace.cardGap),
-                    Expanded(
-                        child: GhostPlaceholder(
-                            height: 220, showBars: false)),
-                  ],
-                ),
+    return FutureBuilder<Map<String, int>>(
+      future: _badges,
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          // Ghost badge cards while the counts load.
+          return const GhostScope(
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: FolkSpace.pagePadding),
+              child: Row(
+                children: [
+                  Expanded(
+                      child: GhostPlaceholder(height: 220, showBars: false)),
+                  SizedBox(width: FolkSpace.cardGap),
+                  Expanded(
+                      child: GhostPlaceholder(height: 220, showBars: false)),
+                ],
               ),
-            );
-          }
-
-          final badges = snapshot.data!;
-
-          final badgeList = [
-            {"name": "gold_badge", "count": badges["gold_badge"]!},
-            {"name": "silver_badge", "count": badges["silver_badge"]!},
-            {"name": "bronze_badge", "count": badges["bronze_badge"]!},
-            {"name": "1st_badge", "count": badges["weekly_winner"]!},
-          ];
-
-          return SingleChildScrollView(
-            padding: const EdgeInsets.only(top: FolkSpace.lg, bottom: 32),
-            child: Column(
-              children: [
-                /// 🔥 BADGES LIST (horizontal scroll)
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      for (var index = 0; index < badgeList.length; index++)
-                        compactBadgeCard(
-                          badgeList[index]["name"] as String,
-                          badgeList[index]["count"] as int,
-                          index,
-                        ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 40),
-
-                /// 🔥 BUTTON
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: FolkSpace.pagePadding),
-                  child: PrimaryButton(
-                    label: "View Sadhana Rules 📿",
-                    onPressed: () {
-                      showSadhanaRulesDialog(context);
-                    },
-                  ),
-                ),
-              ],
             ),
           );
-        },
-      ),
+        }
+
+        final badges = snapshot.data!;
+
+        final badgeList = [
+          {"name": "gold_badge", "count": badges["gold_badge"]!},
+          {"name": "silver_badge", "count": badges["silver_badge"]!},
+          {"name": "bronze_badge", "count": badges["bronze_badge"]!},
+          {"name": "1st_badge", "count": badges["weekly_winner"]!},
+        ];
+
+        return Column(
+          children: [
+            /// 🔥 BADGES LIST (horizontal scroll)
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (var index = 0; index < badgeList.length; index++)
+                    compactBadgeCard(
+                      badgeList[index]["name"] as String,
+                      badgeList[index]["count"] as int,
+                      index,
+                    ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 40),
+
+            /// 🔥 BUTTON
+            Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: FolkSpace.pagePadding),
+              child: PrimaryButton(
+                label: "View Sadhana Rules 📿",
+                onPressed: () {
+                  showSadhanaRulesDialog(context);
+                },
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
