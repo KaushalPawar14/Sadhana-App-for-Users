@@ -11,7 +11,7 @@ import 'package:folk_app/utils/BookDocParser.dart';
 import 'package:folk_app/utils/BookLoader.dart';
 import 'package:folk_app/widgets/ReaderChrome.dart';
 
-import 'book_reader_widget_test.dart' show phone, chapter, host;
+import 'book_reader_widget_test.dart' show phone, chapter, host, expectChapter;
 import 'text_scale_test.dart' show scales, loadAppFonts;
 
 // The reader's chapter arrows, the bottom progress bar and the Finish Book area.
@@ -65,7 +65,7 @@ void main() {
   testWidgets('chapter arrows: 48 dp targets, faded at the ends, change the chapter and scroll to the top', (tester) async {
     phone(tester, 1.0);
     await open(tester, readerOf(bookOf([40, 40, 40])));
-    expect(find.text('Chapter 1 of 3'), findsOneWidget);
+    expectChapter(tester, 1, 3);
     expect(arrowOpacity(tester, 'Previous chapter'), lessThan(1), reason: 'first chapter: left arrow faded');
     expect(arrowOpacity(tester, 'Next chapter'), 1);
     for (final tip in ['Previous chapter', 'Next chapter']) {
@@ -75,24 +75,24 @@ void main() {
     }
     await tester.tap(find.byTooltip('Previous chapter'));
     await tester.pump();
-    expect(find.text('Chapter 1 of 3'), findsOneWidget, reason: 'the faded arrow does nothing');
+    expectChapter(tester, 1, 3);
 
     await scrollTo(tester, .6);
     expect(scrollOf(tester).pixels, greaterThan(0));
     await tester.tap(find.byTooltip('Next chapter'));
     await tester.pumpAndSettle();
-    expect(find.text('Chapter 2 of 3'), findsOneWidget);
+    expectChapter(tester, 2, 3);
     expect(scrollOf(tester).pixels, 0, reason: 'a chapter change starts at the top');
     expect(progressOf(tester), 0);
     expect(arrowOpacity(tester, 'Previous chapter'), 1);
 
     await tester.tap(find.byTooltip('Next chapter'));
     await tester.pumpAndSettle();
-    expect(find.text('Chapter 3 of 3'), findsOneWidget);
+    expectChapter(tester, 3, 3);
     expect(arrowOpacity(tester, 'Next chapter'), lessThan(1), reason: 'last chapter: right arrow faded');
     await tester.tap(find.byTooltip('Previous chapter'));
     await tester.pumpAndSettle();
-    expect(find.text('Chapter 2 of 3'), findsOneWidget);
+    expectChapter(tester, 2, 3);
     expect(tester.takeException(), isNull);
   });
 

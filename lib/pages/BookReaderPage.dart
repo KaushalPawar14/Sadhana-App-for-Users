@@ -260,6 +260,16 @@ class _BookReaderPageState extends State<BookReaderPage> {
             _media = update.book.media;
             _complete = update.complete;
           });
+          final pending = _pendingJump;
+          if (pending != null) {
+            if (pending <= chapters.length) {
+              _pendingJump = null;
+              _goToChapter(pending - 1);
+            } else if (update.complete) {
+              setState(() => _pendingJump = null);
+              _tellChapterRange();
+            }
+          }
           WidgetsBinding.instance.addPostFrameCallback((_) => _syncProgress());
           continue;
         }
@@ -907,6 +917,35 @@ class _BookReaderPageState extends State<BookReaderPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _syncProgress());
   }
 
+  /// A chapter the reader typed that is not read yet (the book is still being read in the
+  /// background): the strip shows its loading spinner, then the page jumps.
+  int? _pendingJump;
+
+  /// "Chapter [n]": Done / Enter in the chapter box. 1..total only; otherwise a short
+  /// message and the reader stays where they are. While the rest of the book is still
+  /// being read, a number beyond what is ready waits (the loading state), then jumps.
+  void _jumpToTypedChapter(String raw) {
+    final n = int.tryParse(raw.trim());
+    final ready = _chapters.length;
+    if (n != null && n >= 1 && n <= ready) {
+      _pendingJump = null;
+      if (n - 1 != _currentChapter) _goToChapter(n - 1);
+      return;
+    }
+    if (n != null && n > ready && !_complete) {
+      setState(() => _pendingJump = n);
+      return;
+    }
+    _tellChapterRange();
+  }
+
+  void _tellChapterRange() {
+    final total = _chapters.length;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text("Enter a chapter between 1 and $total")));
+  }
+
   bool get _onLastChapter =>
       _chapters.isNotEmpty && _currentChapter >= _chapters.length - 1 && _complete;
 
@@ -1279,8 +1318,11 @@ class _BookReaderPageState extends State<BookReaderPage> {
                   ? () => _goToChapter(_currentChapter - 1)
                   : null,
               onNext: atEnd ? null : () => _goToChapter(_currentChapter + 1),
-              nextLoading: waitingForNext,
+              nextLoading: waitingForNext || _pendingJump != null,
               nextTooltip: _nextTooltip(),
+              chapterNumber: _currentChapter + 1,
+              chapterTotal: _complete ? _chapters.length : null,
+              onChapterSubmitted: _jumpToTypedChapter,
             ),
 
             Expanded(

@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../theme/FolkColors.dart';
 import '../theme/FolkTheme.dart';
@@ -80,6 +81,9 @@ class ReaderChapterStrip extends StatelessWidget {
     this.nextLoading = false,
     this.previousTooltip = 'Previous chapter',
     this.nextTooltip = 'Next chapter',
+    this.chapterNumber,
+    this.chapterTotal,
+    this.onChapterSubmitted,
   });
 
   final Color background;
@@ -95,6 +99,13 @@ class ReaderChapterStrip extends StatelessWidget {
   final bool nextLoading;
   final String previousTooltip;
   final String nextTooltip;
+
+  /// When [onChapterSubmitted] is given the chapter number is a small typeable box:
+  /// "Chapter [6] of 38" ([chapterTotal] null = the total is not known yet: "Chapter
+  /// [6]"). It receives what was typed when the keyboard's Done / Enter is pressed.
+  final int? chapterNumber;
+  final int? chapterTotal;
+  final ValueChanged<String>? onChapterSubmitted;
 
   static const double arrowSize = 48;
 
@@ -148,18 +159,28 @@ class ReaderChapterStrip extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Flexible(
-                    child: Text(
-                      chapterLabel,
-                      textAlign: TextAlign.center,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: text.caption.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: textColor,
+                  if (onChapterSubmitted != null && chapterNumber != null)
+                    Flexible(
+                      child: _ChapterJump(
+                        number: chapterNumber!,
+                        total: chapterTotal,
+                        textColor: textColor,
+                        onSubmitted: onChapterSubmitted!,
+                      ),
+                    )
+                  else
+                    Flexible(
+                      child: Text(
+                        chapterLabel,
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: text.caption.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: textColor,
+                        ),
                       ),
                     ),
-                  ),
                   if (bookmarkLabel != null) ...[
                     const SizedBox(width: 12),
                     Flexible(
@@ -276,6 +297,130 @@ class ReaderProgressBar extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+// "Chapter [6] of 38": the number is a small box that clearly looks typeable (a thin
+// border, a numeric keyboard). Done / Enter hands what was typed to the page, which
+// validates it and jumps; the box always shows the chapter the reader is on (after an
+// arrow tap or a jump), unless the reader is typing in it right now.
+class _ChapterJump extends StatefulWidget {
+  const _ChapterJump({
+    required this.number,
+    required this.total,
+    required this.textColor,
+    required this.onSubmitted,
+  });
+
+  final int number;
+  final int? total;
+  final Color textColor;
+  final ValueChanged<String> onSubmitted;
+
+  @override
+  State<_ChapterJump> createState() => _ChapterJumpState();
+}
+
+class _ChapterJumpState extends State<_ChapterJump> {
+  late final TextEditingController _controller =
+      TextEditingController(text: '${widget.number}');
+  final FocusNode _focus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _focus.addListener(() {
+      // Left without pressing Done: show the real chapter again.
+      if (!_focus.hasFocus) _showCurrent();
+    });
+  }
+
+  @override
+  void didUpdateWidget(_ChapterJump old) {
+    super.didUpdateWidget(old);
+    if (old.number != widget.number && !_focus.hasFocus) _showCurrent();
+  }
+
+  void _showCurrent() => _controller.text = '${widget.number}';
+
+  void _submit(String value) {
+    _focus.unfocus();
+    widget.onSubmitted(value);
+    // An invalid entry leaves the number unchanged; a valid one rebuilds with the new
+    // number. Either way the box shows the chapter on screen.
+    _showCurrent();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final text = context.folkText;
+    final style = text.caption.copyWith(fontWeight: FontWeight.w700, color: widget.textColor);
+    final digits = math.max(2, '${widget.total ?? widget.number}'.length);
+    final scale = MediaQuery.textScalerOf(context).scale(1);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(
+          child: Text('Chapter', maxLines: 1, overflow: TextOverflow.ellipsis, style: style),
+        ),
+        const SizedBox(width: 8),
+        Semantics(
+          label: 'Chapter number, type a number to jump',
+          textField: true,
+          child: SizedBox(
+            width: (digits * 9.0 + 22) * scale,
+            child: TextField(
+              controller: _controller,
+              focusNode: _focus,
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.done,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(5),
+              ],
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              style: style,
+              cursorColor: widget.textColor,
+              onTap: () => _controller.selection =
+                  TextSelection(baseOffset: 0, extentOffset: _controller.text.length),
+              onSubmitted: _submit,
+              decoration: InputDecoration(
+                isDense: true,
+                filled: true,
+                fillColor: widget.textColor.withValues(alpha: .08),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 7),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: widget.textColor.withValues(alpha: .55)),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: widget.textColor.withValues(alpha: .55)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: widget.textColor, width: 1.6),
+                ),
+              ),
+            ),
+          ),
+        ),
+        if (widget.total != null) ...[
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text('of ${widget.total}', maxLines: 1, overflow: TextOverflow.ellipsis, style: style),
+          ),
+        ],
+      ],
     );
   }
 }

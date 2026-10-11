@@ -5,6 +5,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_core_platform_interface/test.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:folk_app/widgets/ReaderChrome.dart';
 import 'package:folk_app/pages/BookReaderPage.dart';
 import 'package:folk_app/theme/FolkTheme.dart';
 import 'package:folk_app/utils/BookDocParser.dart';
@@ -83,6 +84,19 @@ Future<void> pickMode(WidgetTester tester, String label) async {
   await tester.pumpAndSettle();
 }
 
+/// The chapter header reads "Chapter [n] of total": a typeable box with the number.
+void expectChapter(WidgetTester tester, int n, int? total) {
+  final field = find.descendant(of: find.byType(ReaderChapterStrip), matching: find.byType(TextField));
+  expect(field, findsOneWidget);
+  expect(tester.widget<TextField>(field).controller!.text, '$n', reason: 'the box shows the chapter on screen');
+  expect(find.descendant(of: find.byType(ReaderChapterStrip), matching: find.text('Chapter')), findsOneWidget);
+  if (total == null) {
+    expect(find.descendant(of: find.byType(ReaderChapterStrip), matching: find.textContaining('of ')), findsNothing);
+  } else {
+    expect(find.descendant(of: find.byType(ReaderChapterStrip), matching: find.text('of $total')), findsOneWidget);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() async {
@@ -102,7 +116,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
     expect(find.textContaining('Chapter title 1', findRichText: true), findsWidgets, reason: 'the first chapter is on screen');
-    expect(find.text('Chapter 1'), findsOneWidget, reason: 'total unknown yet');
+    expectChapter(tester, 1, null);
     expect(find.bySemanticsLabel('Loading next chapter'), findsOneWidget, reason: 'the right arrow shows a spinner');
     expect(find.byTooltip('Next chapter'), findsNothing);
     expect(find.text('Next Chapter  →'), findsNothing);
@@ -111,11 +125,11 @@ void main() {
     controller.add(BookLoadUpdate(book(3), complete: true));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
-    expect(find.text('Chapter 1 of 3'), findsOneWidget);
+    expectChapter(tester, 1, 3);
     expect(find.byTooltip('Next chapter'), findsOneWidget);
     await tester.tap(find.byTooltip('Next chapter'));
     await tester.pumpAndSettle();
-    expect(find.text('Chapter 2 of 3'), findsOneWidget);
+    expectChapter(tester, 2, 3);
     unawaited(controller.close());
   });
 
