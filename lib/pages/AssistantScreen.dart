@@ -11,6 +11,7 @@ import '../theme/FolkTheme.dart';
 import '../theme/FolkTokens.dart';
 import '../utils/SeenMarkers.dart';
 import '../services/DailyMessageService.dart';
+import '../widgets/AssistantStarterCards.dart';
 import '../widgets/DailyMessageCard.dart';
 import '../widgets/MarkdownText.dart';
 import '../widgets/EntryAnimation.dart';
@@ -148,13 +149,6 @@ Widget _chatBubbleContent(BuildContext context, ChatTurn turn, bool mine) {
 }
 
 class _AssistantScreenState extends State<AssistantScreen> {
-  static const List<String> _starters = [
-    "What does Prabhupada say about the soul and the body?",
-    "Why is chanting Hare Krishna so important?",
-    "How do I stay steady in my practice during exams?",
-    "What is the purpose of human life?",
-  ];
-
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final TextEditingController _input = TextEditingController();
   final ScrollController _scroll = ScrollController();
@@ -764,8 +758,10 @@ class _AssistantScreenState extends State<AssistantScreen> {
   }
 
   /// Replaces the "Prabhupada content feed" placeholder — the feed is these
-  /// openings into the same corpus. The four starters keep their exact text
-  /// and still send themselves on tap; they are now violet chips.
+  /// openings into the same corpus. Four coloured question cards, one per category
+  /// (spiritual, the app, daily practice, how am I doing), a different question for
+  /// each every day (`utils/AssistantStarters.dart`); tapping one sends it through the
+  /// same `_send` as typing it.
   Widget _starterView() {
     final colors = context.folk;
     final text = context.folkText;
@@ -783,58 +779,14 @@ class _AssistantScreenState extends State<AssistantScreen> {
         const SizedBox(height: 8),
         Text(
           "Answers come from Śrīla Prabhupāda's books, letters and recorded "
-          "talks. You can also ask about your practice, or about this app.",
+          "talks. You can also ask about your practice, how you are doing, "
+          "or this app. Tap a question to start, or write your own.",
           textAlign: TextAlign.center,
           style: text.small.copyWith(height: 1.45),
         ),
         const SizedBox(height: 24),
-        Wrap(
-          spacing: FolkSpace.sm,
-          runSpacing: FolkSpace.sm,
-          children: _starters.map(_starterChip).toList(),
-        ),
+        AssistantStarterCards(onPick: _send, enabled: !_sending),
       ],
-    );
-  }
-
-  Widget _starterChip(String s) {
-    final text = context.folkText;
-    final enabled = !_sending;
-    final radius = BorderRadius.circular(FolkShape.tileRadius);
-    return PressScale(
-      enabled: enabled,
-      child: Container(
-        constraints: const BoxConstraints(minHeight: FolkShape.touchTarget),
-        decoration: BoxDecoration(
-          gradient: FolkGradients.violet,
-          borderRadius: radius,
-        ),
-        child: Material(
-          type: MaterialType.transparency,
-          child: InkWell(
-            borderRadius: radius,
-            onTap: enabled ? () => _send(s) : null,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: FolkSpace.lg, vertical: FolkSpace.md),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.auto_stories_outlined,
-                      size: 18, color: FolkColors.onGradient),
-                  const SizedBox(width: 10),
-                  Flexible(
-                    child: Text(
-                      s,
-                      style: text.chip.copyWith(color: FolkColors.onGradient),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 
