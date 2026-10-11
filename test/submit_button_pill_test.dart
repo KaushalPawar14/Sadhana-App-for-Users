@@ -294,7 +294,7 @@ void main() {
         await tapTab(tester, 0);
         await toEnd(tester, find.byType(ListView));
         expect(tester.takeException(), isNull);
-        final tile = tester.getRect(find.byWidgetPredicate((w) => w is InsightTile && w.title == 'Want to improve?'));
+        final tile = tester.getRect(find.byWidgetPredicate((w) => w is InsightTile && w.title == 'Best Performer'));
         expect(pillTop(tester).top - tile.bottom, greaterThanOrEqualTo(12 - .5), reason: 'tile bottom ${tile.bottom}, pill top ${pillTop(tester).top}');
       });
     }

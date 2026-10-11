@@ -19,7 +19,7 @@ void phone(WidgetTester tester, double scale) {
   });
 }
 
-const titles = ['Leaderboard', 'Weekly Performance', 'Monthly Performance', 'Best Performer', 'Want to improve?'];
+const titles = ['Leaderboard', 'Weekly Performance', 'Monthly Performance', 'Best Performer'];
 
 Future<void> pump(WidgetTester tester, {double scale = 1.0, bool dark = false, bool reduce = true, String role = 'Stay at FOLK'}) async {
   phone(tester, scale);
@@ -32,7 +32,7 @@ Future<void> pump(WidgetTester tester, {double scale = 1.0, bool dark = false, b
     home: CompetitionPage(role: role, username: 'Asha', loadReports: (_) async => {}),
   ));
   await tester.pumpAndSettle();
-  await tester.scrollUntilVisible(find.text('Want to improve?'), 200, scrollable: find.byType(Scrollable).first);
+  await tester.scrollUntilVisible(find.text('Best Performer'), 200, scrollable: find.byType(Scrollable).first);
   await tester.pumpAndSettle();
 }
 
@@ -48,7 +48,7 @@ void main() {
 
   for (final dark in [false, true]) {
     for (final scale in scales) {
-      testWidgets('${dark ? 'dark' : 'light'}, text scale $scale: same title size, same title and subtitle position in all five tiles, no overflow', (tester) async {
+      testWidgets('${dark ? 'dark' : 'light'}, text scale $scale: same title size, same title and subtitle position in all four tiles, no overflow', (tester) async {
         await pump(tester, scale: scale, dark: dark);
         expect(tester.takeException(), isNull, reason: 'dark=$dark scale=$scale');
 
@@ -74,7 +74,7 @@ void main() {
           expect(r.bottom, lessThanOrEqualTo(box.bottom + .5), reason: t);
         }
         expect(sizes.length, 1, reason: 'one font size for every title: $sizes');
-        expect(sizes.single, 18, reason: 'the tileTitle token (FolkTypography), one size for all five');
+        expect(sizes.single, 18, reason: 'the tileTitle token (FolkTypography), one size for all four');
         expect(titleOffsets.length, 1, reason: 'every title starts at the same offset from the top of its tile: $titleOffsets');
         expect(subtitleOffsets.length, 1, reason: 'and every subtitle: $subtitleOffsets');
       });
@@ -93,7 +93,7 @@ void main() {
     expect(tester.widget<Text>(subtitleOf('Leaderboard')).style, tester.widget<Text>(subtitleOf('Weekly Performance')).style);
   });
 
-  testWidgets('layout: icon circle top-left in every tile; tiles at least as tall as a square; equal squares in a row', (tester) async {
+  testWidgets('layout: icon circle top-left in every tile; tiles at least as tall as a square; equal squares in a row; Best Performer wide', (tester) async {
     await pump(tester);
     for (final t in titles) {
       await tester.ensureVisible(tile(t));
@@ -105,7 +105,9 @@ void main() {
       expect(icon.top - box.top, closeTo(16, 1), reason: t);
     }
     expect(tester.getRect(tile('Weekly Performance')).height, closeTo(tester.getRect(tile('Monthly Performance')).height, .5));
-    expect(tester.getRect(tile('Best Performer')).height, closeTo(tester.getRect(tile('Want to improve?')).height, .5));
+    // Best Performer is a full-width card like the Leaderboard one
+    expect(tester.getRect(tile('Best Performer')).width, 320);
+    expect(tester.getRect(tile('Best Performer')).height, greaterThanOrEqualTo(154 - .5));
   });
 
   testWidgets('no colour change: the gradients are as before', (tester) async {
@@ -115,8 +117,7 @@ void main() {
       'Leaderboard': 'saffron',
       'Weekly Performance': 'green',
       'Monthly Performance': 'coral',
-      'Best Performer': 'saffron',
-      'Want to improve?': 'violet',
+      'Best Performer': 'violet',
     });
   });
 }

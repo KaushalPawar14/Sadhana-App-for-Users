@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show ValueListenable, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:folk_app/pages/Scorecard.dart';
+import 'package:folk_app/scores/BestPerformer.dart';
 import 'package:folk_app/scores/MonthlyResults.dart';
 import 'package:folk_app/scores/WeeklyResults.dart';
 import 'package:folk_app/utils/Snackbar.dart';
@@ -17,8 +18,8 @@ import '../widgets/InsightTile.dart';
 import '../widgets/JourneyMosaic.dart';
 
 // The Insights tab: a Weekly / Monthly switch, a graph card the student swipes
-// through (their own data only), and five tiles — Leaderboard wide, then four
-// squares.
+// through (their own data only), and four tiles — Leaderboard wide, Weekly and
+// Monthly Performance as squares, and Best Performer wide (violet).
 class CompetitionPage extends StatefulWidget {
   final String role;
 
@@ -117,7 +118,7 @@ class _CompetitionPageState extends State<CompetitionPage> {
 
   // Leaderboard, Weekly and Monthly Performance are open to everyone: each shows
   // only the student's own category (FOLK, or Hostel & Localite) and gender.
-  // Best Performer and Want to improve? are "Coming soon" for everyone.
+  // Best Performer opens its page (the two weekly winners of the student's own group).
   void _open(String title) {
     if (title == 'Leaderboard') {
       Navigator.push(
@@ -133,6 +134,11 @@ class _CompetitionPageState extends State<CompetitionPage> {
       Navigator.push(
         context,
         MaterialPageRoute(builder: (context) => MonthlyResultsPage()),
+      );
+    } else if (title == 'Best Performer') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => BestPerformerPage(username: widget.username)),
       );
     } else {
       _comingSoon();
@@ -235,13 +241,15 @@ class _CompetitionPageState extends State<CompetitionPage> {
             ),
           ),
           const SizedBox(height: FolkSpace.cardGap),
+          // Best Performer: full width like the Leaderboard card, in violet.
           EntryAnimation(
             index: 4,
-            child: JourneyPair(
-              left: _tile('Best Performer', 'Coming soon',
-                  FolkGradientStyle.saffron, Icons.star, columnWidth),
-              right: _tile('Want to improve?', 'Coming soon',
-                  FolkFeatureGradients.wantToImprove, Icons.add_task, columnWidth),
+            child: _tile(
+              'Best Performer',
+              "This week's winners",
+              FolkFeatureGradients.bestPerformer,
+              Icons.star,
+              columnWidth,
             ),
           ),
         ],

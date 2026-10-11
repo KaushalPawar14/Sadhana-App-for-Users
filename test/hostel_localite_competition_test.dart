@@ -215,10 +215,12 @@ void main() {
       }
     });
 
-    test('Insights: only Best Performer / Want to improve? are "Coming soon" for Hostel & Localite', () {
+    test('Insights: Best Performer is open to Hostel & Localite too; Want to improve? is gone', () {
       final src = read('lib/pages/Competition.dart');
       expect(src.contains('_hostelForm'), isFalse);
       expect(src.contains('isHostelForm(widget.role)'), isFalse);
+      expect(src.contains('Want to improve'), isFalse, reason: 'the tile is gone');
+      expect(src.contains("title == 'Best Performer'"), isTrue, reason: 'it opens its page, not Coming soon');
     });
 
     test('Leaderboard page no longer blocks Hostel / Localite', () {

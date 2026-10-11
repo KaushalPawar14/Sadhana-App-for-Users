@@ -539,7 +539,7 @@ void main() {
     });
   });
 
-  group('Insights (CompetitionPage): five tiles, same role gating, no endless motion', () {
+  group('Insights (CompetitionPage): four tiles, same role gating, no endless motion', () {
     Future<_PushCounter> pumpInsights(WidgetTester tester, String role, {bool dark = false}) async {
       final observer = _PushCounter();
       tester.view.physicalSize = const Size(360, 800);
@@ -565,12 +565,11 @@ void main() {
       'Weekly Performance',
       'Monthly Performance',
       'Best Performer',
-      'Want to improve?',
     ];
 
     for (final dark in [false, true]) {
       final theme = dark ? 'dark' : 'light';
-      testWidgets('$theme: all five tiles show at 360 dp without overflow, and nothing keeps animating', (tester) async {
+      testWidgets('$theme: all four tiles show at 360 dp without overflow, and nothing keeps animating', (tester) async {
         await pumpInsights(tester, 'Stay at FOLK', dark: dark);
         for (final t in titles) {
           await tester.scrollUntilVisible(find.text(t), 200, scrollable: find.byType(Scrollable).first);
@@ -586,9 +585,8 @@ void main() {
     // One tile per test, so a pushed screen is never built (no frame is pumped
     // after a push and the tree is torn down with the screen still unbuilt).
     // Leaderboard, Weekly and Monthly Performance are open to every residence (each
-    // shows the student's own category and gender); Best Performer and Want to
-    // improve? are "Coming soon" for everyone.
-    const open = {'Leaderboard', 'Weekly Performance', 'Monthly Performance'};
+    // shows the student's own category and gender), and so is Best Performer.
+    const open = {'Leaderboard', 'Weekly Performance', 'Monthly Performance', 'Best Performer'};
     final opensFor = <String, Set<String>>{
       'Stay at FOLK': open,
       'Stay at Hostel': open,

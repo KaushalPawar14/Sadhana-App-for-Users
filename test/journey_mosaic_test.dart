@@ -392,7 +392,7 @@ void main() {
     expect(FolkFeatureGradients.podcastModules, FolkGradientStyle.coral);
     expect(FolkFeatureGradients.weeklyPerformance, FolkGradientStyle.green);
     expect(FolkFeatureGradients.monthlyPerformance, FolkGradientStyle.coral);
-    expect(FolkFeatureGradients.wantToImprove, FolkGradientStyle.violet);
+    expect(FolkFeatureGradients.bestPerformer, FolkGradientStyle.violet);
   });
 
   test('Journey screen source: greeting, message, ABCDE divider, five cards, MODULES divider, modules', () {

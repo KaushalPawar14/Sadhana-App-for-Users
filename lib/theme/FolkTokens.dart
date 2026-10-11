@@ -90,7 +90,7 @@ abstract final class FolkFeatureGradients {
   static const FolkGradientStyle podcastModules = FolkGradientStyle.coral;
   static const FolkGradientStyle weeklyPerformance = FolkGradientStyle.green;
   static const FolkGradientStyle monthlyPerformance = FolkGradientStyle.coral;
-  static const FolkGradientStyle wantToImprove = FolkGradientStyle.violet;
+  static const FolkGradientStyle bestPerformer = FolkGradientStyle.violet;
 }
 
 abstract final class FolkGradients {

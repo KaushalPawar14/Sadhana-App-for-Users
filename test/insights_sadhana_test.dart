@@ -529,24 +529,24 @@ void main() {
       expect(calls, 2);
     });
 
-    testWidgets('five tiles: Leaderboard full width, then four equal squares; tile heights are minimums', (tester) async {
+    testWidgets('four tiles: Leaderboard full width, two equal squares, then Best Performer full width; tile heights are minimums', (tester) async {
       await pumpPage(tester);
       Rect rect(String title) => tester.getRect(find.ancestor(of: find.text(title), matching: find.byType(ConstrainedBox)).first);
-      await tester.scrollUntilVisible(find.text('Want to improve?'), 200, scrollable: find.byType(Scrollable).first);
+      await tester.scrollUntilVisible(find.text('Best Performer'), 200, scrollable: find.byType(Scrollable).first);
       final lb = tester.getRect(find.byWidgetPredicate((w) => w is InsightTile && w.title == 'Leaderboard'));
       final wk = tester.getRect(find.byWidgetPredicate((w) => w is InsightTile && w.title == 'Weekly Performance'));
       final mo = tester.getRect(find.byWidgetPredicate((w) => w is InsightTile && w.title == 'Monthly Performance'));
       final best = tester.getRect(find.byWidgetPredicate((w) => w is InsightTile && w.title == 'Best Performer'));
-      final imp = tester.getRect(find.byWidgetPredicate((w) => w is InsightTile && w.title == 'Want to improve?'));
       expect(rect, isNotNull);
       expect(lb.width, 320, reason: 'full width');
-      for (final r in [wk, mo, best, imp]) {
+      for (final r in [wk, mo]) {
         expect(r.width, closeTo(154, .5));
         expect(r.height, greaterThanOrEqualTo(r.width - .5), reason: 'squares (grow only when text needs it)');
       }
+      expect(best.width, 320, reason: 'Best Performer is full width, like the Leaderboard');
+      expect(best.height, greaterThanOrEqualTo(154 - .5), reason: 'as tall as the squares');
       expect(lb.height, greaterThanOrEqualTo(154 - .5), reason: 'as tall as the squares');
       expect(wk.height, closeTo(mo.height, .5));
-      expect(best.height, closeTo(imp.height, .5));
       expect(wk.top, greaterThan(lb.bottom));
       expect(best.top, greaterThan(wk.bottom));
     });
@@ -558,7 +558,7 @@ void main() {
           await tester.tap(find.text('Monthly'));
           await tester.pumpAndSettle();
           expect(tester.takeException(), isNull);
-          await tester.scrollUntilVisible(find.text('Want to improve?'), 200, scrollable: find.byType(Scrollable).first);
+          await tester.scrollUntilVisible(find.text('Best Performer'), 200, scrollable: find.byType(Scrollable).first);
           expect(tester.takeException(), isNull, reason: 'dark=$dark scale=$scale');
         });
       }

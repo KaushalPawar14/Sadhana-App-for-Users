@@ -27,7 +27,7 @@ void realPhone(WidgetTester tester, Size logical, double scale) {
   });
 }
 
-const titles = ['Leaderboard', 'Weekly Performance', 'Monthly Performance', 'Best Performer', 'Want to improve?'];
+const titles = ['Leaderboard', 'Weekly Performance', 'Monthly Performance', 'Best Performer'];
 
 Finder tile(String title) => find.byWidgetPredicate((w) => w is InsightTile && w.title == title);
 
@@ -91,7 +91,7 @@ void main() {
             expect(r.bottom, lessThanOrEqualTo(box.bottom - 8), reason: t);
             starts.add(double.parse((r.top - box.top).toStringAsFixed(1)));
           }
-          expect(starts.length, 1, reason: 'the same start position in all five tiles: $starts');
+          expect(starts.length, 1, reason: 'the same start position in all four tiles: $starts');
         });
       }
     }
