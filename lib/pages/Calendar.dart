@@ -62,6 +62,47 @@ class _CalendarPageState extends State<CalendarPage> {
         widget.datesStream ?? mergedAvailableDatesStream(widget.username);
   }
 
+  // The sadhana form for this student's residence, the same routing the Submit button
+  // always had: Hostel and Localite fill the hostel form (their reports go to
+  // `hostel-sadhana`), everyone else the FOLK form. [date] pre-fills the Date of
+  // Submission (a missed day tapped on the calendar); null leaves it empty. The page
+  // fades and rises in (no motion under "reduce animations").
+  Future<void> _openForm({DateTime? date}) async {
+    final Widget page = (widget.role == 'Stay at Hostel' || widget.role == 'Stay at Localite')
+        ? SadhanaPage(initialDate: date)
+        : QuestionsPage(initialDate: date);
+    if (date == null) {
+      // The Submit button: exactly as before.
+      await Navigator.push(context, MaterialPageRoute(builder: (context) => page));
+      return;
+    }
+    final reduced = FolkMotion.reduced(context);
+    await Navigator.push(
+      context,
+      PageRouteBuilder<void>(
+        transitionDuration: reduced ? Duration.zero : const Duration(milliseconds: 320),
+        reverseTransitionDuration: reduced ? Duration.zero : const Duration(milliseconds: 260),
+        pageBuilder: (context, animation, secondary) => page,
+        transitionsBuilder: (context, animation, secondary, child) {
+          if (reduced) return child;
+          final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
+          return FadeTransition(
+            opacity: curved,
+            child: SlideTransition(
+              position: Tween<Offset>(begin: const Offset(0, .04), end: Offset.zero).animate(curved),
+              child: child,
+            ),
+          );
+        },
+      ),
+    );
+    // Back on the calendar: the day is green once the report was saved (the dates stream
+    // updates by itself); let go of the selection either way.
+    if (mounted && isSameDay(_selectedDay, date)) {
+      setState(() => _selectedDay = null);
+    }
+  }
+
   // A submitted day's details, in a dialog: the SAME read as before, the merged
   // report for that date across both residence collections.
   Future<void> _openDay(DateTime day) async {
@@ -240,7 +281,12 @@ class _CalendarPageState extends State<CalendarPage> {
                                   _focusedDay = focusedDay;
                                 });
                               }
-                              if (submitted) _openDay(selectedDay);
+                              if (submitted) {
+                                _openDay(selectedDay);
+                              } else if (_dayState(selectedDay) == SadhanaDayState.missed) {
+                                // A missed (red) day: the form, with this date filled in.
+                                _openForm(date: DateTime(selectedDay.year, selectedDay.month, selectedDay.day));
+                              }
                             },
 
                             firstDay: DateTime(now.year, now.month - 1, 1),
@@ -327,26 +373,9 @@ class _CalendarPageState extends State<CalendarPage> {
                             // colour.
                             gradient: FolkGradients.submitSadhana,
                             label: "📿 Submit Sadhana",
-                            onPressed: () async {
-                              // Localites (Master Task, 2026-09-03) fill
-                              // the same hostel form, since their reports
-                              // go to the same hostel-sadhana collection.
-                              if (widget.role == 'Stay at Hostel' ||
-                                  widget.role == 'Stay at Localite') {
-                                await Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                      builder: (context) => SadhanaPage()),
-                                );
-                              } else {
-                                await Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                      builder: (context) =>
-                                          QuestionsPage()),
-                                );
-                              }
-                            },
+                            // Localites (Master Task, 2026-09-03) fill the same hostel
+                            // form; the date field is EMPTY (only a missed day pre-fills it).
+                            onPressed: () => _openForm(),
                           ),
                         ),
                       ),

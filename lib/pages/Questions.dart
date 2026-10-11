@@ -18,7 +18,15 @@ class QuestionsPage extends StatefulWidget {
     super.key,
     this.saveReport,
     this.saveTimeout = kSadhanaSaveTimeout,
+    this.initialDate,
   });
+
+  // A missed day tapped on the calendar opens the form with that date already in the
+  // Date of Submission field (yyyy-MM-dd, exactly what the date picker writes, so the
+  // validation and the save are the same as for a date picked by hand). Null (the
+  // Submit button) leaves the field empty.
+  final DateTime? initialDate;
+
 
   // Tests hand in their own save so no real Submit reaches Firestore; the app
   // never sets these, and `saveSadhanaReport` below is what runs.
@@ -49,6 +57,13 @@ class _QuestionsPageState extends State<QuestionsPage> {
   // the last Submit rejected shows its message until it is edited.
   bool _saving = false;
   final SadhanaFieldErrors _errors = SadhanaFieldErrors();
+
+  @override
+  void initState() {
+    super.initState();
+    final d = widget.initialDate;
+    if (d != null) dateController.text = d.toString().split(' ')[0];
+  }
 
   @override
   void dispose() {
@@ -217,7 +232,8 @@ class _QuestionsPageState extends State<QuestionsPage> {
   Future<void> SelectDate() async {
     DateTime? pickedDate = await showDatePicker(
         context: context,
-        initialDate: DateTime.now(),
+        // Opened from a missed day: the picker starts on that date (still editable).
+        initialDate: widget.initialDate ?? DateTime.now(),
         firstDate: DateTime(2000),
         lastDate: DateTime.now());
     if (pickedDate != null) {
