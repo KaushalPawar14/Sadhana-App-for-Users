@@ -1,3 +1,4 @@
+import 'dart:ui' show Color;
 import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -62,7 +63,7 @@ class FirebaseCM {
   Future<void> initPushNotifications() async {
     await localNotifications.initialize(
       InitializationSettings(
-        android: AndroidInitializationSettings('@mipmap/ic_launcher'), // App icon for notification
+        android: AndroidInitializationSettings('@drawable/ic_stat_notification'), // white glyph on transparent
       ),
       // Deep-link routing (Master Task, 2026-09-10 — Part 3) — the ONE
       // launch state `getInitialMessage()`/`onMessageOpenedApp` below
@@ -133,6 +134,11 @@ class FirebaseCM {
           importance: Importance.max,
           priority: Priority.high,
           showWhen: false,
+          // The small icon is a white glyph on transparent (Android draws it as a
+          // silhouette); the full-colour logo is the large icon.
+          icon: 'ic_stat_notification',
+          color: const Color(0xFFFCA925), // FOLK orange
+          largeIcon: const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
         ),
       ),
       // Carries the SAME routing data this message arrived with, so a tap
