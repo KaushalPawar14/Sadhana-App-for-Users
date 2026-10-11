@@ -46,6 +46,8 @@ class ReaderPill extends StatelessWidget {
           Flexible(
             child: Text(
               label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: text.caption.copyWith(
                 fontSize: fontSize,
                 fontWeight: FontWeight.w700,
@@ -63,7 +65,9 @@ class ReaderPill extends StatelessWidget {
 // chapter arrow and, when a bookmark exists, where it is. Each arrow is a 48 dp
 // target, faded when there is nowhere to go (the first / last chapter); while the
 // next chapter is still being read in the background the right arrow shows a small
-// spinner. The label wraps onto a second line at large text sizes.
+// spinner. The strip is always ONE line and always the same height, whether or not a
+// bookmark exists: at large text sizes the label and the "Saved at ..." pill shrink
+// with an ellipsis instead of wrapping (a strip that grows would move the page).
 class ReaderChapterStrip extends StatelessWidget {
   const ReaderChapterStrip({
     super.key,
@@ -141,22 +145,28 @@ class ReaderChapterStrip extends StatelessWidget {
           Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 6),
-              child: Wrap(
-                alignment: WrapAlignment.center,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                spacing: 12,
-                runSpacing: 6,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text(
-                    chapterLabel,
-                    textAlign: TextAlign.center,
-                    style: text.caption.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: textColor,
+                  Flexible(
+                    child: Text(
+                      chapterLabel,
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: text.caption.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: textColor,
+                      ),
                     ),
                   ),
-                  if (bookmarkLabel != null)
-                    ReaderPill(label: bookmarkLabel!, icon: Icons.bookmark),
+                  if (bookmarkLabel != null) ...[
+                    const SizedBox(width: 12),
+                    Flexible(
+                      child: ReaderPill(
+                          label: bookmarkLabel!, icon: Icons.bookmark),
+                    ),
+                  ],
                 ],
               ),
             ),

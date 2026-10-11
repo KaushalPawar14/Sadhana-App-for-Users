@@ -1081,45 +1081,64 @@ class _BookReaderPageState extends State<BookReaderPage> {
       ),
     );
 
+    // ⚠️ A paragraph's size and position NEVER depend on bookmark state. The
+    // bookmark tint and the tap area are drawn around the text (outside the
+    // paragraph's own box), not by padding it: padding every paragraph while
+    // bookmark mode was on (or the bookmarked one while it was set) changed the
+    // text width and every height above the reader's position, so the page jumped
+    // to another paragraph when the bookmark icon was tapped.
+    const around = -8.0;
     return Container(
       key: index < _paragraphKeys.length ? _paragraphKeys[index] : null,
       margin: const EdgeInsets.only(bottom: 16),
-      decoration: isBookmarked
-          ? BoxDecoration(
-              color: Colors.deepPurple.withOpacity(.07),
-              borderRadius: BorderRadius.circular(8),
-            )
-          : null,
-      child: _selectionMode
-          ? Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: () => _saveBookmarkAt(index),
-                borderRadius: BorderRadius.circular(8),
-                child: Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: body,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          if (isBookmarked)
+            Positioned(
+              left: around,
+              top: around,
+              right: around,
+              bottom: around,
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.deepPurple.withValues(alpha: .07),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                 ),
               ),
-            )
-          : Padding(
-              padding: EdgeInsets.all(isBookmarked ? 8 : 0),
-              child: body,
             ),
+          body,
+          if (_selectionMode)
+            Positioned(
+              left: around,
+              top: around,
+              right: around,
+              bottom: around,
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () => _saveBookmarkAt(index),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final text = context.folkText;
-    // The title bar grows with the text size so the two-line title (book name
-    // and the bookmark hint) never clips.
+    // The title bar grows with the text size so the book name never clips. Its
+    // height does NOT depend on bookmark mode (the hint is drawn over the page's
+    // bottom edge instead): a bar that changes height moves the whole page.
     final scaler = MediaQuery.textScalerOf(context);
     final toolbarHeight = math.max(
       kToolbarHeight,
-      scaler.scale(16) * 1.5 +
-          (_selectionMode ? scaler.scale(11) * 1.5 + 12 : 0) +
-          16,
+      scaler.scale(16) * 1.5 + 16,
     );
     return PopScope<Object?>(
       canPop: false,
@@ -1150,10 +1169,6 @@ class _BookReaderPageState extends State<BookReaderPage> {
                 overflow: TextOverflow.ellipsis,
                 style: text.bodyStrong.copyWith(color: _palette.onChrome),
               ),
-              if (_selectionMode) ...[
-                const SizedBox(height: 4),
-                const ReaderPill(label: "Tap a paragraph to bookmark"),
-              ],
             ],
           ),
           actions: [
@@ -1308,6 +1323,13 @@ class _BookReaderPageState extends State<BookReaderPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (_selectionMode)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 8),
+                  child: IgnorePointer(
+                    child: ReaderPill(label: "Tap a paragraph to bookmark"),
+                  ),
+                ),
               if (showEnd) _finishArea(text),
               ValueListenableBuilder<double>(
                 valueListenable: _progress,
