@@ -44,13 +44,21 @@ class _MonthlyResultsPageState extends State<MonthlyResultsPage> with TickerProv
   /// Who is of my gender (read once per student): your position counts only them.
   final Future<GenderDirectory> _genderDirectory = GenderDirectory.forCurrentUser();
 
+  /// Hostel and Localite students have no daily services, extra lecture or temple
+  /// entry in their form, so those parts are not shown to them.
+  bool _hostelLocalite = false;
+
   @override
   void initState() {
     super.initState();
+    _genderDirectory.then((d) {
+      if (mounted && d.isHostelLocalite) setState(() => _hostelLocalite = true);
+    }).catchError((Object _) {});
     _leaderboardStream = Stream.fromFuture(GenderDirectory.forCurrentUser()).asyncExpand(
             (directory) => firestore
                 .collection('competition')
                 .where('gender', isEqualTo: directory.mine)
+                .where('category', isEqualTo: directory.category)
                 .snapshots());
     fetchUsername();
     // Animation setup
@@ -282,14 +290,16 @@ class _MonthlyResultsPageState extends State<MonthlyResultsPage> with TickerProv
             children: [
               infoChip("💻 SB Class", user['bhagavatam'],
                   "monthly.bhagavatam_class"),
-              infoChip("🛕 Service", user['dailyService'],
-                  "monthly.daily_service"),
+              if (!_hostelLocalite)
+                infoChip("🛕 Service", user['dailyService'],
+                    "monthly.daily_service"),
               infoChip("📿 Chanting", user['chanting'],
                   "monthly.chanting_rounds"),
               infoChip("📚 Reading", user['bookReading'],
                   "monthly.book_reading"),
-              infoChip("🎧 Lecture", user['extraLecture'],
-                  "monthly.extra_lecture"),
+              if (!_hostelLocalite)
+                infoChip("🎧 Lecture", user['extraLecture'],
+                    "monthly.extra_lecture"),
               infoChip("📅 Days", user['days'], "monthly.days_count"),
             ],
           ),
@@ -308,8 +318,9 @@ class _MonthlyResultsPageState extends State<MonthlyResultsPage> with TickerProv
               spacing: 16, // horizontal spacing between items
               runSpacing: 8, // vertical spacing if items wrap
               children: [
-                Text("🛕 Temple x ${user['templeMultiplier']}  ",
-                    style: text.bodyStrong),
+                if (!_hostelLocalite)
+                  Text("🛕 Temple x ${user['templeMultiplier']}  ",
+                      style: text.bodyStrong),
                 Text("📿 Japa x ${user['japaMultiplier']}  ",
                     style: text.bodyStrong),
                 Text("😴 Sleep x ${user['sleepMultiplier']}",

@@ -585,12 +585,14 @@ void main() {
 
     // One tile per test, so a pushed screen is never built (no frame is pumped
     // after a push and the tree is torn down with the screen still unbuilt).
-    // Navigation and gating are as before; Graphical Analysis was the one tile a
-    // Hostel / Localite student could open, and it is gone.
+    // Leaderboard, Weekly and Monthly Performance are open to every residence (each
+    // shows the student's own category and gender); Best Performer and Want to
+    // improve? are "Coming soon" for everyone.
+    const open = {'Leaderboard', 'Weekly Performance', 'Monthly Performance'};
     final opensFor = <String, Set<String>>{
-      'Stay at FOLK': {'Leaderboard', 'Weekly Performance', 'Monthly Performance'},
-      'Stay at Hostel': {},
-      'Stay at Localite': {},
+      'Stay at FOLK': open,
+      'Stay at Hostel': open,
+      'Stay at Localite': open,
     };
     for (final entry in opensFor.entries) {
       for (final title in titles) {

@@ -72,13 +72,16 @@ class StudentApi {
 
   /// Your gender plus the names / uids of the female students (what the app used
   /// to build by reading every `users` document).
-  Future<({String mine, Set<String> femaleNames, Set<String> femaleUids})>
+  /// [category] is the student's competition category: `folk` or
+  /// `hostel_localite` (an older server that does not send it means `folk`).
+  Future<({String mine, String category, Set<String> femaleNames, Set<String> femaleUids})>
       getGenderDirectory() async {
     final r = await _invoke('getGenderDirectory', {});
     Set<String> set(Object? v) =>
         {for (final x in (v as List? ?? const [])) x.toString()};
     return (
       mine: (r['mine'] ?? 'male').toString(),
+      category: (r['category'] ?? 'folk').toString(),
       femaleNames: set(r['femaleNames']),
       femaleUids: set(r['femaleUids']),
     );

@@ -20,6 +20,16 @@ import '../services/StudentApi.dart';
 const String kFemale = 'female';
 const String kMale = 'male';
 
+// Competition categories. Students who stay at Hostel or Localite compete TOGETHER
+// in one category, separate from FOLK; each category is ranked by gender too, so
+// there are four independent rankings. The server decides the category (from the
+// student's residence) and stamps it on the scorecard / competition documents.
+const String kCategoryFolk = 'folk';
+const String kCategoryHostelLocalite = 'hostel_localite';
+
+String _categoryOf(String? c) =>
+    c == kCategoryHostelLocalite ? kCategoryHostelLocalite : kCategoryFolk;
+
 // The gender of a users document's data: 'female' only when it says so.
 String genderOfData(Map<String, dynamic>? data) =>
     data != null && data['gender'] == kFemale ? kFemale : kMale;
@@ -29,14 +39,24 @@ class GenderDirectory {
     required this.mine,
     required this.femaleNames,
     required this.femaleUids,
+    this.category = kCategoryFolk,
   });
 
   // The signed-in student's gender: 'male' or 'female'.
   final String mine;
+
+  // The signed-in student's competition category: 'folk' or 'hostel_localite'.
+  final String category;
   final Set<String> femaleNames;
   final Set<String> femaleUids;
 
   bool get iAmFemale => mine == kFemale;
+
+  bool get isHostelLocalite => category == kCategoryHostelLocalite;
+
+  // Id of my own ranking in a finalized week's / month's results:
+  // `folk_male`, `folk_female`, `hostel_localite_male`, `hostel_localite_female`.
+  String get rankingId => '${category}_$mine';
 
   // True for a student of my gender. A name or uid nobody knows is treated as male
   // (it is not a known female), so a female student never sees it.
@@ -99,6 +119,7 @@ class GenderDirectory {
     final d = await StudentApi.instance.getGenderDirectory();
     return GenderDirectory(
       mine: d.mine == kFemale ? kFemale : kMale,
+      category: _categoryOf(d.category),
       femaleNames: d.femaleNames,
       femaleUids: d.femaleUids,
     );
@@ -107,13 +128,18 @@ class GenderDirectory {
 
 typedef ScorecardReader = Future<Map<String, Map<String, dynamic>>> Function();
 
-Future<Map<String, Map<String, dynamic>>> readScorecardDocs() async {
-  // Only my own gender's scorecards: the documents carry a server-stamped
-  // `gender`, and a query the security rules can prove is required.
+// [firestore] is only for tests; the app reads the live instance.
+Future<Map<String, Map<String, dynamic>>> readScorecardDocs({
+  FirebaseFirestore? firestore,
+}) async {
+  // Only my own category's and gender's scorecards: the documents carry a
+  // server-stamped `category` and `gender`, and a query the security rules can
+  // prove is required.
   final directory = await GenderDirectory.forCurrentUser();
-  final snap = await FirebaseFirestore.instance
+  final snap = await (firestore ?? FirebaseFirestore.instance)
       .collection('scorecard')
       .where('gender', isEqualTo: directory.mine)
+      .where('category', isEqualTo: directory.category)
       .get();
   return {for (final d in snap.docs) d.id: d.data()};
 }
@@ -156,12 +182,20 @@ Map<String, List<T>> topByGender<T>(
 // gender's: [parent] is the result document (`competition-results/weekly/weeks/{id}`,
 // `.../monthly/months/{id}`, or a `-participants` one) and [field] the list inside
 // the gender document ('topUsers' or 'participants').
+//
+// Results are also split by category: `.../{id}/byCategory/{category}_{gender}`.
+// That is read first (a student sees only their own category AND gender); a week
+// finalized before categories existed has only `byGender`, which is FOLK, so a FOLK
+// student falls back to it. A Hostel / Localite student never reads `byGender`.
 Future<List<Map<String, dynamic>>> readMyGenderList(
   DocumentReference<Map<String, dynamic>> parent,
   String field,
 ) async {
   final directory = await GenderDirectory.forCurrentUser();
-  final snap = await parent.collection('byGender').doc(directory.mine).get();
+  var snap = await parent.collection('byCategory').doc(directory.rankingId).get();
+  if (!snap.exists && !directory.isHostelLocalite) {
+    snap = await parent.collection('byGender').doc(directory.mine).get();
+  }
   final list = snap.data()?[field];
   if (list is! List) return [];
   return [for (final u in list) Map<String, dynamic>.from(u as Map)];

@@ -315,7 +315,7 @@ void main() {
       expect(util.contains('.delete('), isFalse);
       expect(util.contains('.set('), isFalse);
       expect(util.contains('.update('), isFalse);
-      expect(RegExp(r"collection\('([a-zA-Z-]+)'\)").allMatches(util).map((m) => m.group(1)).toSet(), {'scorecard', 'byGender'}, reason: 'the directory comes from the server now; results are read from the byGender document of the student own gender');
+      expect(RegExp(r"collection\('([a-zA-Z-]+)'\)").allMatches(util).map((m) => m.group(1)).toSet(), {'scorecard', 'byCategory', 'byGender'}, reason: 'the directory comes from the server now; results are read from the byCategory (or, for FOLK, the older byGender) document of the student own category and gender');
     });
   });
 

@@ -108,8 +108,6 @@ class _CompetitionPageState extends State<CompetitionPage> {
     _load();
   }
 
-  bool get _hostelForm => isHostelForm(widget.role);
-
   void _comingSoon() => showSnackbar(
         context,
         'Coming soon',
@@ -117,13 +115,10 @@ class _CompetitionPageState extends State<CompetitionPage> {
         Icons.watch_later_outlined,
       );
 
-  // Role gating and navigation, as before: Hostel and Localite students get
-  // "Coming soon" on these tiles.
+  // Leaderboard, Weekly and Monthly Performance are open to everyone: each shows
+  // only the student's own category (FOLK, or Hostel & Localite) and gender.
+  // Best Performer and Want to improve? are "Coming soon" for everyone.
   void _open(String title) {
-    if (_hostelForm) {
-      _comingSoon();
-      return;
-    }
     if (title == 'Leaderboard') {
       Navigator.push(
         context,
