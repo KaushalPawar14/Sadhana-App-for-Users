@@ -57,3 +57,60 @@ Future <void> updateFCMToken() async {
     print('Error updating FCM token: $e');
   }
 }
+
+// -----------------------------------------------------------------------------
+// Keeping the push token with the person who is actually signed in.
+//
+// The token used to be written once, at app start. So: someone who signed in later in the
+// same session, a new student who had just finished registering (no name yet at start), or
+// a second account on the same phone got no notifications until the app was restarted; and
+// the first account on a phone kept the token for good, so its reminders arrived while the
+// other account was open (one phone's token was found under two student names).
+//
+// Now the token is (re)written every time the signed-in student changes, whenever the
+// push service rotates it, and after registration; and it is removed at sign-out. The
+// server also moves a token to the newest account that registers it.
+// -----------------------------------------------------------------------------
+
+String? _tokenOwnerUid;
+bool _tokenWatchStarted = false;
+
+// Starts the listeners once (safe to call again).
+void watchFCMToken() {
+  if (_tokenWatchStarted) return;
+  _tokenWatchStarted = true;
+  FirebaseAuth.instance.userChanges().listen((user) {
+    if (user == null) {
+      _tokenOwnerUid = null;
+      return;
+    }
+    if (_tokenOwnerUid == user.uid) return;
+    _tokenOwnerUid = user.uid;
+    updateFCMToken();
+  });
+  FirebaseMessaging.instance.onTokenRefresh.listen((_) => updateFCMToken());
+}
+
+// At sign-out, BEFORE signing out: this student's document stops holding the phone's token
+// and the phone gets a fresh one, so nothing meant for this student can reach whoever
+// signs in next. Never throws (sign-out must always work).
+Future<void> clearFCMToken() async {
+  try {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      final doc =
+          await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final name = doc.data()?['name'];
+      if (name is String && name.isNotEmpty) {
+        await FirebaseFirestore.instance
+            .collection('notification')
+            .doc(name)
+            .set({'FCMToken': FieldValue.delete()}, SetOptions(merge: true));
+      }
+    }
+  } catch (_) {}
+  try {
+    await FirebaseMessaging.instance.deleteToken();
+  } catch (_) {}
+  _tokenOwnerUid = null;
+}

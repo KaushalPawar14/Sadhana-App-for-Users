@@ -88,13 +88,25 @@ class GenderDirectory {
     if (uid == null) {
       return Future.error(StateError('No signed-in student'));
     }
-    return _cache.putIfAbsent(uid, () => _load(uid)).catchError((Object e) {
+    // The directory holds the student's category and gender, which a guide can change at
+    // any time: it is read again after [_maxAge] instead of being kept for the whole session.
+    final loadedAt = _loadedAt[uid];
+    if (loadedAt != null && DateTime.now().difference(loadedAt) > _maxAge) {
+      _cache.remove(uid);
+    }
+    return _cache.putIfAbsent(uid, () {
+      _loadedAt[uid] = DateTime.now();
+      return _load(uid);
+    }).catchError((Object e) {
       // A failed read is not kept: the next call tries again.
       _cache.remove(uid);
+      _loadedAt.remove(uid);
       throw e;
     });
   }
 
+  static const Duration _maxAge = Duration(seconds: 60);
+  static final Map<String, DateTime> _loadedAt = {};
   static final Map<String, Future<GenderDirectory>> _cache = {};
 
   @visibleForTesting
@@ -104,10 +116,14 @@ class GenderDirectory {
   static void useForTests(Future<GenderDirectory> Function()? loader) {
     _loaderForTests = loader;
     _cache.clear();
+    _loadedAt.clear();
   }
 
   // Forget everything (on sign-out).
-  static void reset() => _cache.clear();
+  static void reset() {
+    _cache.clear();
+    _loadedAt.clear();
+  }
 
   @visibleForTesting
   static Future<GenderDirectory> forCurrentUserForTestsViaApi() => _load('test');

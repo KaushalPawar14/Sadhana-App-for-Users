@@ -9,6 +9,7 @@ import 'package:folk_app/services/DailyMessageService.dart';
 import 'package:folk_app/theme/FolkTheme.dart';
 import 'package:folk_app/theme/FolkTokens.dart';
 import 'package:folk_app/utils/MainAppReached.dart';
+import 'package:folk_app/utils/SameGender.dart';
 import 'package:folk_app/utils/SeenMarkers.dart';
 import 'package:folk_app/utils/UnseenDot.dart';
 import 'package:folk_app/widgets/EntryAnimation.dart';
@@ -170,6 +171,11 @@ class _CurvedNavBarState extends State<CurvedNavBar>
   final List<String> titles = kHostTabTitles;
   late String userName; // Declare a variable to hold the username
   late String role;
+
+  // Follows this student's own `users` document, so a residence change made by a guide
+  // (FOLK <-> Hostel <-> Localite) switches the screens and the rankings at once instead of
+  // after the next restart.
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _profileSub;
   bool isLoading = true; // Flag to indicate loading state
   bool loadFailed = false; // LOGIC CHANGE: the profile read failed; show Retry
   late List<Widget> screens; // ✅ declare late
@@ -209,6 +215,7 @@ class _CurvedNavBarState extends State<CurvedNavBar>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _profileSub?.cancel();
     MainAppReached.instance.leave();
     super.dispose();
   }
@@ -385,11 +392,39 @@ class _CurvedNavBarState extends State<CurvedNavBar>
         loadFailed = false;
         isLoading = false;
       });
+      _watchProfile();
     } catch (e) {
       print('Error fetching username from Firestore: $e');
       if (!mounted) return;
       setState(() => loadFailed = true);
     }
+  }
+
+  void _watchProfile() {
+    if (_profileSub != null || widget.loadUser != null) return;
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    _profileSub = FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .snapshots()
+        .listen((snap) {
+      final data = snap.data();
+      if (data == null || !mounted || isLoading) return;
+      final newRole = (data['role'] ?? '').toString();
+      if (newRole.isEmpty || newRole == role) return;
+      // The residence changed: the category (and so the rankings) changed with it.
+      GenderDirectory.reset();
+      setState(() {
+        role = newRole;
+        screens = [
+          CompetitionPage(role: role, username: userName),
+          const ABCDEScreen(),
+          CalendarPage(username: userName, role: role),
+          ProfilePage(),
+        ];
+      });
+    }, onError: (_) {});
   }
 
   void _retryLoad() {

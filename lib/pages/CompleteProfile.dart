@@ -5,6 +5,7 @@ import '../utils/ResidenceRule.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:folk_app/utils/BottomNavBar.dart';
 import 'package:folk_app/utils/Snackbar.dart';
+import '../services/UpdateToken.dart';
 import 'package:intl/intl.dart';
 
 import '../theme/FolkTheme.dart';
@@ -420,6 +421,10 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
       final resolvedRole = _existingRole?.isNotEmpty == true
           ? _existingRole!
           : (roleToWrite ?? '');
+
+      // The student now has a name, so their push token can be saved (it was skipped at
+      // app start while the name was still empty).
+      updateFCMToken();
 
       showSnackbar(context, "Profile Updated Successfully", Colors.green,
           Icons.thumb_up);

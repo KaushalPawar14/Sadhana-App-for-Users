@@ -77,6 +77,7 @@ import 'package:folk_app/widgets/StartupWaiting.dart';
    Future.microtask(() async {
      await FirebaseCM().initNotifications();
      await updateFCMToken();
+     watchFCMToken(); // follow sign-ins, token rotation and sign-out from here on
      await ensureUserCompetitionDocument();
      User? user = FirebaseAuth.instance.currentUser;
 

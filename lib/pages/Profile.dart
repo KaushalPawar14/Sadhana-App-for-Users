@@ -2,6 +2,8 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../services/UpdateToken.dart';
+import '../utils/SameGender.dart';
 import 'package:folk_app/pages/MyCompetitions.dart';
 import 'package:folk_app/pages/NotificationPreferences.dart';
 import 'package:folk_app/pages/Welcome.dart';
@@ -682,6 +684,10 @@ void showLogoutDialog(BuildContext context) {
             style: _dialogPrimaryButton(colors, text),
             onPressed: () async {
               try {
+                // This phone's push token leaves this student first, so their reminders
+                // can never arrive for whoever signs in next.
+                await clearFCMToken();
+                GenderDirectory.reset();
                 await GoogleSignIn().signOut();
                 await FirebaseAuth.instance.signOut();
                 // Close the dialog first — it lives on the OUTER/root
