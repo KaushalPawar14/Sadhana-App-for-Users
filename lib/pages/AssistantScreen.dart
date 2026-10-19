@@ -10,6 +10,7 @@ import '../theme/FolkColors.dart';
 import '../theme/FolkTheme.dart';
 import '../theme/FolkTokens.dart';
 import '../utils/AssistantGreeting.dart';
+import '../utils/CallableMessage.dart';
 import '../utils/SeenMarkers.dart';
 import '../services/DailyMessageService.dart';
 import '../widgets/AssistantStarterCards.dart';
@@ -618,8 +619,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              e is FirebaseFunctionsException && e.message != null
-                  ? e.message!
+              e is FirebaseFunctionsException
+                  ? callableMessage(e, "Could not send. Check your connection and try again.")
                   : "Could not send. Check your connection and try again.",
             ),
           ),

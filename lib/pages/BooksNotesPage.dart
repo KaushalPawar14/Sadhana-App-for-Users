@@ -142,10 +142,11 @@ class _BooksNotesPageState extends State<BooksNotesPage> {
       ],
       body: _failed
           ? FolkErrorRetry(message: "Couldn't load your notes just now.", onRetry: _load)
-          : LayoutBuilder(
-              builder: (context, box) {
+          : Builder(
+              builder: (context) {
+                // The page is full width: the width comes from the screen (no LayoutBuilder in this app).
                 final gap = FolkSpace.cardGap;
-                final inner = box.maxWidth - FolkSpace.pagePadding * 2;
+                final inner = MediaQuery.sizeOf(context).width - FolkSpace.pagePadding * 2;
                 final side = (inner - gap) / 2;
                 if (_loading) {
                   // The ghost has the tiles' own shape, so nothing moves when the real ones arrive.

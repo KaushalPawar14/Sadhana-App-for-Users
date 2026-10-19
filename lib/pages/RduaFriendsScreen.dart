@@ -16,6 +16,7 @@ import '../widgets/FolkDialog.dart';
 import '../widgets/FolkScaffold.dart';
 import '../widgets/FolkErrorRetry.dart';
 import '../widgets/GhostPlaceholder.dart';
+import '../utils/CallableMessage.dart';
 import '../widgets/PrimaryButton.dart';
 import '../widgets/RoundIconButton.dart';
 
@@ -384,7 +385,7 @@ class _RduaFriendsScreenState extends State<RduaFriendsScreen>
       await StudentApi.instance.acceptFriendRequest(requestId);
     } on FirebaseFunctionsException catch (e) {
       if (mounted) {
-        showSnackbar(context, e.message ?? "Could not update request",
+        showSnackbar(context, callableMessage(e, "Could not update request"),
             Colors.orange, Icons.info_outline);
       }
     } catch (_) {

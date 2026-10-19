@@ -57,46 +57,42 @@ class _ReaderLoadingGhostState extends State<ReaderLoadingGhost> with SingleTick
       child: ColoredBox(
         key: const ValueKey('reader-loading-ghost'),
         color: widget.background,
-        child: LayoutBuilder(
-          builder: (context, box) {
-            return AnimatedBuilder(
-              animation: _controller,
-              builder: (context, _) {
-                // between 10 % and 22 % of the line colour
-                final alpha = .10 + .12 * (_reduced ? .5 : Curves.easeInOut.transform(_controller.value));
-                final color = widget.line.withValues(alpha: alpha);
-                Widget bar(double widthFactor, double height) => Align(
-                      alignment: Alignment.centerLeft,
-                      child: FractionallySizedBox(
-                        widthFactor: widthFactor,
-                        child: Container(
-                          height: height,
-                          decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(height / 2)),
-                        ),
-                      ),
-                    );
-                return ClipRect(
-                  child: SingleChildScrollView(
-                    physics: const NeverScrollableScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(ReaderLoadingGhost.sidePadding, 24, ReaderLoadingGhost.sidePadding, 24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        // the title bar
-                        bar(.55, 22),
-                        const SizedBox(height: 28),
-                        for (final p in _paragraphs) ...[
-                          for (var i = 0; i < p.$1; i++) ...[
-                            bar(i == p.$1 - 1 ? p.$2 : 1, 12),
-                            const SizedBox(height: 10),
-                          ],
-                          const SizedBox(height: 18),
-                        ],
-                      ],
+        child: AnimatedBuilder(
+          animation: _controller,
+          builder: (context, _) {
+            // between 10 % and 22 % of the line colour
+            final alpha = .10 + .12 * (_reduced ? .5 : Curves.easeInOut.transform(_controller.value));
+            final color = widget.line.withValues(alpha: alpha);
+            Widget bar(double widthFactor, double height) => Align(
+                  alignment: Alignment.centerLeft,
+                  child: FractionallySizedBox(
+                    widthFactor: widthFactor,
+                    child: Container(
+                      height: height,
+                      decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(height / 2)),
                     ),
                   ),
                 );
-              },
+            return ClipRect(
+              child: SingleChildScrollView(
+                physics: const NeverScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(ReaderLoadingGhost.sidePadding, 24, ReaderLoadingGhost.sidePadding, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // the title bar
+                    bar(.55, 22),
+                    const SizedBox(height: 28),
+                    for (final p in _paragraphs) ...[
+                      for (var i = 0; i < p.$1; i++) ...[
+                        bar(i == p.$1 - 1 ? p.$2 : 1, 12),
+                        const SizedBox(height: 10),
+                      ],
+                      const SizedBox(height: 18),
+                    ],
+                  ],
+                ),
+              ),
             );
           },
         ),
