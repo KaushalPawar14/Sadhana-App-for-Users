@@ -14,6 +14,7 @@ import '../widgets/FloatingPillNavBar.dart';
 import '../widgets/PrimaryButton.dart';
 import '../widgets/SadhanaDayCell.dart';
 import '../widgets/SadhanaDayDialog.dart';
+import '../utils/InsightsData.dart' show isHostelForm;
 import '../utils/SadhanaReportSource.dart';
 import '../utils/SadhanaStats.dart';
 import '../widgets/SadhanaStatTile.dart';
@@ -56,11 +57,11 @@ class _CalendarPageState extends State<CalendarPage> {
     _selectedDayColors = {};
     _availableDates = {};
 
-    // Master Task 2026-09-11 — merged across both residence collections so
-    // history filed before a residence switch still shows here. See
-    // utils/SadhanaReportSource.dart's own header for the one-per-date rule.
+    // Category-separated reports: only the collection of the student's CURRENT category is read, and the
+    // stream follows the category live (a guide switching it recolours the calendar at once). See
+    // utils/SadhanaReportSource.dart.
     _datesStream =
-        widget.datesStream ?? mergedAvailableDatesStream(widget.username);
+        widget.datesStream ?? availableDatesStream(widget.username);
   }
 
   // The sadhana form for this student's residence, the same routing the Submit button
@@ -69,7 +70,8 @@ class _CalendarPageState extends State<CalendarPage> {
   // Submission (a missed day tapped on the calendar); null leaves it empty. The page
   // fades and rises in (no motion under "reduce animations").
   Future<void> _openForm({DateTime? date}) async {
-    final Widget page = (widget.role == 'Stay at Hostel' || widget.role == 'Stay at Localite')
+    // the CURRENT category (it follows the profile live), else the role this page was built with
+    final Widget page = isHostelForm(ReportCategory.instance.role ?? widget.role)
         ? SadhanaPage(initialDate: date)
         : QuestionsPage(initialDate: date);
     if (date == null) {
@@ -104,15 +106,14 @@ class _CalendarPageState extends State<CalendarPage> {
     }
   }
 
-  // A submitted day's details, in a dialog: the SAME read as before, the merged
-  // report for that date across both residence collections.
+  // A submitted day's details, in a dialog: the report for that date from the CURRENT category's collection.
   Future<void> _openDay(DateTime day) async {
     final dateId = _getFormattedDate(day);
     await SadhanaDayDialog.show(
       context,
       date: day,
       load: () =>
-          (widget.dayReader ?? fetchMergedDateReport)(widget.username, dateId),
+          (widget.dayReader ?? fetchDateReport)(widget.username, dateId),
     );
     // Closed: let go of the day, so the Submit button is back.
     if (mounted && isSameDay(_selectedDay, day)) {
@@ -228,7 +229,7 @@ class _CalendarPageState extends State<CalendarPage> {
                     message: "Couldn't load your calendar just now.",
                     onRetry: () => setState(() {
                       _datesStream = widget.datesStream ??
-                          mergedAvailableDatesStream(widget.username);
+                          availableDatesStream(widget.username);
                     }),
                   ));
             }

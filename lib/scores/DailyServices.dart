@@ -1,92 +1,21 @@
 import 'package:flutter/foundation.dart' show visibleForTesting;
-import 'package:folk_app/utils/SameGender.dart';
 import 'package:flutter/material.dart';
-import '../widgets/FolkErrorRetry.dart';
-import 'package:folk_app/theme/FolkTheme.dart';
-import 'package:folk_app/theme/FolkTokens.dart';
-import 'package:folk_app/widgets/EntryAnimation.dart';
-import 'package:folk_app/widgets/FolkScaffold.dart';
-import 'package:folk_app/widgets/ScoreWidgets.dart';
+import 'package:folk_app/utils/SameGender.dart';
+import 'CategoryBoard.dart';
 
-
+// Service Leaderboard: ranked by this item's points over the week / month (no multipliers) - see CategoryBoard.dart.
 class DailyServices extends StatelessWidget {
-  DailyServices({super.key, this.scorecardReader});
+  const DailyServices({super.key, this.reader});
 
-  // Tests hand in their own scorecard; the app never sets it.
+  // Tests hand in their own competition documents; the app never sets it.
   @visibleForTesting
-  final ScorecardReader? scorecardReader;
-
-  // Fetch leaderboard data
-  Future<List<Map<String, dynamic>>> fetchLeaderboard() async {
-    final docs = await (scorecardReader ?? readScorecardDocs)();
-    final directory = await GenderDirectory.forCurrentUser();
-
-    List<Map<String, dynamic>> leaderboard = [];
-
-    for (final entry in docs.entries) {
-      // 🔥 VERY IMPORTANT: skip flag document
-      if (entry.key == 'flag') continue;
-      // A student sees only students of their own gender.
-      if (!directory.sameByName(entry.key)) continue;
-      leaderboard.add({
-        'userName': entry.key,
-        'totalServiceDone': entry.value['totalServiceDone'] ?? 0,
-      });
-    }
-
-    leaderboard
-        .sort((a, b) => b['totalServiceDone'].compareTo(a['totalServiceDone']));
-    return leaderboard;
-  }
+  final ScorecardReader? reader;
 
   @override
-  Widget build(BuildContext context) {
-    final text = context.folkText;
-    return FolkScaffold(
-      title: 'Service Leaderboard',
-      onBack: () => Navigator.pop(context),
-      body: FolkRetryScope(builder: (context, retry) => FutureBuilder<List<Map<String, dynamic>>>(
-        future: fetchLeaderboard(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const LeaderboardGhost();
-          }
-
-          if (snapshot.hasError) {
-            return FolkErrorRetry(
-              message: "Couldn't load the leaderboard just now.",
-              onRetry: retry,
-            );
-          }
-
-          if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return Center(
-              child: Text('No leaderboard data available.', style: text.body),
-            );
-          }
-
-          List<Map<String, dynamic>> leaderboard = snapshot.data!;
-
-          return ListView.builder(
-            physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(FolkSpace.pagePadding,
-                FolkSpace.lg, FolkSpace.pagePadding, 28),
-            itemCount: leaderboard.length,
-            itemBuilder: (context, index) {
-              var user = leaderboard[index];
-
-              return EntryAnimation(
-                index: index,
-                child: LeaderboardRankRow(
-                  rank: index + 1,
-                  name: user['userName'],
-                  valueLabel: "${user['totalServiceDone']} pts",
-                ),
-              );
-            },
-          );
-        },
-      )),
-    );
-  }
+  Widget build(BuildContext context) => CategoryBoardPage(
+        title: 'Service Leaderboard',
+        item: BoardItem.service,
+        podium: false,
+        reader: reader,
+      );
 }

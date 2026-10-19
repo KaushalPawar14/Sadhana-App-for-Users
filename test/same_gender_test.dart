@@ -26,12 +26,12 @@ GenderDirectory directoryFor(String mine) => GenderDirectory(
 
 final scorecard = <String, Map<String, dynamic>>{
   'flag': {'x': 1},
-  'Arjun': {'totalChantRounds': 90, 'totalBookRead': 10, 'totalSBClass': 8, 'totalServiceDone': 5},
-  'Asha': {'totalChantRounds': 100, 'totalBookRead': 20, 'totalSBClass': 9, 'totalServiceDone': 6},
-  'Bhima': {'totalChantRounds': 80, 'totalBookRead': 30, 'totalSBClass': 7, 'totalServiceDone': 4},
-  'Bhavani': {'totalChantRounds': 70, 'totalBookRead': 5, 'totalSBClass': 6, 'totalServiceDone': 3},
-  'Chaitanya': {'totalChantRounds': 60, 'totalBookRead': 1, 'totalSBClass': 5, 'totalServiceDone': 2},
-  'Charu': {'totalChantRounds': 50, 'totalBookRead': 2, 'totalSBClass': 4, 'totalServiceDone': 1},
+  'Arjun': {'weekly.pts_chanting': 90, 'weekly.pts_reading': 10, 'weekly.pts_class': 8, 'weekly.pts_service': 5},
+  'Asha': {'weekly.pts_chanting': 100, 'weekly.pts_reading': 20, 'weekly.pts_class': 9, 'weekly.pts_service': 6},
+  'Bhima': {'weekly.pts_chanting': 80, 'weekly.pts_reading': 30, 'weekly.pts_class': 7, 'weekly.pts_service': 4},
+  'Bhavani': {'weekly.pts_chanting': 70, 'weekly.pts_reading': 5, 'weekly.pts_class': 6, 'weekly.pts_service': 3},
+  'Chaitanya': {'weekly.pts_chanting': 60, 'weekly.pts_reading': 1, 'weekly.pts_class': 5, 'weekly.pts_service': 2},
+  'Charu': {'weekly.pts_chanting': 50, 'weekly.pts_reading': 2, 'weekly.pts_class': 4, 'weekly.pts_service': 1},
 };
 
 const males = ['Arjun', 'Bhima', 'Chaitanya'];
@@ -104,10 +104,10 @@ void main() {
 
   // ------------------------------------------------------------ leaderboards
   final boards = <String, (Widget Function() build, String title)>{
-    'Chanting': (() => Chanting(scorecardReader: reader), 'Chanting Leaderboard'),
-    'Book Reading': (() => BookReading(scorecardReader: reader), 'Book Reading Leaderboard'),
-    'SB class': (() => SBclasses(scorecardReader: reader), 'SB Watch Leaderboard'),
-    'Daily services': (() => DailyServices(scorecardReader: reader), 'Daily Services Leaderboard'),
+    'Chanting': (() => Chanting(reader: reader), 'Chanting Leaderboard'),
+    'Book Reading': (() => BookReading(reader: reader), 'Book Reading Leaderboard'),
+    'SB class': (() => SBclasses(reader: reader), 'SB Watch Leaderboard'),
+    'Daily services': (() => DailyServices(reader: reader), 'Daily Services Leaderboard'),
   };
 
   for (final board in boards.entries) {
@@ -135,7 +135,7 @@ void main() {
     phone(tester, 1.0);
     // SB class has plain rank rows: Asha(9) Arjun(8) Bhima(7) Bhavani(6) Chaitanya(5) Charu(4)
     GenderDirectory.useForTests(() async => directoryFor(kFemale));
-    await tester.pumpWidget(host(SBclasses(scorecardReader: reader)));
+    await tester.pumpWidget(host(SBclasses(reader: reader)));
     await tester.pumpAndSettle();
     final texts = tester.widgetList<Text>(find.byType(Text)).map((t) => t.data).whereType<String>().toList();
     expect(texts.indexOf('Asha'), lessThan(texts.indexOf('Bhavani')));
@@ -149,7 +149,7 @@ void main() {
   testWidgets('a male reader with a non-gender user (Chaitanya) sees him as male', (tester) async {
     phone(tester, 1.0);
     GenderDirectory.useForTests(() async => directoryFor(kMale));
-    await tester.pumpWidget(host(SBclasses(scorecardReader: reader)));
+    await tester.pumpWidget(host(SBclasses(reader: reader)));
     await tester.pumpAndSettle();
     expect(find.text('Chaitanya'), findsOneWidget);
   });
@@ -315,7 +315,7 @@ void main() {
       expect(util.contains('.delete('), isFalse);
       expect(util.contains('.set('), isFalse);
       expect(util.contains('.update('), isFalse);
-      expect(RegExp(r"collection\('([a-zA-Z-]+)'\)").allMatches(util).map((m) => m.group(1)).toSet(), {'scorecard', 'byCategory', 'byGender'}, reason: 'the directory comes from the server now; results are read from the byCategory (or, for FOLK, the older byGender) document of the student own category and gender');
+      expect(RegExp(r"collection\('([a-zA-Z-]+)'\)").allMatches(util).map((m) => m.group(1)).toSet(), {'scorecard', 'competition', 'byCategory', 'byGender'}, reason: 'the directory comes from the server now; results are read from the byCategory (or, for FOLK, the older byGender) document of the student own category and gender');
     });
   });
 

@@ -187,6 +187,9 @@ class _ChantingScreenState extends State<ChantingScreen>
     WidgetsBinding.instance.addObserver(this);
 
     _restoreSession();
+    // the 30-day strip follows the student's CURRENT category (reports are category-separated)
+    ReportCategory.instance.start();
+    ReportCategory.instance.addListener(_categoryChanged);
     _bootstrap();
     _ensureChimeLoaded();
 
@@ -225,6 +228,7 @@ class _ChantingScreenState extends State<ChantingScreen>
 
   @override
   void dispose() {
+    ReportCategory.instance.removeListener(_categoryChanged);
     WidgetsBinding.instance.removeObserver(this);
     _roundTicker?.cancel();
     _loopSub?.cancel();
@@ -352,6 +356,10 @@ class _ChantingScreenState extends State<ChantingScreen>
 
   /// Single read of everything the screen displays. Called once on open and
   /// again after each completed round.
+  void _categoryChanged() {
+    if (mounted) _refreshStats();
+  }
+
   Future<void> _refreshStats() async {
     try {
       final userDoc =
@@ -362,9 +370,8 @@ class _ChantingScreenState extends State<ChantingScreen>
       final history = <Map<String, dynamic>>[];
 
       if (_name.isNotEmpty) {
-        // Part 1 item 4 / Part 3 (history task) — both residence
-        // collections, merged by date, never one picked by current role.
-        final merged = await fetchMergedDateReports(_name);
+        // Category-separated reports: the collection of the student's CURRENT category only.
+        final merged = await fetchDateReports(_name);
 
         // Date documents are keyed "dd-MM-yyyy", which does not sort
         // chronologically, so index them and walk real dates instead.

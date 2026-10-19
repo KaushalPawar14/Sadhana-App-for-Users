@@ -1,55 +1,111 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show ChangeNotifier, visibleForTesting;
 
-/// Reads a student's sadhana report HISTORY across both residence-scoped
-/// collections, merged by date — Master Task 2026-09-11, "Read reports from
-/// both collections so history survives a residence change."
+/// Reads a student's sadhana report HISTORY from the collection of his CURRENT category ONLY.
 ///
 /// ---------------------------------------------------------------------------
-/// Why this exists
+/// ⚠️ Reports are CATEGORY-SEPARATED (product-owner decision; it replaces the earlier
+/// "merge both collections so history survives a residence change" rule)
 /// ---------------------------------------------------------------------------
-/// A report lives in `sadhana-reports` (FOLK) or `hostel-sadhana` (Hostel /
-/// Localite) depending on the student's residence AT THE TIME they submitted
-/// it. Switching residence later (`Guides/.../StudentProfilePage.dart`) never
-/// moves any existing report (Rule 14/15) — it only changes which collection
-/// FUTURE reports land in. A read that picks ONE collection based on the
-/// student's CURRENT role therefore silently loses every report filed under
-/// the other one. Every place in this app that reads a student's report
-/// HISTORY (as opposed to writing today's own report, or checking only
-/// today's own date — those still only ever need today's own current-role
-/// collection) must read BOTH and merge. This file is the ONE place that
-/// merge logic lives, so the rule below is enforced in a single spot rather
-/// than re-implemented at each read site.
+/// A report lives in `sadhana-reports` (FOLK) or `hostel-sadhana` (Hostel / Localite) depending on the
+/// student's category when he filed it. A student's data is read ONLY from the collection of his
+/// CURRENT category: the calendar, the days-submitted and streak tiles, the day pop-up, the Insights
+/// graphs and statistics. The other category's reports are simply not read: those days show as not
+/// submitted, and everything counts from zero. NOTHING is deleted or moved, so when a guide switches
+/// him back, that category's saved reports show again.
 ///
-/// ---------------------------------------------------------------------------
-/// ⚠️ One report per date, never summed (Part 2 of that task)
-/// ---------------------------------------------------------------------------
-/// A student can only ever have submitted ONE report for a given calendar
-/// day — whichever collection matched their role at the time. So a given
-/// date-doc-id can only genuinely exist in ONE of these two collections for
-/// one student; it is never legitimate for both to hold real data for the
-/// same date. Every function below merges BY DATE — at most one document per
-/// date — and never sums or combines two collections' values for the same
-/// date. If a date-id is ever somehow present in both (a data anomaly, not
-/// something normal use produces), `sadhana-reports` wins and the
-/// `hostel-sadhana` copy for that date is dropped entirely, never merged
-/// field-by-field.
+/// The category follows the student's profile LIVE ([ReportCategory]): when a guide changes it, every
+/// screen reading through this file switches at once - no restart.
 ///
-/// ---------------------------------------------------------------------------
-/// Field differences are expected (Part 3 item 2)
-/// ---------------------------------------------------------------------------
-/// A FOLK-era day's document carries different fields (temple entry, daily
-/// services) than a Hostel/Localite-era one (wake-up time). Every caller
-/// already reads fields defensively (`data.containsKey(...)`) rather than
-/// assuming a fixed shape, and that continues to be the right approach —
-/// this file returns each date's document exactly as stored, never
-/// synthesising or dropping fields.
-const List<String> kSadhanaReportCollections = [
-  'sadhana-reports',
-  'hostel-sadhana',
-];
+/// Not affected: the all-time best figures on the Profile (best rounds / best reading) stay all-time.
+const String kFolkReports = 'sadhana-reports';
+const String kHostelReports = 'hostel-sadhana';
+
+/// The report collection of a category, from the residence role: Hostel and Localite -> `hostel-sadhana`;
+/// everyone else (FOLK, or no role yet) -> `sadhana-reports`.
+String reportCollectionForRole(String? role) {
+  final r = (role ?? '').trim();
+  return r == 'Stay at Hostel' || r == 'Stay at Localite' ? kHostelReports : kFolkReports;
+}
+
+/// The signed-in student's CURRENT report collection, kept live from `users/{uid}.role`.
+/// Screens read [collection] and listen to this notifier to reload when a guide changes the category.
+class ReportCategory extends ChangeNotifier {
+  ReportCategory._();
+  static final ReportCategory instance = ReportCategory._();
+
+  String? _role;
+  String? _uid;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _sub;
+  Completer<void>? _first;
+
+  /// `sadhana-reports` or `hostel-sadhana`.
+  String get collection => reportCollectionForRole(_role);
+  bool get isHostelLocalite => collection == kHostelReports;
+  String? get role => _role;
+
+  /// Starts following the signed-in student's profile (once per sign-in; safe to call again).
+  void start({FirebaseFirestore? firestore, String? uid}) {
+    try {
+      final id = uid ?? FirebaseAuth.instance.currentUser?.uid;
+      if (id == null) return;
+      if (_sub != null && _uid == id) return;
+      _sub?.cancel();
+      _uid = id;
+      _first = Completer<void>();
+      _sub = (firestore ?? FirebaseFirestore.instance).collection('users').doc(id).snapshots().listen((snap) {
+        _apply(snap.data()?['role']?.toString());
+        if (!(_first?.isCompleted ?? true)) _first!.complete();
+      }, onError: (Object _) {
+        if (!(_first?.isCompleted ?? true)) _first!.complete();
+      });
+    } catch (_) {
+      // Firebase is not up (a test, or very early start-up): the role this screen was built with is used.
+      _sub = null;
+      _first = null;
+    }
+  }
+
+  /// Waits (briefly) for the first answer, so a first read already uses the right collection.
+  Future<void> ready({Duration timeout = const Duration(seconds: 3)}) async {
+    if (_sub == null) start();
+    final f = _first?.future;
+    if (f == null) return;
+    await f.timeout(timeout, onTimeout: () {});
+  }
+
+  void _apply(String? role) {
+    final before = collection;
+    _role = role;
+    if (collection != before) notifyListeners();
+  }
+
+  void stop() {
+    _sub?.cancel();
+    _sub = null;
+    _uid = null;
+    _role = null;
+  }
+
+  /// Tests set the category directly (and may change it to simulate a guide switching it).
+  @visibleForTesting
+  void debugSetRole(String? role) {
+    _sub?.cancel();
+    _sub = null;
+    _first = Completer<void>()..complete();
+    _apply(role);
+  }
+
+  @visibleForTesting
+  void debugReset() {
+    stop();
+    _first = null;
+    _role = null;
+  }
+}
 
 CollectionReference<Map<String, dynamic>> _datesRef(
   String collection,
@@ -61,90 +117,77 @@ CollectionReference<Map<String, dynamic>> _datesRef(
       .collection('dates');
 }
 
-/// Every date-doc for [studentName] across both collections, merged so at
-/// most one document exists per date (first collection in
-/// [kSadhanaReportCollections] wins on the — not expected in practice —
-/// event of a real collision). Two reads total, regardless of how much
-/// history exists (Part 3 item 4).
-Future<Map<String, Map<String, dynamic>>> fetchMergedDateReports(
-  String studentName,
-) async {
+/// Every date-doc for [studentName] in his CURRENT category's collection (one read). [collection] is for
+/// tests; the app lets the live category decide.
+Future<Map<String, Map<String, dynamic>>> fetchDateReports(
+  String studentName, {
+  String? collection,
+}) async {
   final merged = <String, Map<String, dynamic>>{};
   if (studentName.isEmpty) return merged;
-  for (final collection in kSadhanaReportCollections) {
-    final snap = await _datesRef(collection, studentName).get();
-    for (final doc in snap.docs) {
-      merged.putIfAbsent(doc.id, () => doc.data());
-    }
+  if (collection == null) await ReportCategory.instance.ready();
+  final snap = await _datesRef(collection ?? ReportCategory.instance.collection, studentName).get();
+  for (final doc in snap.docs) {
+    merged[doc.id] = doc.data();
   }
   return merged;
 }
 
-/// One specific date's report, checked across both collections — null if
-/// neither has it. Never sums or combines two documents for the same date
-/// (see this file's header): at most one collection can genuinely have it,
-/// so the first hit is returned as-is.
-Future<Map<String, dynamic>?> fetchMergedDateReport(
+/// One specific date's report from his CURRENT category's collection - null if he has none there (a report
+/// filed under the other category does not count).
+Future<Map<String, dynamic>?> fetchDateReport(
   String studentName,
-  String dateId,
-) async {
+  String dateId, {
+  String? collection,
+}) async {
   if (studentName.isEmpty) return null;
-  for (final collection in kSadhanaReportCollections) {
-    final doc = await _datesRef(collection, studentName).doc(dateId).get();
-    if (doc.exists) return doc.data();
-  }
-  return null;
+  if (collection == null) await ReportCategory.instance.ready();
+  final doc = await _datesRef(collection ?? ReportCategory.instance.collection, studentName).doc(dateId).get();
+  return doc.exists ? doc.data() : null;
 }
 
-/// Live "which dates have a report" set, combined from both collections'
-/// own `.snapshots()` streams — for calendar day-colouring, where a
-/// one-shot read would miss a report arriving while the screen stays open.
-/// A plain set union: a student's own date-doc only ever lives in one of
-/// the two collections, so there is nothing to reconcile between them.
+/// Live "which dates have a report" set from his CURRENT category's collection, for the calendar's
+/// day-colouring. It FOLLOWS the category: when a guide changes it, the stream switches to the new
+/// collection by itself (the other category's days turn red, the new category's saved days appear).
 ///
-/// LOGIC CHANGE: an error from EITHER collection's stream is now forwarded to
-/// the listener (`onError`). Before, it was dropped, so the merged stream never
-/// emitted and the Calendar sat on its loading ghost forever. [snapshotsFor] is
-/// for tests only; the app never passes it.
-Stream<Set<String>> mergedAvailableDatesStream(
+/// An error from the collection's stream is forwarded to the listener (`onError`), so the Calendar shows
+/// its Retry instead of sitting on its loading ghost. [snapshotsFor] is for tests only; the app never passes it.
+Stream<Set<String>> availableDatesStream(
   String studentName, {
   @visibleForTesting
-  Stream<QuerySnapshot<Map<String, dynamic>>> Function(String collection)?
-      snapshotsFor,
+  Stream<QuerySnapshot<Map<String, dynamic>>> Function(String collection)? snapshotsFor,
 }) {
+  if (studentName.isEmpty) {
+    return Stream<Set<String>>.value(<String>{});
+  }
   late StreamController<Set<String>> controller;
-  final latest = <String, Set<String>>{};
-  final subs = <StreamSubscription>[];
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? inner;
+  String? current;
 
-  void emit() {
-    if (latest.length < kSadhanaReportCollections.length) return;
-    controller.add(latest.values.expand((s) => s).toSet());
+  void listenCollection() {
+    final collection = ReportCategory.instance.collection;
+    if (collection == current && inner != null) return;
+    current = collection;
+    inner?.cancel();
+    inner = (snapshotsFor?.call(collection) ?? _datesRef(collection, studentName).snapshots()).listen((snap) {
+      controller.add(snap.docs.map((d) => d.id).toSet());
+    }, onError: (Object error, StackTrace stackTrace) {
+      controller.addError(error, stackTrace);
+    });
   }
 
   controller = StreamController<Set<String>>.broadcast(
     onListen: () {
-      for (final collection in kSadhanaReportCollections) {
-        subs.add(
-          (snapshotsFor?.call(collection) ??
-                  _datesRef(collection, studentName).snapshots())
-              .listen((snap) {
-            latest[collection] = snap.docs.map((d) => d.id).toSet();
-            emit();
-          }, onError: (Object error, StackTrace stackTrace) {
-            controller.addError(error, stackTrace);
-          }),
-        );
-      }
+      if (snapshotsFor == null) ReportCategory.instance.start();
+      ReportCategory.instance.addListener(listenCollection);
+      listenCollection();
     },
     onCancel: () {
-      for (final s in subs) {
-        s.cancel();
-      }
+      ReportCategory.instance.removeListener(listenCollection);
+      inner?.cancel();
+      inner = null;
+      current = null;
     },
   );
-
-  if (studentName.isEmpty) {
-    return Stream<Set<String>>.value(<String>{});
-  }
   return controller.stream;
 }

@@ -106,13 +106,11 @@ void main() {
       expect(currentStreak(dates: dates, today: DateTime(2027, 1, 1)), 3);
     });
 
-    test('the merge code is byte-identical: SadhanaReportSource.dart is unchanged', () {
-      final before = File('D:/tmp-fl/g9before/SadhanaReportSource.dart.before');
-      if (before.existsSync()) {
-        // line endings differ between the working copy and the saved copy; the code must not
-        String norm(List<int> b) => String.fromCharCodes(b).replaceAll('\r\n', '\n');
-        expect(norm(File('lib/utils/SadhanaReportSource.dart').readAsBytesSync()), norm(before.readAsBytesSync()));
-      }
+    test('reports are category-separated: the source reads ONE collection (the current category), never both merged', () {
+      final src = File('lib/utils/SadhanaReportSource.dart').readAsStringSync();
+      expect(src, contains('CATEGORY-SEPARATED'));
+      expect(src.contains('kSadhanaReportCollections'), isFalse, reason: 'no loop over both collections any more');
+      expect(src.contains('putIfAbsent'), isFalse, reason: 'no merge by date');
     });
   });
 
@@ -221,7 +219,7 @@ void main() {
 
     testWidgets('no new reads: the calendar still takes the one dates stream, and nothing else is read for the tiles (source check)', (tester) async {
       final src = File('lib/pages/Calendar.dart').readAsStringSync();
-      expect(src, contains('mergedAvailableDatesStream(widget.username)'));
+      expect(src, contains('availableDatesStream(widget.username)'));
       final tiles = File('lib/widgets/SadhanaStatTile.dart').readAsStringSync() + File('lib/utils/SadhanaStats.dart').readAsStringSync();
       expect(tiles.contains('Firestore'), isFalse);
       expect(tiles.contains('SharedPreferences'), isFalse);
@@ -299,7 +297,7 @@ void main() {
           ['chantRounds', 'bookReading', 'classHearing', 'dailyServices', 'finishTiming', 'templeEntry', 'classHearing', 'dailyServices']);
     });
 
-    test('graphs whose fields do not exist for the student are skipped', () {
+    test('the graph set follows the CURRENT category: FOLK all eight; Hostel / Localite no Services, Services split, Temple entry', () {
       final folk = {'01-10-2026': {'chantRounds': 1, 'bookReading': 1, 'classHearing': 1, 'dailyServices': 1, 'templeEntry': '05:00', 'finishTiming': '10:00'}};
       final hostel = {'01-10-2026': {'wakeUpTime': '05:00', 'chantRounds': 1, 'bookReading': 1, 'classHearing': 1, 'finishTiming': '10:00'}};
       expect(applicableGraphs(folk, 'Stay at FOLK').length, 8);
@@ -307,8 +305,9 @@ void main() {
       // no reports yet: the graphs of the student's own form
       expect(applicableGraphs({}, 'Stay at FOLK').length, 8);
       expect(applicableGraphs({}, 'Stay at Localite').map((g) => g.id), ['chanting', 'reading', 'hearing', 'finish', 'hearingPie']);
-      // history across a residence change keeps the FOLK-only graphs
-      expect(applicableGraphs({...folk, '02-10-2026': hostel.values.first}, 'Stay at Hostel').length, 8);
+      // the category decides, not what an old report happens to hold
+      expect(applicableGraphs({...folk, '02-10-2026': hostel.values.first}, 'Stay at Hostel').length, 5);
+      expect(applicableGraphs(hostel, 'Stay at FOLK').length, 8);
     });
   });
 
@@ -503,7 +502,7 @@ void main() {
       expect(tester.widget<InsightBars>(find.byType(InsightBars)).bars.length, 7);
     });
 
-    testWidgets('only graphs the student has data for: a Hostel student has no Services or Temple entry', (tester) async {
+    testWidgets('the graph set follows the category: a Hostel student has no Services, Services split or Temple entry', (tester) async {
       await pumpPage(tester, role: 'Stay at Hostel');
       // walk the whole loop and collect the names
       final names = <String>[];
@@ -512,7 +511,7 @@ void main() {
         await tester.drag(find.byType(PageView), const Offset(-320, 0));
         await tester.pumpAndSettle();
       }
-      expect(names.take(4), ['Chanting rounds', 'Class hearing', 'Class hearing', 'Chanting rounds'], reason: 'only the graphs with data, then it loops');
+      expect(names, ['Chanting rounds', 'Reading (minutes)', 'Class hearing', 'Chanting finish time', 'Class hearing', 'Chanting rounds'], reason: 'the five Hostel / Localite graphs, then it loops');
     });
 
     testWidgets('a failed read shows a message and Try again (never a loader forever)', (tester) async {

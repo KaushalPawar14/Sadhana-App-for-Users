@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/UpdateToken.dart';
 import '../utils/Commitments.dart';
+import '../utils/SadhanaReportSource.dart' show ReportCategory;
 import '../widgets/CommitmentDialog.dart';
 import '../utils/SameGender.dart';
 import 'package:folk_app/pages/MyCompetitions.dart';
@@ -655,6 +656,7 @@ void showLogoutDialog(BuildContext context) {
                 // can never arrive for whoever signs in next.
                 await clearFCMToken();
                 GenderDirectory.reset();
+                ReportCategory.instance.stop();
                 await GoogleSignIn().signOut();
                 await FirebaseAuth.instance.signOut();
                 // Close the dialog first — it lives on the OUTER/root

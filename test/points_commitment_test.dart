@@ -18,7 +18,7 @@ import 'text_scale_test.dart' show scales, loadAppFonts;
 Map<String, dynamic> vectors() =>
     jsonDecode(File('test/fixtures/scoring_vectors.json').readAsStringSync()) as Map<String, dynamic>;
 
-Future<Commitments> Function() commits({int rounds = 16, int? reading}) =>
+Future<Commitments> Function() commits({int rounds = 16, int? reading = 0}) =>
     () async => Commitments(rounds: rounds, readingMinutes: reading);
 
 void main() {
@@ -98,7 +98,7 @@ void main() {
       final saves = <Object>[];
       phone(tester);
       await tester.pumpWidget(app(QuestionsPage(
-        loadCommitments: commits(reading: readingCommit),
+        loadCommitments: commits(reading: readingCommit ?? 0),
         saveReport: (r, d, e) async => saves.add([r.chantRounds, r.bookReading, e]),
       )));
       await tester.pump();
@@ -142,10 +142,8 @@ void main() {
       expect(saves.length, 1);
     });
 
-    testWidgets('a reading commitment of 0 (or not set) never asks about reading', (tester) async {
+    testWidgets('a reading commitment of 0 never asks about reading (not set: the mandatory box, below)', (tester) async {
       var saves = await run(tester, rounds: '16', book: '600', readingCommit: 0, expectDialog: false);
-      expect(saves.length, 1);
-      saves = await run(tester, rounds: '16', book: '600', readingCommit: null, expectDialog: false);
       expect(saves.length, 1);
     });
 
@@ -317,7 +315,7 @@ void main() {
       final ctx = await host(tester);
       final saved = <CommitmentChoice>[];
       var tries = 0;
-      final done = askForReadingCommitmentIfMissing(
+      final done = askForCommitmentsIfMissing(
         ctx,
         load: () async => const Commitments(),
         save: (c) async {
@@ -344,9 +342,162 @@ void main() {
     testWidgets('already set (even to 0): never asks', (tester) async {
       resetCommitmentPromptForTests();
       final ctx = await host(tester);
-      await askForReadingCommitmentIfMissing(ctx, load: () async => const Commitments(readingMinutes: 0));
+      await askForCommitmentsIfMissing(ctx, load: () async => const Commitments(readingMinutes: 0));
       await tester.pumpAndSettle();
       expect(find.textContaining('If you\'re a beginner'), findsNothing);
+    });
+  });
+
+  group('both commitments are mandatory', () {
+    test('what counts as missing: no chanting commitment, or no reading commitment', () {
+      expect(Commitments.fromUser({}).complete, false);
+      expect(Commitments.fromUser({'commitmentRounds': 16}).complete, false, reason: 'reading missing');
+      expect(Commitments.fromUser({'readingCommitmentMinutes': 0}).complete, false, reason: 'chanting missing');
+      expect(Commitments.fromUser({'commitmentRounds': 16, 'readingCommitmentMinutes': 0}).complete, true, reason: '0 reading is set');
+      expect(Commitments.fromUser({'commitmentRounds': 0, 'readingCommitmentMinutes': 30}).complete, false, reason: '0 rounds is not a commitment');
+      expect(Commitments.fromUser({}).rounds, 16, reason: 'scoring still uses the standard 16 until it is set');
+    });
+
+    test('chanting is a whole number of 1 or more', () {
+      expect(parseChantCommitment('16'), 16);
+      expect(parseChantCommitment('1'), 1);
+      for (final bad in ['', '0', '-3', '2.5', 'x', '1000']) {
+        expect(parseChantCommitment(bad), isNull, reason: bad);
+      }
+    });
+
+    Future<void> open(WidgetTester tester, Commitments current, void Function(CommitmentChoice?) done) async {
+      phone(tester, 1.0);
+      late BuildContext ctx;
+      await tester.pumpWidget(app(Builder(builder: (c) {
+        ctx = c;
+        return const Scaffold(body: SizedBox());
+      })));
+      showCommitmentDialog(ctx, current: current, mandatory: true).then(done);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('only chanting missing: asks only for chanting; 0 rounds is refused', (tester) async {
+      CommitmentChoice? got;
+      await open(tester, const Commitments(roundsSet: false, readingMinutes: 30), (v) => got = v);
+      expect(find.byKey(const ValueKey('commitment-rounds')), findsOneWidget);
+      expect(find.byKey(const ValueKey('commitment-reading')), findsNothing);
+      await tester.enterText(find.byKey(const ValueKey('commitment-rounds')), '0');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(find.text('Enter a whole number of rounds, 1 or more'), findsOneWidget);
+      expect(got, isNull);
+      await tester.enterText(find.byKey(const ValueKey('commitment-rounds')), '8');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(got?.rounds, 8);
+      expect(got?.readingMinutes, isNull, reason: 'reading is left alone');
+    });
+
+    testWidgets('both missing: both fields, both required, 0 reading accepted', (tester) async {
+      CommitmentChoice? got;
+      await open(tester, const Commitments(roundsSet: false), (v) => got = v);
+      expect(find.byKey(const ValueKey('commitment-rounds')), findsOneWidget);
+      expect(find.byKey(const ValueKey('commitment-reading')), findsOneWidget);
+      expect(find.textContaining('you can enter 0'), findsOneWidget);
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(find.text('Enter a whole number of rounds, 1 or more'), findsOneWidget);
+      expect(find.textContaining('Enter minutes from 0 to 1440'), findsOneWidget);
+      expect(got, isNull);
+      await tester.enterText(find.byKey(const ValueKey('commitment-rounds')), '16');
+      await tester.enterText(find.byKey(const ValueKey('commitment-reading')), '0');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(got?.rounds, 16);
+      expect(got?.readingMinutes, 0);
+    });
+
+    testWidgets('app open: asks for what is missing and stops when both are saved', (tester) async {
+      resetCommitmentPromptForTests();
+      phone(tester, 1.0);
+      late BuildContext ctx;
+      await tester.pumpWidget(app(Builder(builder: (c) {
+        ctx = c;
+        return const Scaffold(body: SizedBox());
+      })));
+      final saved = <CommitmentChoice>[];
+      final done = askForCommitmentsIfMissing(ctx,
+          load: () async => const Commitments(roundsSet: false),
+          save: (c) async {
+            saved.add(c);
+            return true;
+          });
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const ValueKey('commitment-rounds')), '12');
+      await tester.enterText(find.byKey(const ValueKey('commitment-reading')), '20');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      await done;
+      expect(saved.single.rounds, 12);
+      expect(saved.single.readingMinutes, 20);
+      expect(find.byType(AlertDialog), findsNothing);
+    });
+
+    testWidgets('app open: complete commitments are never asked again', (tester) async {
+      resetCommitmentPromptForTests();
+      phone(tester, 1.0);
+      late BuildContext ctx;
+      await tester.pumpWidget(app(Builder(builder: (c) {
+        ctx = c;
+        return const Scaffold(body: SizedBox());
+      })));
+      await askForCommitmentsIfMissing(ctx, load: () async => const Commitments(readingMinutes: 0));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+    });
+
+    testWidgets('before the FOLK form is saved: missing commitments are asked first, then the report saves', (tester) async {
+      final saves = <int>[];
+      final committed = <CommitmentChoice>[];
+      phone(tester, 1.0);
+      await tester.pumpWidget(app(QuestionsPage(
+        loadCommitments: () async => const Commitments(roundsSet: false),
+        saveCommitment: (c) async {
+          committed.add(c);
+          return true;
+        },
+        saveReport: (r, d, e) async => saves.add(r.chantRounds),
+      )));
+      await tester.pump();
+      await fillFolk(tester);
+      await tapSubmit(tester);
+      await tester.pumpAndSettle();
+      expect(saves, isEmpty, reason: 'nothing is saved before the commitments');
+      expect(find.byKey(const ValueKey('commitment-rounds')), findsOneWidget);
+      await tester.enterText(find.byKey(const ValueKey('commitment-rounds')), '16');
+      await tester.enterText(find.byKey(const ValueKey('commitment-reading')), '30');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 4));
+      expect(committed.single.rounds, 16);
+      expect(saves, [16], reason: 'the report is saved right after');
+    });
+
+    testWidgets('before the Hostel and Localite form is saved: the same', (tester) async {
+      final saves = <int>[];
+      phone(tester, 1.0);
+      await tester.pumpWidget(app(SadhanaPage(
+        loadCommitments: () async => const Commitments(roundsSet: false),
+        saveCommitment: (c) async => true,
+        saveReport: (r, d) async => saves.add(r.chantRounds),
+      )));
+      await tester.pump();
+      await fillHostel(tester);
+      await tapSubmit(tester);
+      await tester.pumpAndSettle();
+      expect(saves, isEmpty);
+      await tester.enterText(find.byKey(const ValueKey('commitment-rounds')), '16');
+      await tester.enterText(find.byKey(const ValueKey('commitment-reading')), '0');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 4));
+      expect(saves, [16]);
     });
   });
 }

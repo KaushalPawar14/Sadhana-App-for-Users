@@ -7,11 +7,15 @@ import 'package:flutter/material.dart';
 /// the server (functions/scoring.js) - this file only asks the typo question and
 /// shows the commitment.
 class Commitments {
-  const Commitments({this.rounds = kDefaultChantCommitment, this.readingMinutes});
+  const Commitments({this.rounds = kDefaultChantCommitment, this.readingMinutes, this.roundsSet = true});
 
-  /// Rounds a day. Missing (older profiles) counts as the standard 16 - exactly
-  /// what the server does.
+  /// Rounds a day. Missing (older profiles) counts as the standard 16 for scoring and
+  /// for the typo check - exactly what the server does - until the student sets it
+  /// ([roundsSet] false: the app asks).
   final int rounds;
+
+  /// False when the profile has no chanting commitment saved yet.
+  final bool roundsSet;
 
   /// Minutes of reading a day. Null = not set yet; 0 = a beginner (any reading
   /// scores a flat 50).
@@ -19,11 +23,15 @@ class Commitments {
 
   bool get readingSet => readingMinutes != null;
 
+  /// Both commitments are saved: nothing to ask.
+  bool get complete => roundsSet && readingSet;
+
   factory Commitments.fromUser(Map<String, dynamic>? user) {
     final r = user?['commitmentRounds'];
     final m = user?['readingCommitmentMinutes'];
     return Commitments(
       rounds: r is num && r > 0 ? r.toInt() : kDefaultChantCommitment,
+      roundsSet: r is num && r > 0,
       readingMinutes: m is num && m >= 0 ? m.toInt() : null,
     );
   }
@@ -38,6 +46,16 @@ const int kTypoFactor = 4;
 /// (the same bounds the rules enforce). Null = not a valid entry.
 const int kMaxReadingCommitment = 1440;
 
+/// The chanting commitment is a whole number of rounds, at least 1 (and a sane most).
+const int kMaxChantCommitment = 192;
+
+int? parseChantCommitment(String text) {
+  final t = text.trim();
+  if (t.isEmpty || !RegExp(r'^\d{1,3}$').hasMatch(t)) return null;
+  final v = int.parse(t);
+  return v >= 1 && v <= kMaxChantCommitment ? v : null;
+}
+
 int? parseReadingCommitment(String text) {
   final t = text.trim();
   if (t.isEmpty || !RegExp(r'^\d{1,4}$').hasMatch(t)) return null;
@@ -50,19 +68,20 @@ int? parseReadingCommitment(String text) {
 bool looksLikeTypo(num entered, num commitment) =>
     commitment > 0 && entered > kTypoFactor * commitment;
 
-/// Reads the signed-in student's commitments. Any failure gives the defaults, so
-/// a form is never blocked by this.
+/// Reads the signed-in student's commitments. A failed read (offline) gives a COMPLETE
+/// answer built from the defaults, so a form is never blocked by a read that failed;
+/// the next successful read asks for whatever is really missing.
 Future<Commitments> loadMyCommitments() async {
   try {
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return const Commitments();
+    if (user == null) return const Commitments(readingMinutes: 0);
     final doc = await FirebaseFirestore.instance
         .collection('users')
         .doc(user.uid)
         .get();
     return Commitments.fromUser(doc.data());
   } catch (_) {
-    return const Commitments();
+    return const Commitments(readingMinutes: 0);
   }
 }
 

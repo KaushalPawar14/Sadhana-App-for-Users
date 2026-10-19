@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:folk_app/models/HostelSadhana.dart';
 import 'package:folk_app/theme/FolkTheme.dart';
 import 'package:folk_app/utils/Commitments.dart';
+import 'package:folk_app/widgets/CommitmentDialog.dart';
 import 'package:folk_app/utils/SadhanaSave.dart';
 import 'package:folk_app/utils/Snackbar.dart';
 import 'package:intl/intl.dart';
@@ -19,6 +20,7 @@ class SadhanaPage extends StatefulWidget {
     this.saveTimeout = kSadhanaSaveTimeout,
     this.initialDate,
     this.loadCommitments,
+    this.saveCommitment,
   });
 
   // A missed day tapped on the calendar opens the form with that date already in the
@@ -39,6 +41,8 @@ class SadhanaPage extends StatefulWidget {
   // Tests hand in the commitments; the app reads them from the student's profile.
   @visibleForTesting
   final Future<Commitments> Function()? loadCommitments;
+  @visibleForTesting
+  final Future<bool> Function(CommitmentChoice)? saveCommitment;
 
   @override
   State<SadhanaPage> createState() => SadhanaPageState();
@@ -129,8 +133,13 @@ class SadhanaPageState extends State<SadhanaPage> {
     _errors.clear();
 
     // Typo guard (no cap on the points): far more than the commitment asks first.
-    final commitments = await (widget.loadCommitments ?? loadMyCommitments)();
+    var commitments = await (widget.loadCommitments ?? loadMyCommitments)();
     if (!mounted) return;
+    // Before a report is filed both commitments must be saved: the points are measured against them.
+    if (!commitments.complete) {
+      commitments = await ensureCommitments(context, commitments, save: widget.saveCommitment);
+      if (!mounted) return;
+    }
     if (looksLikeTypo(roundsValue!, commitments.rounds) &&
         !await confirmUnusualAmount(context,
             what: 'Rounds chanted', entered: roundsValue, unit: 'rounds')) {

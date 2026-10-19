@@ -77,21 +77,13 @@ const List<InsightGraphSpec> kInsightGraphs = [
 bool isHostelForm(String role) =>
     role == 'Stay at Hostel' || role == 'Stay at Localite';
 
-// The graphs that apply to this student: those whose field exists in their
-// reports. A student with no reports yet gets the graphs of their own form
-// (the FOLK form has temple entry and daily services; the Hostel / Localite
-// form has neither).
+// The graphs that apply to this student are set by his CURRENT CATEGORY (reports are category-separated,
+// so the reports given here are the ones of that category only): FOLK gets all eight; Hostel and Localite
+// get no Daily services, no Daily services split and no Temple entry (their form does not have them).
 List<InsightGraphSpec> applicableGraphs(Reports reports, String role) {
-  bool has(String field) => reports.values.any((r) => r.containsKey(field));
-  if (reports.isEmpty) {
-    return [
-      for (final g in kInsightGraphs)
-        if (!(g.folkOnly && isHostelForm(role))) g,
-    ];
-  }
   return [
     for (final g in kInsightGraphs)
-      if (has(g.field)) g,
+      if (!(g.folkOnly && isHostelForm(role))) g,
   ];
 }
 

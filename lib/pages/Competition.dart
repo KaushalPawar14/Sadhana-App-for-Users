@@ -56,6 +56,16 @@ class _CompetitionPageState extends State<CompetitionPage> {
   @override
   void initState() {
     super.initState();
+    // The graphs follow the student's CURRENT category live: when a guide changes it, the other category's
+    // reports stop counting and the graph set changes, at once.
+    if (widget.loadReports == null) ReportCategory.instance.start();
+    ReportCategory.instance.addListener(_categoryChanged);
+    _load();
+  }
+
+  void _categoryChanged() {
+    if (!mounted) return;
+    setState(() => _reports = null); // the ghost, until the new category's reports are read
     _load();
   }
 
@@ -82,17 +92,17 @@ class _CompetitionPageState extends State<CompetitionPage> {
 
   @override
   void dispose() {
+    ReportCategory.instance.removeListener(_categoryChanged);
     _tickerMode?.removeListener(_shown);
     super.dispose();
   }
 
-  // The student's own reports, both residence collections merged by date (the
-  // one existing read).
+  // The student's own reports from the collection of his CURRENT category (one read).
   Future<void> _load() async {
     _fetchedAt = _today();
     try {
       final name = widget.username.trim();
-      final reports = await (widget.loadReports ?? fetchMergedDateReports)(name);
+      final reports = await (widget.loadReports ?? fetchDateReports)(name);
       if (!mounted) return;
       setState(() {
         _reports = reports;
@@ -171,7 +181,7 @@ class _CompetitionPageState extends State<CompetitionPage> {
             FolkSpace.cardGap) /
         2;
     final reports = _reports;
-    final graphs = reports == null ? kInsightGraphs.toList() : applicableGraphs(reports, widget.role);
+    final graphs = reports == null ? kInsightGraphs.toList() : applicableGraphs(reports, ReportCategory.instance.role ?? widget.role);
 
     return Scaffold(
       // The tab host paints the page background (with the top fade).

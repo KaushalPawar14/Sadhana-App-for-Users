@@ -15,6 +15,7 @@ import '../utils/ReadingLanguages.dart';
 import '../utils/SeenMarkers.dart';
 import '../widgets/BookCardActions.dart';
 import '../widgets/BookExtrasRow.dart';
+import '../utils/SadhanaReportSource.dart' show ReportCategory, reportCollectionForRole;
 import '../widgets/BookLevelSection.dart';
 import '../widgets/CommitmentDateDialog.dart';
 import '../widgets/CompletedBookTile.dart';
@@ -275,10 +276,10 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
     if (name == null || name.isEmpty) return;
 
     // Localites (Master Task, 2026-09-03) behave exactly like Hostel here.
-    final collectionName =
-        (_role == 'Stay at Hostel' || _role == 'Stay at Localite')
-            ? 'hostel-sadhana'
-            : 'sadhana-reports';
+    // the student's CURRENT category (live), else the role this screen loaded
+    final collectionName = ReportCategory.instance.role != null
+        ? ReportCategory.instance.collection
+        : reportCollectionForRole(_role);
 
     final docRef = _firestore
         .collection(collectionName)

@@ -175,10 +175,10 @@ void main() {
 
   group('Hostel & Localite boards draw without overflow, light and dark, text 1.0 / 1.3 / 1.6', () {
     final hl = <String, Map<String, dynamic>>{
-      'Hari Prasad Das Very Long Name Here': {'totalChantRounds': 70, 'totalBookRead': 30, 'totalSBClass': 9},
-      'Hans': {'totalChantRounds': 60, 'totalBookRead': 20, 'totalSBClass': 8},
-      'Hira': {'totalChantRounds': 50, 'totalBookRead': 10, 'totalSBClass': 7},
-      'Hiren': {'totalChantRounds': 40, 'totalBookRead': 5, 'totalSBClass': 6},
+      'Hari Prasad Das Very Long Name Here': {'weekly.pts_chanting': 70, 'weekly.pts_reading': 30, 'weekly.pts_class': 9},
+      'Hans': {'weekly.pts_chanting': 60, 'weekly.pts_reading': 20, 'weekly.pts_class': 8},
+      'Hira': {'weekly.pts_chanting': 50, 'weekly.pts_reading': 10, 'weekly.pts_class': 7},
+      'Hiren': {'weekly.pts_chanting': 40, 'weekly.pts_reading': 5, 'weekly.pts_class': 6},
     };
     Future<Map<String, Map<String, dynamic>>> read() async => hl;
     for (final dark in [false, true]) {
@@ -187,9 +187,9 @@ void main() {
           phone(tester, scale);
           GenderDirectory.useForTests(() async => dir('hostel_localite', 'male'));
           for (final board in <Widget>[
-            Chanting(scorecardReader: read),
-            BookReading(scorecardReader: read),
-            SBclasses(scorecardReader: read),
+            Chanting(reader: read),
+            BookReading(reader: read),
+            SBclasses(reader: read),
           ]) {
             await tester.pumpWidget(host(board, dark: dark));
             await tester.pumpAndSettle();

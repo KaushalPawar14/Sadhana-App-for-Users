@@ -456,49 +456,76 @@ void main() {
   });
 
   // ======================================================== loader 1: the dates stream
-  group('mergedAvailableDatesStream — errors are forwarded', () {
+  group('availableDatesStream — the current category only, errors forwarded', () {
     late StreamController<QuerySnapshot<Map<String, dynamic>>> folk;
     late StreamController<QuerySnapshot<Map<String, dynamic>>> hostel;
 
     Stream<Set<String>> build() {
-      folk = StreamController<QuerySnapshot<Map<String, dynamic>>>();
-      hostel = StreamController<QuerySnapshot<Map<String, dynamic>>>();
-      return mergedAvailableDatesStream('Asha',
-          snapshotsFor: (c) => (c == 'sadhana-reports' ? folk : hostel).stream);
+      folk = StreamController<QuerySnapshot<Map<String, dynamic>>>.broadcast();
+      hostel = StreamController<QuerySnapshot<Map<String, dynamic>>>.broadcast();
+      return availableDatesStream('Asha', snapshotsFor: (c) => (c == 'sadhana-reports' ? folk : hostel).stream);
     }
+
+    setUp(() => ReportCategory.instance.debugSetRole('Stay at FOLK'));
 
     tearDown(() async {
       await folk.close();
       await hostel.close();
+      ReportCategory.instance.debugReset();
     });
 
-    test('both collections answer: the union, once both have', () async {
+    test('a FOLK student: only the FOLK collection counts; the hostel collection is not even listened to', () async {
+      final events = <Set<String>>[];
+      final sub = build().listen(events.add);
+      expect(hostel.hasListener, isFalse);
+      folk.add(FakeSnapshot(['01-10-2026', '02-10-2026']));
+      hostel.add(FakeSnapshot(['03-10-2026']));
+      await Future<void>.delayed(Duration.zero);
+      expect(events.single, {'01-10-2026', '02-10-2026'});
+      await sub.cancel();
+    });
+
+    test('FOLK -> Hostel, live: the other category\'s days vanish at once, new reports count; Hostel -> FOLK: they return', () async {
       final events = <Set<String>>[];
       final sub = build().listen(events.add);
       folk.add(FakeSnapshot(['01-10-2026', '02-10-2026']));
       await Future<void>.delayed(Duration.zero);
-      expect(events, isEmpty, reason: 'waits for both collections, as before');
-      hostel.add(FakeSnapshot(['02-10-2026', '03-10-2026']));
+      expect(events.last, {'01-10-2026', '02-10-2026'});
+
+      ReportCategory.instance.debugSetRole('Stay at Hostel'); // a guide moves him, no restart
       await Future<void>.delayed(Duration.zero);
-      expect(events.single, {'01-10-2026', '02-10-2026', '03-10-2026'});
+      expect(folk.hasListener, isFalse, reason: 'the FOLK collection is no longer read');
+      expect(hostel.hasListener, isTrue);
+      hostel.add(FakeSnapshot(<String>[])); // nothing filed as Hostel yet: every day red, zero submitted
+      await Future<void>.delayed(Duration.zero);
+      expect(events.last, <String>{});
+      hostel.add(FakeSnapshot(['05-10-2026'])); // a new Hostel report counts
+      await Future<void>.delayed(Duration.zero);
+      expect(events.last, {'05-10-2026'});
+
+      ReportCategory.instance.debugSetRole('Stay at Localite'); // Hostel and Localite are one category: no change
+      await Future<void>.delayed(Duration.zero);
+      expect(hostel.hasListener, isTrue);
+
+      ReportCategory.instance.debugSetRole('Stay at FOLK'); // and back: the saved FOLK days return
+      await Future<void>.delayed(Duration.zero);
+      folk.add(FakeSnapshot(['01-10-2026', '02-10-2026']));
+      await Future<void>.delayed(Duration.zero);
+      expect(events.last, {'01-10-2026', '02-10-2026'});
+      expect(hostel.hasListener, isFalse);
       await sub.cancel();
     });
 
-    test('an error from either collection reaches the listener, and no data is invented', () async {
-      for (final failing in ['folk', 'hostel']) {
-        final events = <Set<String>>[];
-        final errors = <Object>[];
-        final sub = build().listen(events.add, onError: errors.add);
-        (failing == 'folk' ? folk : hostel).addError(FirebaseException(plugin: 'cloud_firestore', code: 'permission-denied'));
-        (failing == 'folk' ? hostel : folk).add(FakeSnapshot(['01-10-2026']));
-        await Future<void>.delayed(Duration.zero);
-        expect(errors, hasLength(1), reason: '$failing failing');
-        expect((errors.single as FirebaseException).code, 'permission-denied');
-        expect(events, isEmpty, reason: 'the merge never emits half a picture');
-        await sub.cancel();
-        await folk.close();
-        await hostel.close();
-      }
+    test('an error from the current collection reaches the listener, and no data is invented', () async {
+      final events = <Set<String>>[];
+      final errors = <Object>[];
+      final sub = build().listen(events.add, onError: errors.add);
+      folk.addError(FirebaseException(plugin: 'cloud_firestore', code: 'permission-denied'));
+      await Future<void>.delayed(Duration.zero);
+      expect(errors, hasLength(1));
+      expect((errors.single as FirebaseException).code, 'permission-denied');
+      expect(events, isEmpty);
+      await sub.cancel();
     });
 
     testWidgets('the Calendar shows a friendly line and Retry instead of the ghost or the raw error', (tester) async {

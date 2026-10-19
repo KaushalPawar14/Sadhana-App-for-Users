@@ -130,10 +130,10 @@ void main() {
 
   group('the four score leaderboards', () {
     final screens = <String, Widget Function(ScorecardReader)>{
-      'Chanting': (r) => Chanting(scorecardReader: r),
-      'Bhagavatam class': (r) => SBclasses(scorecardReader: r),
-      'Book reading': (r) => BookReading(scorecardReader: r),
-      'Daily services': (r) => DailyServices(scorecardReader: r),
+      'Chanting': (r) => Chanting(reader: r),
+      'Bhagavatam class': (r) => SBclasses(reader: r),
+      'Book reading': (r) => BookReading(reader: r),
+      'Daily services': (r) => DailyServices(reader: r),
     };
     screens.forEach((name, build) {
       testWidgets('$name: friendly line + Retry, no raw error; Retry reads again', (tester) async {
@@ -144,7 +144,7 @@ void main() {
           calls++;
           if (calls == 1) throw Exception(rawFirestoreError);
           return {
-            'Asha': {'totalChantRounds': 10, 'totalBookRead': 5, 'totalSBClass': 3, 'totalServiceDone': 2},
+            'Asha': {'weekly.pts_chanting': 10, 'weekly.pts_reading': 5, 'weekly.pts_class': 3, 'weekly.pts_service': 2},
           };
         }
 

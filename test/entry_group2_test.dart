@@ -54,7 +54,7 @@ Future<dynamic> openProfile(WidgetTester tester, void Function(dynamic state) se
 }
 
 List<String> labelsOnPage(WidgetTester tester) {
-  const known = ['Full Name', 'Gender', 'Mobile Number', 'Date of Birth', 'How many rounds do you commit to chant daily? (optional)', 'Residence'];
+  const known = ['Full Name', 'Gender', 'Mobile Number', 'Date of Birth', 'How many rounds do you commit to chant daily?', 'How many minutes of reading do you commit to daily? (0 if you are a beginner)', 'Residence'];
   final found = <String, double>{};
   for (final k in known) {
     final f = find.text(k, skipOffstage: false);
@@ -158,7 +158,7 @@ void main() {
             st.confirmed = true;
           }, dark: dark, scale: scale);
           expect(tester.takeException(), isNull, reason: s);
-          expect(labelsOnPage(tester), ['Full Name', 'Mobile Number', 'Date of Birth', 'How many rounds do you commit to chant daily? (optional)', 'Residence']);
+          expect(labelsOnPage(tester), ['Full Name', 'Mobile Number', 'Date of Birth', 'How many rounds do you commit to chant daily?', 'How many minutes of reading do you commit to daily? (0 if you are a beginner)', 'Residence']);
           final name = tester.widget<TextField>(fieldWithHint('Enter your full name'));
           final mobile = tester.widget<TextField>(fieldWithHint('Enter your mobile number'));
           expect(name.enabled, isFalse);
@@ -166,14 +166,14 @@ void main() {
           expect(find.byIcon(Icons.lock_outline_rounded), findsNWidgets(2));
         });
 
-        testWidgets('step 2: date of birth, commitment (optional), residence, Submit — and the same validation messages', (tester) async {
+        testWidgets('step 2: date of birth, both commitments (required), residence, Submit — and the same validation messages', (tester) async {
           await openProfile(tester, (st) {
             st.nameController.text = 'Asha Devi';
             st.mobileController.text = '9876543210';
             st.genderAlreadySaved = true;
             st.confirmed = true;
           }, dark: dark, scale: scale);
-          expect(labelsOnPage(tester), ['Full Name', 'Mobile Number', 'Date of Birth', 'How many rounds do you commit to chant daily? (optional)', 'Residence']);
+          expect(labelsOnPage(tester), ['Full Name', 'Mobile Number', 'Date of Birth', 'How many rounds do you commit to chant daily?', 'How many minutes of reading do you commit to daily? (0 if you are a beginner)', 'Residence']);
           expect(find.text('Confirm'), findsNothing);
           await tester.ensureVisible(find.text('Submit'));
           await tester.tap(find.text('Submit'));
@@ -183,7 +183,15 @@ void main() {
           await tester.ensureVisible(find.text('Submit'));
           await tester.tap(find.text('Submit'));
           await tester.pump();
-          expect(find.text('Enter a whole number greater than 0, or leave blank'), findsOneWidget);
+          expect(find.text('Enter a whole number of rounds, 1 or more'), findsOneWidget);
+          // the reading commitment is required too (0 is fine), and blank is refused
+          expect(find.text('Enter minutes from 0 to 1440 (0 if you are a beginner)'), findsOneWidget);
+          await tester.enterText(fieldWithHint('e.g. 30, or 0'), '0');
+          await tester.enterText(fieldWithHint('e.g. 16'), '16');
+          await tester.tap(find.text('Submit'));
+          await tester.pump();
+          expect(find.text('Enter a whole number of rounds, 1 or more'), findsNothing);
+          expect(find.text('Enter minutes from 0 to 1440 (0 if you are a beginner)'), findsNothing, reason: '0 is a valid reading commitment');
           expect(tester.takeException(), isNull, reason: s);
         });
 
@@ -195,7 +203,7 @@ void main() {
             st.confirmed = true;
             st.isMatched = true;
           }, dark: dark, scale: scale);
-          expect(labelsOnPage(tester), ['Full Name', 'Mobile Number', 'Date of Birth', 'How many rounds do you commit to chant daily? (optional)']);
+          expect(labelsOnPage(tester), ['Full Name', 'Mobile Number', 'Date of Birth', 'How many rounds do you commit to chant daily?', 'How many minutes of reading do you commit to daily? (0 if you are a beginner)']);
         });
 
         testWidgets('the "cannot be changed" dialog layout (the same words in the same dialog frame)', (tester) async {

@@ -717,9 +717,9 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
 
                               const SizedBox(height: FolkSpace.xl),
 
-                              // Chanting commitment — OPTIONAL.
+                              // Chanting commitment — REQUIRED (1 or more).
                               _label(
-                                  'How many rounds do you commit to chant daily? (optional)'),
+                                  'How many rounds do you commit to chant daily?'),
                               const SizedBox(height: FolkSpace.sm),
                               TextFormField(
                                 controller: commitmentRoundsController,
@@ -728,10 +728,8 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
                                 decoration: sadhanaFieldDecoration(context,
                                     hint: 'e.g. 16'),
                                 validator: (val) {
-                                  if (val == null || val.trim().isEmpty) return null;
-                                  final n = int.tryParse(val.trim());
-                                  if (n == null || n <= 0) {
-                                    return 'Enter a whole number greater than 0, or leave blank';
+                                  if (parseChantCommitment(val ?? '') == null) {
+                                    return 'Enter a whole number of rounds, 1 or more';
                                   }
                                   return null;
                                 },
@@ -739,7 +737,7 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
 
                               const SizedBox(height: FolkSpace.xl),
 
-                              // Reading commitment — minutes a day; 0 is fine for a beginner.
+                              // Reading commitment — REQUIRED; minutes a day, 0 is fine for a beginner.
                               _label(
                                   'How many minutes of reading do you commit to daily? (0 if you are a beginner)'),
                               const SizedBox(height: FolkSpace.sm),
@@ -750,9 +748,8 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
                                 decoration: sadhanaFieldDecoration(context,
                                     hint: 'e.g. 30, or 0'),
                                 validator: (val) {
-                                  if (val == null || val.trim().isEmpty) return null;
-                                  if (parseReadingCommitment(val) == null) {
-                                    return 'Enter minutes from 0 to 1440, or leave blank';
+                                  if (parseReadingCommitment(val ?? '') == null) {
+                                    return 'Enter minutes from 0 to 1440 (0 if you are a beginner)';
                                   }
                                   return null;
                                 },
