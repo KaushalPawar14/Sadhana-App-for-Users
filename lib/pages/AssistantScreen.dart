@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import '../theme/FolkColors.dart';
 import '../theme/FolkTheme.dart';
 import '../theme/FolkTokens.dart';
+import '../utils/AssistantGreeting.dart';
 import '../utils/SeenMarkers.dart';
 import '../services/DailyMessageService.dart';
 import '../widgets/AssistantStarterCards.dart';
@@ -28,6 +29,14 @@ import 'AssistantHistoryScreen.dart';
 /// route rather than just once, regardless of how many screens deep a
 /// student has browsed into their history.
 const String kAssistantRouteName = '/assistant';
+
+/// A student can ask this many questions a day (the server enforces it: 10 AI answers a day,
+/// one of them today's message). The app only shows how many are left.
+const int kDailyQuestionLimit = 9;
+
+/// The friendly line shown (and used as the reply) when the day's questions are used up.
+const String kDailyLimitLine =
+    "You've used today's 9 questions — I'll be here again tomorrow. Meanwhile, chant and read!";
 
 /// `dd-MM-yyyy` in the student's local time, matching the doc-id convention
 /// every date-keyed collection in this project already uses.
@@ -63,7 +72,18 @@ String todaySessionKey() => DateFormat('dd-MM-yyyy').format(DateTime.now());
 class AssistantScreen extends StatefulWidget {
   final String uid;
 
-  const AssistantScreen({super.key, required this.uid});
+  // Test seams: the app never sets these.
+  final FirebaseFirestore? firestore;
+  final Future<Map<String, dynamic>> Function(String message, String replyDocId)? chatCall;
+  final DailyMessageService? dailyMessage;
+
+  const AssistantScreen({
+    super.key,
+    required this.uid,
+    this.firestore,
+    this.chatCall,
+    this.dailyMessage,
+  });
 
   @override
   State<AssistantScreen> createState() => _AssistantScreenState();
@@ -84,8 +104,12 @@ class ChatTurn {
   /// this task) reads as an ordinary conversation turn, unchanged.
   final bool isDailyMessage;
 
+  /// The category the server stored for this message ('greeting', 'philosophical', ...; empty for
+  /// a turn that is still on its way). A student message that is not a greeting is a real question.
+  final String category;
+
   const ChatTurn(this.text,
-      {required this.fromStudent, this.isDailyMessage = false});
+      {required this.fromStudent, this.isDailyMessage = false, this.category = ''});
 }
 
 /// The message bubble, shared between the live chat and the read-only past-
@@ -149,7 +173,7 @@ Widget _chatBubbleContent(BuildContext context, ChatTurn turn, bool mine) {
 }
 
 class _AssistantScreenState extends State<AssistantScreen> {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  FirebaseFirestore get _firestore => widget.firestore ?? FirebaseFirestore.instance;
   final TextEditingController _input = TextEditingController();
   final ScrollController _scroll = ScrollController();
 
@@ -157,6 +181,18 @@ class _AssistantScreenState extends State<AssistantScreen> {
 
   bool _loadingHistory = true;
   bool _sending = false;
+
+  /// True once the student has sent a real question today (not just a greeting). Until then
+  /// the four starter cards stay visible below today's message.
+  bool _realQuestionAsked = false;
+
+  /// How many of today's questions the server has counted (its session document), live.
+  int _questionsUsed = 0;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _sessionSub;
+
+  int get _remaining =>
+      (kDailyQuestionLimit - _questionsUsed).clamp(0, kDailyQuestionLimit).toInt();
+  bool get _limitReached => _remaining <= 0;
 
   /// UI only: a turn added after the list was first drawn rises in once; the
   /// first draw (earlier messages) never animates.
@@ -196,11 +232,29 @@ class _AssistantScreenState extends State<AssistantScreen> {
   void initState() {
     super.initState();
     _bootstrap();
+    _listenToSession();
+  }
+
+  /// The server's count of today's questions (`studentChats/{uid}/sessions/{today}`): read only,
+  /// live, so "N questions left today" is always the server's number.
+  void _listenToSession() {
+    _sessionSub = _firestore
+        .collection('studentChats')
+        .doc(widget.uid)
+        .collection('sessions')
+        .doc(todaySessionKey())
+        .snapshots()
+        .listen((snap) {
+      if (!mounted) return;
+      final n = snap.data()?['questionCount'];
+      setState(() => _questionsUsed = n is num ? n.toInt() : 0);
+    }, onError: (_) {});
   }
 
   @override
   void dispose() {
     _replySub?.cancel();
+    _sessionSub?.cancel();
     _streamTimeout?.cancel();
     _input.dispose();
     _scroll.dispose();
@@ -257,7 +311,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
     // showing on screen, or generation has definitively failed/timed out
     // — is "seen" recorded. See this method's own header for why this
     // moved from the top of `_bootstrap`.
-    SeenMarkers.markSeen(widget.uid, 'dailyEncouragement');
+    SeenMarkers.markSeen(widget.uid, 'dailyEncouragement').catchError((_) {});
 
     setState(() {
       _preparingDailyMessage = false;
@@ -297,7 +351,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
     // The one shared service (`DailyMessageService`): it makes the call, and
     // if the app already started it for today (on open), this joins that call
     // or finds the message ready — never a second call.
-    final result = await DailyMessageService.instance.ensureToday(widget.uid);
+    final result = await (widget.dailyMessage ?? DailyMessageService.instance)
+        .ensureToday(widget.uid);
     return (isNew: result.isNew, failed: result.failed);
   }
 
@@ -337,8 +392,16 @@ class _AssistantScreenState extends State<AssistantScreen> {
             (data['text'] ?? '').toString(),
             fromStudent: data['role'] == 'student',
             isDailyMessage: data['entryType'] == 'daily_message',
+            category: (data['category'] ?? '').toString(),
           );
         }));
+      // Cards stay until a REAL question was sent: today's message and a greeting do not hide them.
+      _realQuestionAsked = docs.any((d) {
+        final data = d.data();
+        return data['role'] == 'student' &&
+            data['entryType'] != 'daily_message' &&
+            data['category'] != 'greeting';
+      });
     } catch (_) {
       // An unreadable history must not block a new conversation.
     }
@@ -486,7 +549,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
 
   Future<void> _send([String? preset]) async {
     final text = (preset ?? _input.text).trim();
-    if (text.isEmpty || _sending) return;
+    if (text.isEmpty || _sending || _limitReached) return;
 
     // Client-mints the reply doc id — the standard Firestore idiom
     // (`.doc()` with no argument), already used server-side throughout this
@@ -503,6 +566,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
 
     setState(() {
       _turns.add(ChatTurn(text, fromStudent: true));
+      // A greeting alone does not hide the starter cards; any other message is a real question.
+      if (!isGreetingMessage(text)) _realQuestionAsked = true;
       // Placeholder for the streaming reply. Updated IN PLACE (by index, see
       // `_listenForStreamedReply`) as chunks arrive — never appended to again
       // for this turn.
@@ -515,14 +580,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
     _listenForStreamedReply(replyRef);
 
     try {
-      // The function lives in asia-south1, not the default region.
-      final callable = FirebaseFunctions.instanceFor(region: 'asia-south1')
-          .httpsCallable('studentChat');
-
-      await callable.call<Map<String, dynamic>>({
-        'message': text,
-        'replyDocId': replyRef.id,
-      });
+      await (widget.chatCall ?? _callChat)(text, replyRef.id);
 
       // `flagged`, `acuteRisk` and the final `reply` text all come back in
       // the payload but are intentionally not read here — see the class
@@ -569,6 +627,17 @@ class _AssistantScreenState extends State<AssistantScreen> {
     }
 
     _scrollToEnd();
+  }
+
+  /// The `studentChat` callable (the function lives in asia-south1, not the default region).
+  static Future<Map<String, dynamic>> _callChat(String message, String replyDocId) async {
+    final callable = FirebaseFunctions.instanceFor(region: 'asia-south1')
+        .httpsCallable('studentChat');
+    final result = await callable.call<Map<String, dynamic>>({
+      'message': message,
+      'replyDocId': replyDocId,
+    });
+    return Map<String, dynamic>.from(result.data);
   }
 
   /// Listens to the reply document as `chat.js` streams into it, updating
@@ -707,6 +776,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                     ),
                   ),
                   if (_sending) _thinkingRow(),
+                  if (!_loadingHistory) _limitLine(),
                   EntryAnimation(index: 2, child: _composer()),
                 ],
               ),
@@ -748,7 +818,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) => AssistantHistoryListPage(uid: widget.uid),
+                builder: (_) => AssistantHistoryListPage(uid: widget.uid, firestore: widget.firestore),
               ),
             ),
           ),
@@ -785,20 +855,50 @@ class _AssistantScreenState extends State<AssistantScreen> {
           style: text.small.copyWith(height: 1.45),
         ),
         const SizedBox(height: 24),
-        AssistantStarterCards(onPick: _send, enabled: !_sending),
+        AssistantStarterCards(onPick: _send, enabled: !_sending && !_limitReached),
       ],
     );
   }
 
   Widget _messageList() {
     _rise.markDrawn(_turns.length);
+    final showCards = !_realQuestionAsked;
     return ListView.builder(
       controller: _scroll,
       padding: const EdgeInsets.fromLTRB(FolkSpace.pagePadding, FolkSpace.lg,
           FolkSpace.pagePadding, FolkSpace.sm),
-      itemCount: _turns.length,
-      itemBuilder: (context, i) =>
-          _rise.wrap(i, chatBubble(context, _turns[i])),
+      itemCount: _turns.length + (showCards ? 1 : 0),
+      itemBuilder: (context, i) {
+        if (i == _turns.length) return _cardsBelow();
+        return _rise.wrap(i, chatBubble(context, _turns[i]));
+      },
+    );
+  }
+
+  /// The four coloured question cards, below today's message (and any greeting exchange), until the
+  /// student sends their first real question of the day.
+  Widget _cardsBelow() {
+    final text = context.folkText;
+    return Padding(
+      padding: const EdgeInsets.only(top: FolkSpace.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            "Ask about the teachings",
+            textAlign: TextAlign.center,
+            style: text.bodyStrong,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            "Tap a question to start, or write your own.",
+            textAlign: TextAlign.center,
+            style: text.small.copyWith(height: 1.45),
+          ),
+          const SizedBox(height: FolkSpace.lg),
+          AssistantStarterCards(onPick: _send, enabled: !_sending && !_limitReached),
+        ],
+      ),
     );
   }
 
@@ -908,6 +1008,40 @@ class _AssistantScreenState extends State<AssistantScreen> {
     return const SizedBox.shrink();
   }
 
+  /// "7 questions left today", quietly, above the composer; when the day's questions are used up, the
+  /// friendly line instead (and the composer is disabled).
+  Widget _limitLine() {
+    final colors = context.folk;
+    final text = context.folkText;
+    if (_limitReached) {
+      return Container(
+        key: const ValueKey<String>('limit-line'),
+        width: double.infinity,
+        margin: const EdgeInsets.fromLTRB(
+            FolkSpace.pagePadding, FolkSpace.sm, FolkSpace.pagePadding, 0),
+        padding: const EdgeInsets.symmetric(
+            horizontal: FolkSpace.lg, vertical: FolkSpace.md),
+        decoration: BoxDecoration(
+          color: colors.surfaceSecondary,
+          borderRadius: BorderRadius.circular(FolkShape.tileRadius),
+        ),
+        child: Text(kDailyLimitLine,
+            textAlign: TextAlign.center,
+            style: text.small.copyWith(height: 1.45, color: colors.text)),
+      );
+    }
+    final n = _remaining;
+    return Padding(
+      key: const ValueKey<String>('remaining-line'),
+      padding: const EdgeInsets.only(top: FolkSpace.xs),
+      child: Text(
+        "$n question${n == 1 ? '' : 's'} left today",
+        textAlign: TextAlign.center,
+        style: text.caption.copyWith(color: colors.mutedText),
+      ),
+    );
+  }
+
   /// The existing "thinking" indicator (spinner + line), now sitting in a
   /// reply-shaped bubble. The three-dot animation is Phase 11.
   Widget _thinkingRow() {
@@ -961,14 +1095,14 @@ class _AssistantScreenState extends State<AssistantScreen> {
             Expanded(
               child: TextField(
                 controller: _input,
-                enabled: !_sending,
+                enabled: !_sending && !_limitReached,
                 minLines: 1,
                 maxLines: 4,
                 textCapitalization: TextCapitalization.sentences,
                 style: text.body,
                 cursorColor: colors.text,
                 decoration: InputDecoration(
-                  hintText: "Ask something…",
+                  hintText: _limitReached ? "See you tomorrow" : "Ask something…",
                   hintStyle: text.body.copyWith(color: colors.mutedText),
                   isDense: true,
                   contentPadding: const EdgeInsets.symmetric(vertical: 14),
@@ -977,20 +1111,20 @@ class _AssistantScreenState extends State<AssistantScreen> {
                   disabledBorder: InputBorder.none,
                   focusedBorder: InputBorder.none,
                 ),
-                onSubmitted: _sending ? null : (_) => _send(),
+                onSubmitted: (_sending || _limitReached) ? null : (_) => _send(),
               ),
             ),
             const SizedBox(width: FolkSpace.sm),
             Semantics(
               button: true,
               label: 'Send',
-              enabled: !_sending,
+              enabled: !_sending && !_limitReached,
               excludeSemantics: true,
               child: PressScale(
-                enabled: !_sending,
+                enabled: !_sending && !_limitReached,
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: _sending ? null : () => _send(),
+                  onTap: (_sending || _limitReached) ? null : () => _send(),
                   child: SizedBox(
                     width: FolkShape.touchTarget,
                     height: FolkShape.touchTarget,
@@ -1000,8 +1134,9 @@ class _AssistantScreenState extends State<AssistantScreen> {
                         height: 46,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color:
-                              _sending ? colors.disabledText : colors.primaryBg,
+                          color: (_sending || _limitReached)
+                              ? colors.disabledText
+                              : colors.primaryBg,
                         ),
                         child: Icon(Icons.send_rounded,
                             size: 20, color: colors.primaryFg),

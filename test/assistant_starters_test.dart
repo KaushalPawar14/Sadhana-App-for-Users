@@ -250,7 +250,7 @@ void main() {
   group('the chat uses them', () {
     test('AssistantScreen shows the cards in its empty view and sends through the same _send; the old chips are gone', () {
       final src = File('lib/pages/AssistantScreen.dart').readAsStringSync();
-      expect(src, contains('AssistantStarterCards(onPick: _send, enabled: !_sending)'));
+      expect(src, contains('AssistantStarterCards(onPick: _send, enabled: !_sending && !_limitReached)'));
       expect(src.contains('_starterChip'), isFalse);
       expect(src.contains('static const List<String> _starters'), isFalse);
       expect(src, contains('_turns.isEmpty'));
