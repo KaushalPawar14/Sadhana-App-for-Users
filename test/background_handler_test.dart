@@ -9,7 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   test('handleBG is a top-level function with the entry-point pragma', () {
     final src = File('lib/services/PushNotification.dart').readAsStringSync();
-    final at = src.indexOf('Future<void> handleBG(RemoteMessage message) async {');
+    final at = src.indexOf('Future<void> handleBG(RemoteMessage message) =>');
     expect(at, greaterThan(0));
     // top-level: it starts a line, and comes before the class
     expect(src.lastIndexOf('\n', at) + 1, at, reason: 'declared at column 0');
