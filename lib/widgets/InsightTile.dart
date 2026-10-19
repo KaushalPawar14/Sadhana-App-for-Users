@@ -26,6 +26,8 @@ class InsightTile extends StatelessWidget {
     required this.icon,
     required this.onTap,
     required this.minHeight,
+    this.titleLines = 2,
+    this.semanticLabel,
   });
 
   final FolkGradientStyle style;
@@ -34,6 +36,13 @@ class InsightTile extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
   final double minHeight;
+
+  /// How many lines of room the title area keeps (2 on Insights; a tile whose title is always one short word,
+  /// like the Notes categories, keeps 1).
+  final int titleLines;
+
+  /// What a screen reader says; the title when null.
+  final String? semanticLabel;
 
   // Titles grow with the student's text size only up to this, so the longest word
   // ("Performance") always fits a tile on one line.
@@ -61,7 +70,7 @@ class InsightTile extends StatelessWidget {
               maintainSize: true,
               maintainAnimation: true,
               maintainState: true,
-              child: Text('A\nA', maxLines: 2, style: titleStyle),
+              child: Text(List.filled(titleLines, 'A').join('\n'), maxLines: titleLines, style: titleStyle),
             ),
             Positioned(
               left: 0,
@@ -70,7 +79,7 @@ class InsightTile extends StatelessWidget {
               child: Text(
                 title,
                 key: const ValueKey('insight-tile-title'),
-                maxLines: 2,
+                maxLines: titleLines,
                 overflow: TextOverflow.ellipsis,
                 style: titleStyle,
               ),
@@ -86,7 +95,7 @@ class InsightTile extends StatelessWidget {
         style: style,
         radius: FolkShape.cardRadius,
         padding: const EdgeInsets.all(16),
-        semanticLabel: title,
+        semanticLabel: semanticLabel ?? title,
         onTap: onTap,
         child: Stack(
           clipBehavior: Clip.none,

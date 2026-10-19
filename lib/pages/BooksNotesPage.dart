@@ -6,15 +6,17 @@ import '../theme/FolkTheme.dart';
 import '../theme/FolkTokens.dart';
 import '../utils/BookHighlights.dart';
 import '../utils/BookNotes.dart';
+import '../widgets/EntryAnimation.dart';
 import '../widgets/FolkCard.dart';
 import '../widgets/FolkErrorRetry.dart';
 import '../widgets/FolkScaffold.dart';
 import '../widgets/GhostPlaceholder.dart';
+import '../widgets/InsightTile.dart';
 import '../widgets/NoteJump.dart';
 
 // Books -> Notes. Three screens:
-//   1. BooksNotesPage   GOOD (blue square, top left), EXCELLENT (green square, top right), RARE (purple wide
-//                       rectangle, bottom), in the highlight colours.
+//   1. BooksNotesPage   GOOD (gold, dots) and EXCELLENT (green, leaves) squares on top, RARE (violet, sparkle) wide
+//                       below: the app's own tile (InsightTile / GradientCard), like Journey and Insights.
 //   2. NotesBooksPage   the NAMES of the books that have highlights in that category (nothing else).
 //   3. NotesCardsPage   that book's highlights as swipeable cards, numbered in reading order, each with a "View notes"
 //                       button (the note in a dialog), and "3 of 12 · 25%" for how far through them the student is.
@@ -30,6 +32,12 @@ LinearGradient categoryGradient(HighlightCategory c) => switch (c) {
       HighlightCategory.excellent => FolkGradients.green,
       HighlightCategory.rare => FolkGradients.violet,
     };
+
+/// "12 highlights in 3 books" / "1 highlight in 1 book" / "No highlights yet".
+String notesCountLine(int highlights, int books) {
+  if (highlights == 0) return 'No highlights yet';
+  return '${highlights == 1 ? '1 highlight' : '$highlights highlights'} in ${books == 1 ? '1 book' : '$books books'}';
+}
 
 class BooksNotesPage extends StatefulWidget {
   const BooksNotesPage({super.key, required this.uid, this.firestore});
@@ -85,48 +93,33 @@ class _BooksNotesPageState extends State<BooksNotesPage> {
     );
   }
 
-  Widget _tile(HighlightCategory c, {required double width, required double height, required Key key}) {
-    final text = context.folkText;
-    final color = Color(c.argb);
+  static IconData _icon(HighlightCategory c) => switch (c) {
+        HighlightCategory.good => Icons.star_outline_rounded,
+        HighlightCategory.excellent => Icons.workspace_premium_outlined,
+        HighlightCategory.rare => Icons.auto_awesome_outlined,
+      };
+
+  static FolkGradientStyle _style(HighlightCategory c) => switch (c) {
+        HighlightCategory.good => FolkGradientStyle.saffron,
+        HighlightCategory.excellent => FolkGradientStyle.green,
+        HighlightCategory.rare => FolkGradientStyle.violet,
+      };
+
+  Widget _tile(HighlightCategory c, {required double minHeight, required Key key, required int index}) {
     final n = countIn(c, _entries);
-    return SizedBox(
-      width: width,
-      height: height,
-      child: Semantics(
-        button: true,
-        label: '${c.label}, ${n == 1 ? '1 highlight' : '$n highlights'}',
-        excludeSemantics: true,
-        child: Material(
-          type: MaterialType.transparency,
-          child: Ink(
-            decoration: BoxDecoration(
-              gradient: categoryGradient(c),
-              borderRadius: BorderRadius.circular(FolkShape.cardRadius),
-              boxShadow: c.glows ? [BoxShadow(color: color.withValues(alpha: c.glowAlpha * 1.3), blurRadius: 16)] : null,
-            ),
-            child: InkWell(
-              key: key,
-              borderRadius: BorderRadius.circular(FolkShape.cardRadius),
-              onTap: () => _open(c),
-              child: Padding(
-                padding: const EdgeInsets.all(FolkSpace.md),
-                child: Center(
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(c.label.toUpperCase(), style: text.topBarTitle.copyWith(color: _ink, fontWeight: FontWeight.w800)),
-                        const SizedBox(height: 6),
-                        Text(n == 1 ? '1 highlight' : '$n highlights', style: text.small.copyWith(color: _ink)),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
+    final line = notesCountLine(n, booksIn(c, _entries).length);
+    return EntryAnimation(
+      index: index,
+      child: InsightTile(
+        key: key,
+        style: _style(c),
+        title: c.label,
+        subtitle: line,
+        icon: _icon(c),
+        minHeight: minHeight,
+        titleLines: 1,
+        semanticLabel: '${c.label}, $line',
+        onTap: () => _open(c),
       ),
     );
   }
@@ -136,43 +129,53 @@ class _BooksNotesPageState extends State<BooksNotesPage> {
     return FolkScaffold(
       title: 'Notes',
       onBack: () => Navigator.pop(context),
-      body: _loading
-          ? GhostScope(
-              child: ListView(
-                physics: const NeverScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(FolkSpace.pagePadding),
-                children: const [
-                  GhostPlaceholder(width: double.infinity, height: 160, showBars: false),
-                  SizedBox(height: FolkSpace.cardGap),
-                  GhostPlaceholder(width: double.infinity, height: 90, showBars: false),
-                ],
-              ),
-            )
-          : _failed
-              ? FolkErrorRetry(message: "Couldn't load your notes just now.", onRetry: _load)
-              : LayoutBuilder(
-                  builder: (context, box) {
-                    final gap = FolkSpace.cardGap;
-                    final inner = box.maxWidth - FolkSpace.pagePadding * 2;
-                    final side = (inner - gap) / 2;
-                    return SingleChildScrollView(
+      body: _failed
+          ? FolkErrorRetry(message: "Couldn't load your notes just now.", onRetry: _load)
+          : LayoutBuilder(
+              builder: (context, box) {
+                final gap = FolkSpace.cardGap;
+                final inner = box.maxWidth - FolkSpace.pagePadding * 2;
+                final side = (inner - gap) / 2;
+                if (_loading) {
+                  // The ghost has the tiles' own shape, so nothing moves when the real ones arrive.
+                  return GhostScope(
+                    child: ListView(
+                      physics: const NeverScrollableScrollPhysics(),
                       padding: const EdgeInsets.all(FolkSpace.pagePadding),
-                      child: Column(
-                        children: [
-                          Row(
-                            children: [
-                              _tile(HighlightCategory.good, width: side, height: side, key: const ValueKey('notes-good')),
-                              SizedBox(width: gap),
-                              _tile(HighlightCategory.excellent, width: side, height: side, key: const ValueKey('notes-excellent')),
-                            ],
-                          ),
-                          SizedBox(height: gap),
-                          _tile(HighlightCategory.rare, width: inner, height: side * .6, key: const ValueKey('notes-rare')),
-                        ],
+                      children: [
+                        Row(children: [
+                          GhostPlaceholder(width: side, height: side, showBars: false),
+                          SizedBox(width: gap),
+                          GhostPlaceholder(width: side, height: side, showBars: false),
+                        ]),
+                        SizedBox(height: gap),
+                        GhostPlaceholder(width: inner, height: side * .9, showBars: false),
+                      ],
+                    ),
+                  );
+                }
+                return SingleChildScrollView(
+                  padding: const EdgeInsets.all(FolkSpace.pagePadding),
+                  child: Column(
+                    children: [
+                      // Both squares are as tall as the taller of the two (a big text size grows them together).
+                      IntrinsicHeight(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(child: _tile(HighlightCategory.good, minHeight: side, key: const ValueKey('notes-good'), index: 0)),
+                            SizedBox(width: gap),
+                            Expanded(child: _tile(HighlightCategory.excellent, minHeight: side, key: const ValueKey('notes-excellent'), index: 1)),
+                          ],
+                        ),
                       ),
-                    );
-                  },
-                ),
+                      SizedBox(height: gap),
+                      _tile(HighlightCategory.rare, minHeight: side * .9, key: const ValueKey('notes-rare'), index: 2),
+                    ],
+                  ),
+                );
+              },
+            ),
     );
   }
 }

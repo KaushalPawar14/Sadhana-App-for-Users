@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:folk_app/pages/BookReaderPage.dart';
 import 'package:folk_app/pages/BooksNotesPage.dart';
+import 'package:folk_app/theme/FolkColors.dart';
 import 'package:folk_app/theme/FolkTheme.dart';
 import 'package:folk_app/theme/FolkTokens.dart';
 import 'package:folk_app/utils/BookDocParser.dart';
@@ -14,6 +15,7 @@ import 'package:folk_app/utils/BookHighlights.dart';
 import 'package:folk_app/utils/BookLoader.dart';
 import 'package:folk_app/utils/BookNotes.dart';
 import 'package:folk_app/utils/ReaderContrast.dart';
+import 'package:folk_app/widgets/PressScale.dart';
 import 'package:folk_app/widgets/ReaderHighlights.dart';
 import 'package:folk_app/widgets/ReaderLoadingGhost.dart';
 
@@ -51,7 +53,7 @@ void main() {
   });
 
   // ----------------------------------------------------------------------------------------- the selection bar
-  group('selection bar: 2 x 2 raised buttons', () {
+  group('selection bar: 2 x 2 compact pills in the app\'s button style', () {
     Widget bar(String mode, {List<String>? log}) => Align(
           alignment: Alignment.bottomCenter,
           child: Padding(
@@ -68,7 +70,7 @@ void main() {
 
     for (final mode in ['light', 'dark', 'sepia']) {
       for (final scale in scales) {
-        testWidgets('layout, 48 dp targets, no overflow — $mode, text $scale', (tester) async {
+        testWidgets('layout, compact 44 dp targets, no overflow — $mode, text $scale', (tester) async {
           phone(tester, scale);
           await tester.pumpWidget(host(Scaffold(backgroundColor: kReaderPalettes[mode]!.background, body: bar(mode)), dark: mode == 'dark'));
           await tester.pumpAndSettle();
@@ -81,34 +83,63 @@ void main() {
           expect(c.left, lessThan(h.left), reason: 'Cancel left, Highlight right');
           expect((s.left - c.left).abs(), lessThan(1), reason: 'the columns line up');
           for (final rect in [s, p, c, h]) {
-            expect(rect.height, greaterThanOrEqualTo(48));
-            expect(rect.width, greaterThanOrEqualTo(48));
+            expect(rect.height, greaterThanOrEqualTo(ReaderPillButton.minHeight), reason: 'a 44 dp tap target at least');
+            expect(rect.width, greaterThanOrEqualTo(ReaderPillButton.minHeight));
             expect(rect.right, lessThanOrEqualTo(360));
+          }
+          expect(ReaderPillButton.minHeight, inInclusiveRange(44, 48));
+          if (scale == 1.0) {
+            expect(s.height, 44, reason: 'compact at the normal text size');
+            final bar = tester.getRect(find.byType(ReaderSelectionBar));
+            expect(bar.height, lessThanOrEqualTo(112), reason: 'the bar takes little vertical space (it was 128 dp)');
           }
           expect(tester.takeException(), isNull);
         });
       }
     }
 
-    test('the colours: purple, a medium red, golden yellow; every label is readable on the whole gradient', () {
+    test('the colours: the theme violet and saffron gradients and a soft medium red; the ink label is readable on every stop', () {
+      expect(ReaderPillTone.purple.gradient, FolkGradients.violet, reason: 'Sentence + Paragraph: the theme violet');
+      expect(ReaderPillTone.gold.gradient, FolkGradients.saffron, reason: 'Highlight: the theme saffron / gold');
       for (final tone in ReaderPillTone.values) {
-        for (final stop in tone.gradient) {
+        expect(tone.label, FolkColors.onGradient, reason: 'the ink colour on every gradient, like the other gradient tiles');
+        for (final stop in tone.gradient.colors) {
           expect(contrastRatio(argb(tone.label), argb(stop)), greaterThanOrEqualTo(4.5), reason: '$tone label on ${stop.toARGB32().toRadixString(16)}');
         }
-        expect(tone.gradient.first.computeLuminance(), greaterThan(tone.gradient.last.computeLuminance()), reason: 'light top, deeper bottom: the soft raised look');
+        expect(tone.gradient.colors.first.computeLuminance(), greaterThan(tone.gradient.colors.last.computeLuminance()), reason: 'light to deeper');
       }
-      final purple = ReaderPillTone.purple.gradient.last;
-      expect(purple.b * 255, greaterThan(purple.r * 255));
-      expect(purple.g * 255, lessThan(purple.r * 255), reason: 'purple');
-      final red = ReaderPillTone.red.gradient.first;
-      expect(red.r * 255, greaterThan(180));
-      expect(red.g * 255, lessThan(100), reason: 'a red, not an orange');
-      expect(red.r * 255, lessThan(225), reason: 'medium: not bright');
-      expect(red.r * 255, greaterThan(150), reason: 'medium: not dull');
-      final gold = ReaderPillTone.gold.gradient.first;
-      expect(gold.r * 255, greaterThan(230));
-      expect(gold.g * 255, inInclusiveRange(170, 220), reason: 'golden');
-      expect(gold.b * 255, lessThan(100));
+      final purple = ReaderPillTone.purple.gradient.colors.last;
+      expect(purple.b, greaterThan(purple.g));
+      expect(purple.r, lessThan(purple.b), reason: 'violet');
+      for (final red in ReaderPillTone.red.gradient.colors) {
+        expect(red.r * 255, greaterThan(220), reason: 'a red family: red dominant');
+        expect(red.g, lessThan(red.r), reason: 'red, not orange or pink');
+        expect(red.g * 255, lessThan(200));
+      }
+      expect(ReaderPillTone.red.gradient.colors.last.g * 255, lessThan(140), reason: 'medium, not a pastel pink');
+      final gold = ReaderPillTone.gold.gradient.colors.last;
+      expect(gold.r * 255, greaterThan(240));
+      expect(gold.g * 255, inInclusiveRange(150, 210), reason: 'golden');
+      expect(gold.b * 255, lessThan(120));
+    });
+
+    testWidgets('the buttons are the app\'s: pill radius, chip typography, a soft shadow only', (tester) async {
+      phone(tester, 1.0);
+      await tester.pumpWidget(host(Scaffold(body: bar('light'))));
+      await tester.pumpAndSettle();
+      for (final k in ['sel-sentence', 'sel-paragraph', 'sel-cancel', 'sel-highlight']) {
+        final container = tester.widget<Container>(find.descendant(of: find.byKey(ValueKey(k)), matching: find.byType(Container)).first);
+        final deco = container.decoration! as BoxDecoration;
+        expect(deco.borderRadius, BorderRadius.circular(FolkShape.buttonRadius), reason: 'the same radius as the other buttons');
+        expect(deco.border, isNull, reason: 'no outline: less bulky');
+        expect(deco.boxShadow, hasLength(1));
+        expect(deco.boxShadow!.single.blurRadius, lessThanOrEqualTo(8));
+        expect(deco.boxShadow!.single.color.a, lessThanOrEqualTo(.2), reason: 'soft');
+        final label = tester.widget<Text>(find.descendant(of: find.byKey(ValueKey(k)), matching: find.byType(Text)));
+        expect(label.style!.fontSize, 14);
+        expect(label.style!.fontWeight, FontWeight.w700);
+        expect(label.style!.color, FolkColors.onGradient);
+      }
     });
 
     testWidgets('the buttons call back; the colours are the same in every reading mode', (tester) async {
@@ -117,14 +148,14 @@ void main() {
       for (final mode in ['light', 'dark', 'sepia']) {
         await tester.pumpWidget(host(Scaffold(body: bar(mode, log: log)), dark: mode == 'dark'));
         await tester.pumpAndSettle();
-        final decorations = [
+        final gradients = [
           for (final k in ['sel-sentence', 'sel-paragraph', 'sel-cancel', 'sel-highlight'])
-            ((tester.widget<AnimatedContainer>(find.descendant(of: find.byKey(ValueKey(k)), matching: find.byType(AnimatedContainer))).decoration) as BoxDecoration).gradient
+            (tester.widget<Container>(find.descendant(of: find.byKey(ValueKey(k)), matching: find.byType(Container)).first).decoration! as BoxDecoration).gradient
         ];
-        expect((decorations[0] as LinearGradient).colors, ReaderPillTone.purple.gradient);
-        expect((decorations[1] as LinearGradient).colors, ReaderPillTone.purple.gradient);
-        expect((decorations[2] as LinearGradient).colors, ReaderPillTone.red.gradient);
-        expect((decorations[3] as LinearGradient).colors, ReaderPillTone.gold.gradient);
+        expect(gradients[0], ReaderPillTone.purple.gradient);
+        expect(gradients[1], ReaderPillTone.purple.gradient);
+        expect(gradients[2], ReaderPillTone.red.gradient);
+        expect(gradients[3], ReaderPillTone.gold.gradient);
       }
       for (final k in ['sel-sentence', 'sel-paragraph', 'sel-cancel', 'sel-highlight']) {
         await tester.tap(find.byKey(ValueKey(k)));
@@ -133,32 +164,31 @@ void main() {
       expect(log, ['sentence', 'paragraph', 'cancel', 'highlight']);
     });
 
-    testWidgets('press-down feedback: sinks a little and the shadow shrinks; released it comes back', (tester) async {
+    testWidgets('press feedback is the app\'s PressScale: it sinks while pressed and comes back', (tester) async {
       phone(tester, 1.0);
       await tester.pumpWidget(host(Scaffold(body: bar('light')), reduce: false));
       await tester.pumpAndSettle();
       final button = find.byKey(const ValueKey('sel-highlight'));
       double scale() => tester.widget<AnimatedScale>(find.descendant(of: button, matching: find.byType(AnimatedScale))).scale;
-      double blur() => (((tester.widget<AnimatedContainer>(find.descendant(of: button, matching: find.byType(AnimatedContainer))).decoration) as BoxDecoration).boxShadow!.first).blurRadius;
-      final restBlur = blur();
+      expect(find.descendant(of: button, matching: find.byType(PressScale)), findsOneWidget);
       expect(scale(), 1);
       final g = await tester.startGesture(tester.getCenter(button));
       await tester.pump(const Duration(milliseconds: 200));
       expect(scale(), lessThan(1));
-      expect(blur(), lessThan(restBlur));
       await g.up();
       await tester.pump(const Duration(milliseconds: 200));
       expect(scale(), 1);
-      expect(blur(), restBlur);
     });
 
-    testWidgets('reduce motion: the press is instant (no animation)', (tester) async {
+    testWidgets('reduce motion: no scale at all', (tester) async {
       phone(tester, 1.0);
       await tester.pumpWidget(host(Scaffold(body: bar('light')), reduce: true));
       await tester.pumpAndSettle();
       final button = find.byKey(const ValueKey('sel-cancel'));
-      expect(tester.widget<AnimatedScale>(find.descendant(of: button, matching: find.byType(AnimatedScale))).duration, Duration.zero);
-      expect(tester.widget<AnimatedContainer>(find.descendant(of: button, matching: find.byType(AnimatedContainer))).duration, Duration.zero);
+      final g = await tester.startGesture(tester.getCenter(button));
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(tester.widget<AnimatedScale>(find.descendant(of: button, matching: find.byType(AnimatedScale))).scale, 1);
+      await g.up();
     });
   });
 

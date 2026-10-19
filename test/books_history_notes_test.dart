@@ -4,12 +4,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:folk_app/pages/BooksHistoryPage.dart';
 import 'package:folk_app/pages/BooksNotesPage.dart';
+import 'package:folk_app/theme/FolkColors.dart';
 import 'package:folk_app/theme/FolkTheme.dart';
 import 'package:folk_app/theme/FolkTokens.dart';
 import 'package:folk_app/utils/BookHighlights.dart';
 import 'package:folk_app/utils/BookNotes.dart';
 import 'package:folk_app/utils/BookReadingLog.dart';
+import 'package:folk_app/widgets/EntryAnimation.dart';
 import 'package:folk_app/widgets/FolkErrorRetry.dart';
+import 'package:folk_app/widgets/GhostPlaceholder.dart';
+import 'package:folk_app/widgets/GradientCard.dart';
+import 'package:folk_app/widgets/InsightTile.dart';
+import 'package:folk_app/widgets/PressScale.dart';
 
 import 'text_scale_test.dart' show scales, loadAppFonts;
 
@@ -321,19 +327,96 @@ void main() {
       expect(rare.top, greaterThan(good.bottom), reason: 'RARE across the bottom');
       expect(rare.width, closeTo(good.width + excellent.width + 12, 14), reason: 'as wide as both squares together');
       expect(rare.height, lessThan(rare.width / 2), reason: 'a wide rectangle');
-      // the highlight colours
-      LinearGradient gradientOf(String key) {
-        final ink = find.ancestor(of: find.byKey(ValueKey(key)), matching: find.byType(Ink)).first;
-        return (tester.widget<Ink>(ink).decoration! as BoxDecoration).gradient! as LinearGradient;
-      }
+      expect(good.height, closeTo(good.width, 1), reason: 'a square at the normal text size');
+      expect(rare.height, lessThan(rare.width / 2));
+    });
 
-      expect(gradientOf('notes-good'), FolkGradients.saffron, reason: 'Good: the theme saffron / gold gradient');
-      expect(gradientOf('notes-excellent'), FolkGradients.green);
-      expect(gradientOf('notes-rare'), FolkGradients.violet);
-      // counts (only this student's)
-      expect(find.text('4 highlights'), findsOneWidget);
-      expect(find.text('1 highlight'), findsOneWidget);
-      expect(find.text('0 highlights'), findsOneWidget);
+    testWidgets('the app\'s tile style: gradient + pattern, frosted icon circle, arrow, title, count line, ink text', (tester) async {
+      phone(tester, 1.0);
+      await tester.pumpWidget(host(BooksNotesPage(uid: 'u1', firestore: await notesDb())));
+      await settle(tester);
+      final expected = {
+        'notes-good': (FolkGradientStyle.saffron, 'Good', '4 highlights in 2 books', Icons.star_outline_rounded),
+        'notes-excellent': (FolkGradientStyle.green, 'Excellent', '1 highlight in 1 book', Icons.workspace_premium_outlined),
+        'notes-rare': (FolkGradientStyle.violet, 'Rare', 'No highlights yet', Icons.auto_awesome_outlined),
+      };
+      for (final e in expected.entries) {
+        final tile = find.byKey(ValueKey(e.key));
+        expect(tile, findsOneWidget);
+        final card = tester.widget<GradientCard>(find.descendant(of: tile, matching: find.byType(GradientCard)));
+        expect(card.style, e.value.$1, reason: '${e.key}: gold + dots / green + leaves / violet + sparkle');
+        expect(card.decorate, isTrue, reason: '${e.key}: the soft pattern is on');
+        expect(find.descendant(of: tile, matching: find.byType(CustomPaint)), findsWidgets, reason: '${e.key}: the pattern is painted');
+        // the frosted icon circle (top-left) with the category icon, and the small arrow circle (top-right)
+        final circles = find.descendant(
+            of: tile,
+            matching: find.byWidgetPredicate((w) => w is Container && w.decoration is BoxDecoration && (w.decoration! as BoxDecoration).color == FolkColors.onGradientIconTile));
+        expect(circles, findsNWidgets(2), reason: '${e.key}: icon circle + arrow circle');
+        expect(find.descendant(of: tile, matching: find.byIcon(e.value.$4)), findsWidgets);
+        expect(find.descendant(of: tile, matching: find.byIcon(Icons.north_east)), findsOneWidget);
+        final tileRect = tester.getRect(tile);
+        expect(tester.getTopLeft(circles.first).dx, lessThan(tileRect.left + 24), reason: '${e.key}: the icon circle is top-left');
+        expect(tester.getTopRight(circles.last).dx, greaterThan(tileRect.right - 24), reason: '${e.key}: the arrow is top-right');
+        // title and count, in the ink colour #1E1B2E
+        final title = tester.widget<Text>(find.descendant(of: tile, matching: find.text(e.value.$2)));
+        expect(title.style!.color, FolkColors.onGradient);
+        final count = tester.widget<Text>(find.descendant(of: tile, matching: find.text(e.value.$3)));
+        expect(count.style!.color, isNotNull);
+        expect(FolkColors.onGradient, const Color(0xFF1E1B2E));
+      }
+      expect(find.byType(EntryAnimation), findsNWidgets(3), reason: 'the tiles come in like the other tiles');
+      expect(notesCountLine(12, 3), '12 highlights in 3 books');
+      expect(notesCountLine(1, 1), '1 highlight in 1 book');
+      expect(notesCountLine(2, 1), '2 highlights in 1 book');
+      expect(notesCountLine(0, 0), 'No highlights yet');
+    });
+
+    for (final scale in scales) {
+      for (final dark in [false, true]) {
+        testWidgets('tiles at text scale $scale (${dark ? 'dark' : 'light'}): both squares equal, nothing cut off, no overflow', (tester) async {
+          phone(tester, scale);
+          await tester.pumpWidget(host(BooksNotesPage(uid: 'u1', firestore: await notesDb()), dark: dark));
+          await settle(tester);
+          final good = tester.getRect(find.byKey(const ValueKey('notes-good')));
+          final excellent = tester.getRect(find.byKey(const ValueKey('notes-excellent')));
+          final rare = tester.getRect(find.byKey(const ValueKey('notes-rare')));
+          expect(good.height, closeTo(excellent.height, .5), reason: 'the pair is as tall as the taller one');
+          expect(good.height, greaterThanOrEqualTo(good.width - 1), reason: 'at least a square');
+          expect(rare.top, greaterThan(good.bottom));
+          for (final r in [good, excellent, rare]) {
+            expect(r.left, greaterThanOrEqualTo(0));
+            expect(r.right, lessThanOrEqualTo(360));
+          }
+          for (final t in ['Good', 'Excellent', 'Rare', '4 highlights in 2 books', '1 highlight in 1 book', 'No highlights yet']) {
+            expect(find.text(t), findsOneWidget, reason: t);
+          }
+          expect(tester.takeException(), isNull);
+        });
+      }
+    }
+
+    testWidgets('a tap opens the category (press feedback and the tap target are the whole tile)', (tester) async {
+      phone(tester, 1.0);
+      await tester.pumpWidget(host(BooksNotesPage(uid: 'u1', firestore: await notesDb())));
+      await settle(tester);
+      expect(find.descendant(of: find.byKey(const ValueKey('notes-rare')), matching: find.byType(PressScale)), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('notes-rare')));
+      await settle(tester);
+      expect(find.byKey(const ValueKey('notes-empty-category')), findsOneWidget);
+    });
+
+    testWidgets('while loading: a ghost with the tiles\' own shape (two squares and a wide one), then the tiles', (tester) async {
+      phone(tester, 1.0);
+      await tester.pumpWidget(host(BooksNotesPage(uid: 'u1', firestore: await notesDb())));
+      expect(find.byType(GhostPlaceholder), findsNWidgets(3));
+      final ghosts = tester.widgetList<GhostPlaceholder>(find.byType(GhostPlaceholder)).toList();
+      expect(ghosts[0].width, ghosts[0].height, reason: 'a square ghost');
+      expect(ghosts[1].width, ghosts[1].height);
+      expect(ghosts[2].width, greaterThan(ghosts[0].width! * 1.9), reason: 'the wide one');
+      expect(find.byType(InsightTile), findsNothing);
+      await settle(tester);
+      expect(find.byType(GhostPlaceholder), findsNothing);
+      expect(find.byType(InsightTile), findsNWidgets(3));
     });
 
     testWidgets('tap a category: only the NAMES of the books that have highlights in it, alphabetical', (tester) async {
@@ -342,7 +425,7 @@ void main() {
       await settle(tester);
       await tester.tap(find.byKey(const ValueKey('notes-good')));
       await settle(tester);
-      expect(find.text('Good'), findsOneWidget, reason: 'the screen title');
+      expect(find.descendant(of: find.byType(NotesBooksPage), matching: find.text('Good')), findsOneWidget, reason: 'the screen title');
       final names = [for (final t in ['Bhagavad-gita As It Is', 'Nectar of Instruction']) tester.getTopLeft(find.text(t)).dy];
       expect(names[0], lessThan(names[1]));
       expect(find.text('Sri Isopanisad'), findsNothing, reason: 'that book has no GOOD highlight');
@@ -453,7 +536,7 @@ void main() {
       phone(tester, 1.0);
       await tester.pumpWidget(host(BooksNotesPage(uid: 'u1', firestore: FakeFirebaseFirestore())));
       await settle(tester);
-      expect(find.text('0 highlights'), findsNWidgets(3));
+      expect(find.text('No highlights yet'), findsNWidgets(3));
       await tester.tap(find.byKey(const ValueKey('notes-excellent')));
       await settle(tester);
       expect(find.byKey(const ValueKey('notes-empty-category')), findsOneWidget);

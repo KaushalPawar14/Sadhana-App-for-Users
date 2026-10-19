@@ -4,9 +4,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
+import '../theme/FolkColors.dart';
 import '../theme/FolkTheme.dart';
 import '../theme/FolkTokens.dart';
 import '../utils/BookHighlights.dart';
+import 'PressScale.dart';
 
 // The pieces of highlights & notes that are drawn: the coloured portion inside a paragraph, the two drag handles,
 // the category/note panel, the dialog of an existing highlight, and the floating action bar of focus mode. The
@@ -248,92 +250,68 @@ class ReaderActionButton extends StatelessWidget {
 
 
 // ---------------------------------------------------------------------------------------------------------
-// the selection bar's buttons: four raised, slightly 3D buttons in a 2 x 2 grid
+// the selection bar's buttons: four compact pills in a 2 x 2 grid, in the app's own button style
 // ---------------------------------------------------------------------------------------------------------
 
-/// The colours of the selection buttons. The same in Light, Dark and Sepia (the bar sits on the reader's
-/// chrome, and each button carries its own background); every label is at least 4.5:1 on the whole gradient.
+/// The colours of the selection buttons: the app's own gradients (violet and saffron, the same as Books and Expeditions)
+/// and a soft medium red. They look the same in Light, Dark and Sepia (each button carries its own background, like every
+/// gradient tile in the app) and the label is always the app's ink colour, at least 4.5:1 on the whole gradient.
 enum ReaderPillTone { purple, red, gold }
 
 extension ReaderPillToneX on ReaderPillTone {
-  /// Light top, deeper bottom: the soft "raised" gradient.
-  List<Color> get gradient => switch (this) {
-        ReaderPillTone.purple => const [Color(0xFF7A55D2), Color(0xFF5E3AB4)],
-        ReaderPillTone.red => const [Color(0xFFC94848), Color(0xFFA83636)],
-        ReaderPillTone.gold => const [Color(0xFFFFC83D), Color(0xFFE8A317)],
+  /// The tile gradient of the tone (light to deeper, 135 degrees like the other gradient tiles).
+  LinearGradient get gradient => switch (this) {
+        ReaderPillTone.purple => FolkGradients.violet,
+        ReaderPillTone.red => const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFFFFB5AA), Color(0xFFEE7872)]),
+        ReaderPillTone.gold => FolkGradients.saffron,
       };
 
-  /// The label: white on purple and red, deep brown on the golden yellow.
-  Color get label => this == ReaderPillTone.gold ? const Color(0xFF2B1D00) : Colors.white;
+  /// The label: the ink colour on every gradient.
+  Color get label => FolkColors.onGradient;
 }
 
-/// A raised pill button: a soft vertical gradient, a gentle shadow, and a press-down (it sinks a little and the
-/// shadow shrinks). At least 48 dp tall. With "reduce motion" the press is instant.
-class ReaderPillButton extends StatefulWidget {
+/// A compact pill button: the app's button radius and chip typography, a theme gradient, a soft shadow and the app's
+/// own press feedback (`PressScale`). 44 dp tall (and at least 44 wide), growing with large text.
+class ReaderPillButton extends StatelessWidget {
   const ReaderPillButton({super.key, required this.label, required this.tone, required this.onPressed});
+
+  /// The tap target of a selection button (the bar is compact; 44 dp is the Material minimum).
+  static const double minHeight = 44;
 
   final String label;
   final ReaderPillTone tone;
   final VoidCallback? onPressed;
 
   @override
-  State<ReaderPillButton> createState() => _ReaderPillButtonState();
-}
-
-class _ReaderPillButtonState extends State<ReaderPillButton> {
-  bool _down = false;
-
-  void _set(bool v) {
-    if (_down != v && mounted) setState(() => _down = v);
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final enabled = widget.onPressed != null;
-    final colors = widget.tone.gradient;
-    final duration = FolkMotion.of(context, const Duration(milliseconds: 90));
+    final enabled = onPressed != null;
+    final text = context.folkText;
     return Semantics(
       button: true,
       enabled: enabled,
-      label: widget.label,
+      label: label,
       excludeSemantics: true,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapDown: enabled ? (_) => _set(true) : null,
-        onTapCancel: () => _set(false),
-        onTapUp: (_) => _set(false),
-        onTap: widget.onPressed,
-        child: AnimatedScale(
-          scale: _down ? .96 : 1,
-          duration: duration,
-          child: AnimatedContainer(
-            duration: duration,
-            constraints: const BoxConstraints(minHeight: FolkShape.touchTarget, minWidth: FolkShape.touchTarget),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: PressScale(
+        enabled: enabled,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onPressed,
+          child: Container(
+            constraints: const BoxConstraints(minHeight: minHeight, minWidth: minHeight),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(24),
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: _down ? [colors[1], colors[1]] : colors,
-              ),
-              border: Border.all(color: Colors.white.withValues(alpha: .28), width: 1),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: _down ? .18 : .34),
-                  blurRadius: _down ? 2 : 7,
-                  offset: Offset(0, _down ? 1 : 3),
-                ),
-              ],
+              borderRadius: BorderRadius.circular(FolkShape.buttonRadius),
+              gradient: tone.gradient,
+              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .14), blurRadius: 6, offset: const Offset(0, 2))],
             ),
             child: Opacity(
               opacity: enabled ? 1 : .5,
               child: Text(
-                widget.label,
+                label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: widget.tone.label, fontWeight: FontWeight.w800, fontSize: 15),
+                style: text.chip.copyWith(color: tone.label),
               ),
             ),
           ),
@@ -343,7 +321,7 @@ class _ReaderPillButtonState extends State<ReaderPillButton> {
   }
 }
 
-/// While a selection is open: Sentence and Paragraph (purple) on top, Cancel (red) and Highlight (golden) below.
+/// While a selection is open: Sentence and Paragraph (violet) on top, Cancel (red) and Highlight (gold) below.
 class ReaderSelectionBar extends StatelessWidget {
   const ReaderSelectionBar({
     super.key,
@@ -364,16 +342,16 @@ class ReaderSelectionBar extends StatelessWidget {
   Widget build(BuildContext context) {
     Widget cell(Key key, String label, ReaderPillTone tone, VoidCallback onTap) => Expanded(
           child: Padding(
-            padding: const EdgeInsets.all(4),
+            padding: const EdgeInsets.all(3),
             child: ReaderPillButton(key: key, label: label, tone: tone, onPressed: onTap),
           ),
         );
     return Material(
       color: background,
-      elevation: 6,
-      borderRadius: BorderRadius.circular(28),
+      elevation: 3,
+      borderRadius: BorderRadius.circular(24),
       child: Padding(
-        padding: const EdgeInsets.all(6),
+        padding: const EdgeInsets.all(4),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
