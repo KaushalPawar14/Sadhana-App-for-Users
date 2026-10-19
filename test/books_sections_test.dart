@@ -435,6 +435,63 @@ void main() {
     });
   });
 
+  group('Notes and History: two square buttons under the five sections', () {
+    Future<void> toExtras(WidgetTester tester) async {
+      await tester.scrollUntilVisible(find.byKey(const ValueKey('books-extras')), 200, scrollable: find.byType(Scrollable).first);
+      await tester.pump();
+    }
+
+    testWidgets('one row, both square, equal, below the last section', (tester) async {
+      await pump(tester);
+      await toExtras(tester);
+      final notes = find.byKey(const ValueKey('books-notes-button'));
+      final history = find.byKey(const ValueKey('books-history-button'));
+      expect(notes, findsOneWidget);
+      expect(history, findsOneWidget);
+      expect(find.descendant(of: notes, matching: find.text('Notes')), findsOneWidget);
+      expect(find.descendant(of: history, matching: find.text('History')), findsOneWidget);
+      final n = tester.getRect(notes);
+      final h = tester.getRect(history);
+      expect((n.width - n.height).abs(), lessThan(1), reason: 'square');
+      expect((h.width - h.height).abs(), lessThan(1), reason: 'square');
+      expect((n.width - h.width).abs(), lessThan(1));
+      expect((n.top - h.top).abs(), lessThan(1), reason: 'in one row');
+      expect(n.right, lessThan(h.left));
+      final completed = tester.getRect(find.byKey(const ValueKey('section-completed')));
+      expect(n.top, greaterThan(completed.bottom - 1), reason: 'under the sections');
+    });
+
+    testWidgets('Notes opens a Coming soon page', (tester) async {
+      await pump(tester);
+      await toExtras(tester);
+      await tester.tap(find.byKey(const ValueKey('books-notes-button')));
+      await tester.pumpAndSettle();
+      expect(find.text('Notes'), findsOneWidget);
+      expect(find.byKey(const ValueKey('coming-soon')), findsOneWidget);
+      expect(find.text('Coming soon'), findsOneWidget);
+    });
+
+    testWidgets('History opens a Coming soon page', (tester) async {
+      await pump(tester);
+      await toExtras(tester);
+      await tester.tap(find.byKey(const ValueKey('books-history-button')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('coming-soon')), findsOneWidget);
+    });
+
+    for (final dark in [false, true]) {
+      for (final scale in scales) {
+        testWidgets('${dark ? 'dark' : 'light'}, text scale $scale: no overflow', (tester) async {
+          await pump(tester, scale: scale, dark: dark);
+          await toExtras(tester);
+          expect(tester.takeException(), isNull);
+          expect(find.text('Notes'), findsOneWidget);
+          expect(find.text('History'), findsOneWidget);
+        });
+      }
+    }
+  });
+
   group('every section at every text size', () {
     for (final dark in [false, true]) {
       for (final scale in scales) {

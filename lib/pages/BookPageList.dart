@@ -13,6 +13,7 @@ import '../utils/BookSections.dart';
 import '../utils/ReadingLanguages.dart';
 import '../utils/SeenMarkers.dart';
 import '../widgets/BookCardActions.dart';
+import '../widgets/BookExtrasRow.dart';
 import '../widgets/BookLevelSection.dart';
 import '../widgets/CommitmentDateDialog.dart';
 import '../widgets/CompletedBookTile.dart';
@@ -25,6 +26,7 @@ import '../widgets/GhostPlaceholder.dart';
 import '../widgets/FolkErrorRetry.dart';
 import '../widgets/PrimaryButton.dart';
 import 'BookReaderPage.dart';
+import 'ComingSoonPage.dart';
 
 /// Book library screen.
 ///
@@ -1407,6 +1409,12 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
               ],
             ),
           ),
+        // Under the sections: "Notes" and "History" (their pages are to come).
+        BookExtrasRow(
+          key: const ValueKey('books-extras'),
+          onNotes: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ComingSoonPage(title: 'Notes', icon: Icons.sticky_note_2_outlined))),
+          onHistory: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ComingSoonPage(title: 'History', icon: Icons.history_rounded))),
+        ),
       ],
     );
   }

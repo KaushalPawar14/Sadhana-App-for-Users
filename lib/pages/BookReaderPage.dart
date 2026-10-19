@@ -1,19 +1,25 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 
 import '../theme/FolkColors.dart';
 import '../theme/FolkTheme.dart';
 import '../theme/FolkTokens.dart';
 import '../theme/FolkTypography.dart';
 import '../utils/BookDocParser.dart';
+import '../utils/BookHighlightStore.dart';
+import '../utils/BookHighlights.dart';
 import '../utils/BookLoader.dart';
 import '../utils/ReaderContrast.dart';
 import '../widgets/FolkDialog.dart';
 import '../widgets/ReaderChrome.dart';
+import '../widgets/ReaderHighlights.dart';
 
 /// Base style shared by every run of body text.
 const TextStyle kReaderParagraphStyle = TextStyle(
@@ -108,6 +114,14 @@ class BookReaderPage extends StatefulWidget {
   @visibleForTesting
   final Future<List<Object?>> Function()? extras;
 
+  /// Where highlights are kept (tests hand in an in-memory one; the app uses Firestore).
+  @visibleForTesting
+  final HighlightStore? highlightStore;
+
+  /// The clock the reading timer uses (tests move it; the app uses the real one).
+  @visibleForTesting
+  final DateTime Function()? clock;
+
   const BookReaderPage({
     super.key,
     required this.dropboxUrl,
@@ -118,13 +132,15 @@ class BookReaderPage extends StatefulWidget {
     this.isRdua = false,
     this.loader,
     this.extras,
+    this.highlightStore,
+    this.clock,
   });
 
   @override
   State<BookReaderPage> createState() => _BookReaderPageState();
 }
 
-class _BookReaderPageState extends State<BookReaderPage> {
+class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProviderStateMixin {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final ScrollController _scrollController = ScrollController();
 
@@ -192,6 +208,49 @@ class _BookReaderPageState extends State<BookReaderPage> {
 
   String get _bookmarkDocId => '${widget.uid}_${widget.bookKey}';
 
+  // --- highlights & notes (books only; see BookHighlights.dart / BookHighlightStore.dart) -------------------
+
+  /// RDUA modules reuse this reader but have no highlights.
+  bool get _highlightsOn => !widget.isRdua;
+
+  HighlightStore? _defaultStore;
+  HighlightStore get _store => widget.highlightStore ?? (_defaultStore ??= FirestoreHighlightStore());
+
+  /// Every highlight of this student in this book, and where each sits now (a highlight whose text cannot be found
+  /// is kept in [_highlights] but is not in [_placed]).
+  List<BookHighlight> _highlights = [];
+  List<PlacedHighlight> _placed = [];
+
+  /// The open selection (a new one, or the highlight being edited) in the chapter on screen. While it exists, or
+  /// while the panel is open, the reader is in FOCUS MODE: the bars slide away.
+  ReaderRange? _range;
+
+  /// Set while an EXISTING highlight is being edited (long-press): its id, and its category (for the preview).
+  String? _editingId;
+  HighlightCategory? _editCategory;
+
+  bool _panelOpen = false;
+  bool get _focus => _range != null || _panelOpen;
+
+  /// 0 = bars shown, 1 = bars gone.
+  late final AnimationController _focusController =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 240));
+  late final Animation<double> _focusAnim = CurvedAnimation(parent: _focusController, curve: Curves.easeInOut);
+
+  /// One key per paragraph's text (the highlight geometry comes from its render object).
+  List<GlobalKey> _textKeys = [];
+  final GlobalKey _contentKey = GlobalKey();
+  final GlobalKey _viewportKey = GlobalKey();
+
+  /// Where the two handles sit, in the scrolling content's own coordinates.
+  Offset? _startHandle;
+  Offset? _endHandle;
+  bool _handleSyncQueued = false;
+
+  /// The text of every paragraph of the book as the reader draws it, kept while the chapters list is the same.
+  List<List<String>> _bookTexts = const [];
+  List<ParsedChapter>? _bookTextsOf;
+
   /// `booksRead/{uid}_{level}_{bookKey}` for a book, or
   /// `rduaProgress/{uid}_{topicId}_{chapterNum}` for an RDUA chapter — same
   /// composition, `level`/`bookKey` simply carry `topicId`/`chapterNum` in
@@ -210,6 +269,8 @@ class _BookReaderPageState extends State<BookReaderPage> {
 
   @override
   void dispose() {
+    _edgeScrollTimer?.cancel();
+    _focusController.dispose();
     _progress.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -259,6 +320,7 @@ class _BookReaderPageState extends State<BookReaderPage> {
             _chapters = chapters;
             _media = update.book.media;
             _complete = update.complete;
+            _placeHighlights();
           });
           final pending = _pendingJump;
           if (pending != null) {
@@ -304,8 +366,9 @@ class _BookReaderPageState extends State<BookReaderPage> {
           _finished = finished;
           _loading = false;
           // Timer starts only now that readable content is on screen.
-          _readingStartedAt = DateTime.now();
+          _readingStartedAt = _now();
         });
+        if (_highlightsOn) _loadHighlights();
 
         // Once the chapter has laid out, bring the bookmarked paragraph on
         // screen.
@@ -340,6 +403,7 @@ class _BookReaderPageState extends State<BookReaderPage> {
     List<InlineItem> runs, {
     int? bannerFill,
     bool bookmarked = false,
+    Set<HighlightCategory> onHighlights = const {},
   }) {
     final background =
         backgroundFor(_theme, bannerFill: bannerFill, bookmarked: bookmarked);
@@ -352,7 +416,10 @@ class _BookReaderPageState extends State<BookReaderPage> {
             style: kReaderParagraphStyle.copyWith(
               fontWeight: r.bold ? FontWeight.bold : null,
               fontStyle: r.italic ? FontStyle.italic : null,
-              color: Color(_readable(r.color, background, onBanner)),
+              // Text inside (or beside) a highlight keeps 4.5:1 on the page AND on each tint it may sit on.
+              color: Color(onHighlights.isEmpty
+                  ? _readable(r.color, background, onBanner)
+                  : readableOnHighlights(r.color, _theme, onHighlights)),
               fontSize: r.size,
             ),
           )
@@ -433,6 +500,7 @@ class _BookReaderPageState extends State<BookReaderPage> {
     final count =
         _chapters.isEmpty ? 0 : _chapters[_currentChapter].paragraphs.length;
     _paragraphKeys = List.generate(count, (_) => GlobalKey());
+    _textKeys = List.generate(count, (_) => GlobalKey());
   }
 
   void _scrollToBookmarkedParagraph() {
@@ -845,14 +913,443 @@ class _BookReaderPageState extends State<BookReaderPage> {
   }
 
   // ---------------------------------------------------------------------------
+  // Highlights & notes
+  // ---------------------------------------------------------------------------
+
+  DateTime _now() => (widget.clock ?? DateTime.now)();
+
+  List<List<String>> _texts() {
+    if (!identical(_bookTextsOf, _chapters)) {
+      _bookTexts = [
+        for (final c in _chapters) [for (final p in c.paragraphs) renderedParagraphText(p)],
+      ];
+      _bookTextsOf = _chapters;
+    }
+    return _bookTexts;
+  }
+
+  List<String> get _chapterTexts => _currentChapter < _chapters.length ? _texts()[_currentChapter] : const [];
+
+  Future<void> _loadHighlights() async {
+    try {
+      final loaded = await _store.load(uid: widget.uid, bookKey: widget.bookKey, level: widget.level);
+      if (!mounted) return;
+      setState(() {
+        _highlights = loaded;
+        _placeHighlights();
+      });
+    } catch (_) {
+      // Highlights are an extra: a failed read just means none are drawn this time.
+    }
+  }
+
+  /// Works out where every highlight sits now. While the rest of the book is still being read, only a highlight
+  /// that is exactly where it was stored is drawn (the others wait for the whole book, so a short phrase is not
+  /// matched to the wrong chapter).
+  void _placeHighlights() {
+    if (_highlights.isEmpty || _chapters.isEmpty) {
+      _placed = [];
+      return;
+    }
+    final book = _texts();
+    _placed = _complete
+        ? placeHighlights(_highlights, book)
+        : [
+            for (final h in _highlights)
+              if (anchorHolds(h, book)) PlacedHighlight(h, h.anchor),
+          ];
+  }
+
+  void _setFocusAnimation() {
+    if (MediaQuery.maybeDisableAnimationsOf(context) ?? false) {
+      _focusController.value = _focus ? 1 : 0;
+    } else if (_focus) {
+      _focusController.forward();
+    } else {
+      _focusController.reverse();
+    }
+  }
+
+  RenderParagraph? _paragraphAt(int index) {
+    if (index < 0 || index >= _textKeys.length) return null;
+    final object = _textKeys[index].currentContext?.findRenderObject();
+    return object is RenderParagraph && object.hasSize ? object : null;
+  }
+
+  /// A long-press on text that is not highlighted: selects the word under the finger and opens the handles.
+  void _beginSelection(int paragraph, Offset local) {
+    if (!_highlightsOn || _selectionMode || _focus) return;
+    final rp = _paragraphAt(paragraph);
+    final text = _chapterTexts;
+    if (rp == null || paragraph >= text.length || text[paragraph].isEmpty) return;
+    final len = text[paragraph].length;
+    final at = rp.getPositionForOffset(local).offset.clamp(0, len);
+    var word = rp.getWordBoundary(TextPosition(offset: math.min(at, len - 1)));
+    var start = word.start.clamp(0, len);
+    var end = word.end.clamp(0, len);
+    if (end <= start) {
+      start = math.min(at, len - 1);
+      end = start + 1;
+    }
+    HapticFeedback.selectionClick();
+    setState(() {
+      _range = ReaderRange(paragraph, start, paragraph, end);
+      _editingId = null;
+      _editCategory = null;
+    });
+    _setFocusAnimation();
+  }
+
+  /// Closes the selection or the edit (nothing is saved) and brings the bars back.
+  void _closeRange() {
+    _edgeScrollTimer?.cancel();
+    setState(() {
+      _range = null;
+      _editingId = null;
+      _editCategory = null;
+      _startHandle = null;
+      _endHandle = null;
+    });
+    _setFocusAnimation();
+  }
+
+  /// Sentence / paragraph shortcuts under the handles.
+  void _expandSelection({required bool sentence}) {
+    final r = _range;
+    final text = _chapterTexts;
+    if (r == null || r.startPara >= text.length) return;
+    setState(() {
+      if (sentence) {
+        final s = sentenceAround(text[r.startPara], r.startOffset);
+        _range = s.end > s.start ? ReaderRange(r.startPara, s.start, r.startPara, s.end) : r;
+      } else {
+        _range = wholeParagraphs(r, text);
+      }
+    });
+  }
+
+  // --- the handles ----------------------------------------------------------------------------------------
+
+  /// Where the character at [offset] of paragraph [index] is, in the scrolling content's coordinates: the left edge of the
+  /// caret and the bottom of its line.
+  Offset? _caretInContent(int index, int offset) {
+    final rp = _paragraphAt(index);
+    final content = _contentKey.currentContext?.findRenderObject();
+    if (rp == null || content is! RenderBox || !content.hasSize) return null;
+    final position = TextPosition(offset: offset);
+    final caret = rp.getOffsetForCaret(position, Rect.zero);
+    final lineHeight = rp.getFullHeightForCaret(position);
+    return content.globalToLocal(rp.localToGlobal(caret.translate(0, lineHeight)));
+  }
+
+  void _queueHandleSync() {
+    if (_handleSyncQueued) return;
+    _handleSyncQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _handleSyncQueued = false;
+      if (!mounted) return;
+      final r = _range;
+      final start = r == null ? null : _caretInContent(r.startPara, r.startOffset);
+      final end = r == null ? null : _caretInContent(r.endPara, r.endOffset);
+      if (start != _startHandle || end != _endHandle) {
+        setState(() {
+          _startHandle = start;
+          _endHandle = end;
+        });
+      }
+    });
+  }
+
+  /// The paragraph and character under a screen point (the nearest paragraph when the point is between two).
+  ({int paragraph, int offset})? _textPositionAt(Offset global) {
+    int? best;
+    var bestDistance = double.infinity;
+    Offset? bestLocal;
+    for (var i = 0; i < _textKeys.length; i++) {
+      final rp = _paragraphAt(i);
+      if (rp == null) continue;
+      final local = rp.globalToLocal(global);
+      final dy = local.dy < 0 ? -local.dy : (local.dy > rp.size.height ? local.dy - rp.size.height : 0.0);
+      if (dy < bestDistance) {
+        bestDistance = dy;
+        best = i;
+        bestLocal = local;
+      }
+    }
+    if (best == null || bestLocal == null) return null;
+    final rp = _paragraphAt(best)!;
+    final clamped = Offset(bestLocal.dx.clamp(0.0, rp.size.width), bestLocal.dy.clamp(0.0, rp.size.height));
+    final len = _chapterTexts[best].length;
+    return (paragraph: best, offset: rp.getPositionForOffset(clamped).offset.clamp(0, len));
+  }
+
+  Offset _lastDrag = Offset.zero;
+  Timer? _edgeScrollTimer;
+
+  /// A handle was dragged to [global]: its end of the range follows the finger (the knob hangs under the line,
+  /// so the point read is a little above it). The other end never moves, and the range never becomes empty.
+  void _dragHandle(bool isStart, Offset global) {
+    _lastDrag = global;
+    final r = _range;
+    if (r == null) return;
+    final hit = _textPositionAt(global.translate(0, -30));
+    if (hit != null) {
+      final ReaderRange next = isStart
+          ? ReaderRange(hit.paragraph, hit.offset, r.endPara, r.endOffset)
+          : ReaderRange(r.startPara, r.startOffset, hit.paragraph, hit.offset);
+      final before = next.startPara < next.endPara || (next.startPara == next.endPara && next.startOffset < next.endOffset);
+      if (before && next != r) setState(() => _range = next);
+    }
+    _edgeScroll(isStart);
+  }
+
+  /// Dragging a handle near the top or bottom edge of the page scrolls it.
+  void _edgeScroll(bool isStart) {
+    final box = _viewportKey.currentContext?.findRenderObject();
+    if (box is! RenderBox || !box.hasSize || !_scrollController.hasClients) return;
+    final top = box.localToGlobal(Offset.zero).dy;
+    final bottom = top + box.size.height;
+    final y = _lastDrag.dy;
+    final delta = y < top + 70 ? -14.0 : (y > bottom - 90 ? 14.0 : 0.0);
+    _edgeScrollTimer?.cancel();
+    if (delta == 0) return;
+    _edgeScrollTimer = Timer.periodic(const Duration(milliseconds: 16), (_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      final position = _scrollController.position;
+      final target = (position.pixels + delta).clamp(position.minScrollExtent, position.maxScrollExtent);
+      if (target == position.pixels) return;
+      _scrollController.jumpTo(target);
+      _dragHandle(isStart, _lastDrag);
+    });
+  }
+
+  void _endDrag() => _edgeScrollTimer?.cancel();
+
+  // --- a new highlight: the panel --------------------------------------------------------------------------
+
+  Future<void> _submitSelection() async {
+    final r = _range;
+    if (r == null || _panelOpen) return;
+    setState(() => _panelOpen = true);
+    _setFocusAnimation();
+    final choice = await showHighlightSheet(
+      context,
+      chrome: _palette.chrome,
+      onChrome: _palette.onChrome,
+      secondary: _palette.secondaryText,
+    );
+    if (!mounted) return;
+    setState(() => _panelOpen = false);
+    if (choice == null) {
+      // Cancel (or tapped outside): nothing saved, the bars come back.
+      _closeRange();
+      return;
+    }
+    final draft = BookHighlight.create(
+      id: '',
+      chapter: _currentChapter,
+      range: r,
+      paragraphs: _chapterTexts,
+      category: choice.category,
+      note: choice.note,
+    );
+    try {
+      final saved = await _store.add(
+        uid: widget.uid,
+        bookKey: widget.bookKey,
+        level: widget.level,
+        bookTitle: widget.bookTitle,
+        highlight: draft,
+      );
+      if (!mounted) return;
+      setState(() {
+        _highlights = [..._highlights, saved];
+        _placeHighlights();
+      });
+      _closeRange();
+    } catch (_) {
+      if (!mounted) return;
+      // Keep the selection so Highlight can simply be tried again.
+      _setFocusAnimation();
+      // Floats above the action bar (a snackbar at the bottom edge would sit on top of its buttons).
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text("Could not save the highlight. Try again."),
+        behavior: SnackBarBehavior.floating,
+        margin: EdgeInsets.fromLTRB(16, 0, 16, 84),
+      ));
+    }
+  }
+
+  // --- an existing highlight --------------------------------------------------------------------------------
+
+  PlacedHighlight? _placedAt(int paragraph, Offset local) {
+    final rp = _paragraphAt(paragraph);
+    if (rp == null) return null;
+    final offset = rp.getPositionForOffset(local).offset;
+    final inChapter = [for (final p in _placed) if (p.anchor.chapter == _currentChapter) p];
+    return highlightAt(inChapter, _chapterTexts, paragraph, offset);
+  }
+
+  /// Single tap on a highlight: its category and note, with Edit note and Change category.
+  Future<void> _onHighlightTap(int paragraph, Offset local) async {
+    if (!_highlightsOn || _selectionMode || _focus) return;
+    final hit = _placedAt(paragraph, local);
+    if (hit == null) return;
+    final action = await showHighlightInfo(
+      context,
+      highlight: hit.highlight,
+      chrome: _palette.chrome,
+      onChrome: _palette.onChrome,
+      secondary: _palette.secondaryText,
+    );
+    if (!mounted || action == null) return;
+    final h = hit.highlight;
+    final editNote = action == HighlightAction.editNote;
+    final choice = await showHighlightSheet(
+      context,
+      chrome: _palette.chrome,
+      onChrome: _palette.onChrome,
+      secondary: _palette.secondaryText,
+      initialCategory: h.category,
+      initialNote: h.note,
+      title: editNote ? 'Edit note' : 'Change category',
+      submitLabel: 'Save',
+      showCategory: !editNote,
+      showNote: editNote,
+    );
+    if (!mounted || choice == null) return;
+    await _updateHighlight(h, {'category': choice.category.key, 'note': choice.note}, h.copyWith(category: choice.category, note: choice.note));
+  }
+
+  Future<void> _updateHighlight(BookHighlight old, Map<String, Object?> fields, BookHighlight updated) async {
+    try {
+      await _store.update(old.id, fields);
+      if (!mounted) return;
+      setState(() {
+        _highlights = [for (final h in _highlights) h.id == old.id ? updated : h];
+        _placeHighlights();
+      });
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Could not save the change. Nothing was changed.")));
+    }
+  }
+
+  /// Long-press on a highlight: edit mode (focus mode on) with a handle at each end.
+  void _beginEdit(int paragraph, Offset local) {
+    if (!_highlightsOn || _selectionMode || _focus) return;
+    final hit = _placedAt(paragraph, local);
+    if (hit == null) return;
+    HapticFeedback.selectionClick();
+    setState(() {
+      _range = hit.anchor.range;
+      _editingId = hit.highlight.id;
+      _editCategory = hit.highlight.category;
+    });
+    _setFocusAnimation();
+  }
+
+  /// Save in edit mode: the new extent (the category and the note stay as they are).
+  Future<void> _saveEdit() async {
+    final r = _range;
+    final id = _editingId;
+    if (r == null || id == null) return;
+    final h = _highlights.firstWhere((x) => x.id == id, orElse: () => _highlights.first);
+    final fresh = BookHighlight.create(
+      id: id,
+      chapter: _currentChapter,
+      range: r,
+      paragraphs: _chapterTexts,
+      category: h.category,
+      note: h.note,
+      createdMillis: h.createdMillis,
+    );
+    _closeRange();
+    await _updateHighlight(h, {for (final e in fresh.toFields().entries) if (e.key != 'category' && e.key != 'note') e.key: e.value}, fresh);
+  }
+
+  Future<void> _deleteEdited() async {
+    final id = _editingId;
+    if (id == null) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        final colors = dialogContext.folk;
+        final text = dialogContext.folkText;
+        return FolkDialog.alert(
+          dialogContext,
+          title: "Delete this highlight?",
+          content: Text("The highlight and its note will be removed. The book is not changed.", style: text.small),
+          actions: [
+            TextButton(
+              key: const ValueKey('delete-cancel'),
+              style: FolkDialog.quietButton(colors, text),
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text("Cancel"),
+            ),
+            ElevatedButton(
+              key: const ValueKey('delete-confirm'),
+              style: FolkDialog.primaryButton(colors, text).copyWith(
+                backgroundColor: const WidgetStatePropertyAll(FolkCalendarTokens.legendMissed),
+                foregroundColor: const WidgetStatePropertyAll(FolkColors.onGradient),
+              ),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text("Delete"),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirm != true || !mounted) return;
+    try {
+      await _store.delete(id);
+      if (!mounted) return;
+      setState(() {
+        _highlights = [for (final h in _highlights) if (h.id != id) h];
+        _placeHighlights();
+      });
+      _closeRange();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Could not delete the highlight.")));
+    }
+  }
+
+  /// What is drawn in paragraph [index]: every placed highlight of the chapter (except the one being edited, which
+  /// is drawn as the live selection), and the open selection.
+  List<PaintedRange> _paintedFor(int index) {
+    final texts = _chapterTexts;
+    final out = <PaintedRange>[];
+    for (final p in _placed) {
+      if (p.anchor.chapter != _currentChapter || p.highlight.id == _editingId) continue;
+      for (final s in segmentsOf(p.anchor.range, texts)) {
+        if (s.paragraph == index) out.add(PaintedRange(s.start, s.end, p.highlight.category));
+      }
+    }
+    final r = _range;
+    if (r != null) {
+      for (final s in segmentsOf(r, texts)) {
+        if (s.paragraph == index) out.add(PaintedRange(s.start, s.end, _editCategory));
+      }
+    }
+    return out;
+  }
+
+  // ---------------------------------------------------------------------------
   // Exit handling
   // ---------------------------------------------------------------------------
 
+  /// The reading time never pauses: selecting, the panel, edit mode and dialogs are all part of reading.
   int get _elapsedSeconds => _readingStartedAt == null
       ? 0
-      : DateTime.now().difference(_readingStartedAt!).inSeconds;
+      : _now().difference(_readingStartedAt!).inSeconds;
 
   Future<void> _handleExit() async {
+    // Back while selecting or editing a highlight closes that first; it never leaves the book.
+    if (_range != null && !_panelOpen) {
+      _closeRange();
+      return;
+    }
     // A bookmark already exists — leave without asking.
     if (_hasBookmark || _loading || _error != null) {
       if (mounted) Navigator.pop(context, _elapsedSeconds);
@@ -905,12 +1402,20 @@ class _BookReaderPageState extends State<BookReaderPage> {
   void _goToChapter(int index) {
     if (index < 0 || index >= _chapters.length) return;
     setState(() {
+      _range = null;
+      _editingId = null;
+      _editCategory = null;
+      _startHandle = null;
+      _endHandle = null;
       _currentChapter = index;
       _rebuildParagraphKeys();
       _endReached = false;
       _endAreaHeight = 0;
     });
     _progress.value = 0;
+    // A selection (and with it focus mode) does not survive a change of chapter: the bars come back.
+    _edgeScrollTimer?.cancel();
+    _setFocusAnimation();
     if (_scrollController.hasClients) {
       _scrollController.jumpTo(0);
     }
@@ -1099,6 +1604,23 @@ class _BookReaderPageState extends State<BookReaderPage> {
     );
   }
 
+  /// Is this point of paragraph [index] on a highlighted character (where the glyphs are, not the blank next to them)?
+  bool _onHighlightedText(int index, Offset local) {
+    final rp = _paragraphAt(index);
+    if (rp == null) return false;
+    final texts = _chapterTexts;
+    final offset = rp.getPositionForOffset(local).offset;
+    for (final p in _placed) {
+      if (p.anchor.chapter != _currentChapter) continue;
+      for (final s in segmentsOf(p.anchor.range, texts)) {
+        if (s.paragraph != index || offset < s.start || offset >= s.end) continue;
+        final boxes = rp.getBoxesForSelection(TextSelection(baseOffset: s.start, extentOffset: s.end));
+        if (boxes.any((b) => b.toRect().inflate(3).contains(local))) return true;
+      }
+    }
+    return false;
+  }
+
   Widget _paragraphTile(List<InlineItem> runs, int index) {
     final isBookmarked =
         _bookmarkChapter == _currentChapter && _bookmarkParagraph == index;
@@ -1112,13 +1634,35 @@ class _BookReaderPageState extends State<BookReaderPage> {
     // MediaQuery.textScalerOf(context): this method runs on the State's own
     // `context`, which sits ABOVE that MediaQuery override in the tree, so a
     // lookup here would silently resolve to the app-wide default instead.
-    final body = RichText(
+    final painted = _highlightsOn ? _paintedFor(index) : const <PaintedRange>[];
+    final categories = {for (final r in painted) if (r.category != null) r.category!};
+    final textKey = index < _textKeys.length ? _textKeys[index] : null;
+    final richText = RichText(
+      key: textKey,
       textScaler: TextScaler.linear(_fontScale),
       text: TextSpan(
         style: kReaderParagraphStyle,
-        children: _spansFor(runs, bookmarked: isBookmarked),
+        children: _spansFor(runs, bookmarked: isBookmarked, onHighlights: categories),
       ),
     );
+    final canInteract = _highlightsOn && !_selectionMode && !_panelOpen;
+    // The coloured portions are painted BEHIND the text; a long-press on text that is not highlighted starts a
+    // selection, and (while a plain selection is open) a tap on the page closes it.
+    final body = textKey == null
+        ? richText
+        : GestureDetector(
+            behavior: HitTestBehavior.deferToChild,
+            onLongPressStart: canInteract && _range == null ? (d) => _beginSelection(index, d.localPosition) : null,
+            onTap: _range != null && _editingId == null && !_panelOpen ? _closeRange : null,
+            child: CustomPaint(
+              painter: ParagraphHighlightPainter(
+                textKey: textKey,
+                ranges: painted,
+                neutral: _palette.text.withValues(alpha: .20),
+              ),
+              child: richText,
+            ),
+          );
 
     // ⚠️ A paragraph's size and position NEVER depend on bookmark state. The
     // bookmark tint and the tap area are drawn around the text (outside the
@@ -1149,6 +1693,16 @@ class _BookReaderPageState extends State<BookReaderPage> {
               ),
             ),
           body,
+          // Over a highlighted portion only: tap shows its note, long-press edits its extent.
+          if (_highlightsOn && textKey != null && _placed.isNotEmpty && !_selectionMode)
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.deferToChild,
+                onTapUp: canInteract && _range == null ? (d) => _onHighlightTap(index, d.localPosition) : null,
+                onLongPressStart: canInteract && _range == null ? (d) => _beginEdit(index, d.localPosition) : null,
+                child: HighlightHitGate(accepts: (local) => _onHighlightedText(index, local)),
+              ),
+            ),
           if (_selectionMode)
             Positioned(
               left: around,
@@ -1185,9 +1739,28 @@ class _BookReaderPageState extends State<BookReaderPage> {
         if (didPop) return;
         await _handleExit();
       },
-      child: Scaffold(
+      child: AnimatedBuilder(
+        animation: _focusAnim,
+        // The page is built once per state change, not once per animation frame.
+        child: MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(_fontScale)),
+          child: _buildBody(),
+        ),
+        builder: (context, page) {
+          final shown = 1 - _focusAnim.value;
+          final topInset = MediaQuery.paddingOf(context).top;
+          return Scaffold(
         backgroundColor: _palette.background,
-        appBar: AppBar(
+        // Focus mode: the title bar slides up and away (the page does not move under it).
+        appBar: PreferredSize(
+          preferredSize: Size.fromHeight(toolbarHeight * shown),
+          child: ClipRect(
+            key: const ValueKey('bar-appbar'),
+            child: OverflowBox(
+              alignment: Alignment.bottomCenter,
+              minHeight: toolbarHeight + topInset,
+              maxHeight: toolbarHeight + topInset,
+              child: AppBar(
           backgroundColor: _palette.chrome,
           foregroundColor: _palette.onChrome,
           surfaceTintColor: Colors.transparent,
@@ -1244,12 +1817,26 @@ class _BookReaderPageState extends State<BookReaderPage> {
             ),
           ],
         ),
-        body: MediaQuery(
-          data: MediaQuery.of(context)
-              .copyWith(textScaler: TextScaler.linear(_fontScale)),
-          child: _buildBody(),
+            ),
+          ),
         ),
+        body: page,
+      );
+        },
       ),
+    );
+  }
+
+  /// A bar that slides out of the way in focus mode: [alignment] is the edge it leaves through's opposite side
+  /// (a top bar keeps its bottom edge visible longest).
+  Widget _slideAway({required Key key, required Widget child, required Alignment alignment}) {
+    return AnimatedBuilder(
+      animation: _focusAnim,
+      child: child,
+      builder: (context, c) {
+        final shown = 1 - _focusAnim.value;
+        return ClipRect(key: key, child: Align(alignment: alignment, heightFactor: shown, child: c));
+      },
     );
   }
 
@@ -1304,7 +1891,10 @@ class _BookReaderPageState extends State<BookReaderPage> {
         Column(
           children: [
             /// Chapter header: "Chapter 7 of 30" between the two arrows
-            ReaderChapterStrip(
+            _slideAway(
+              key: const ValueKey('bar-strip'),
+              alignment: Alignment.bottomCenter,
+              child: ReaderChapterStrip(
               background: Color.alphaBlend(
                   _palette.onChrome.withValues(alpha: .05), _palette.chrome),
               textColor: _palette.onChrome,
@@ -1323,31 +1913,41 @@ class _BookReaderPageState extends State<BookReaderPage> {
               chapterNumber: _currentChapter + 1,
               chapterTotal: _complete ? _chapters.length : null,
               onChapterSubmitted: _jumpToTypedChapter,
+              ),
             ),
 
             Expanded(
               child: NotificationListener<Notification>(
                 onNotification: _onScroll,
                 child: SingleChildScrollView(
+                  key: _viewportKey,
                   controller: _scrollController,
                   physics: const BouncingScrollPhysics(),
                   padding: EdgeInsets.fromLTRB(20, 24, 20, bottomPadding),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  child: Stack(
+                    key: _contentKey,
+                    fit: StackFit.passthrough,
+                    clipBehavior: Clip.none,
                     children: [
-                      _chapterHeading(chapter),
-                      const SizedBox(height: 18),
-                      if (chapter.paragraphs.isEmpty)
-                        Text(
-                          "This chapter has no readable text.",
-                          style: TextStyle(
-                              fontSize: 15, color: _palette.secondaryText),
-                        )
-                      else
-                        ...List.generate(
-                          chapter.paragraphs.length,
-                          (i) => _paragraphTile(chapter.paragraphs[i], i),
-                        ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _chapterHeading(chapter),
+                          const SizedBox(height: 18),
+                          if (chapter.paragraphs.isEmpty)
+                            Text(
+                              "This chapter has no readable text.",
+                              style: TextStyle(
+                                  fontSize: 15, color: _palette.secondaryText),
+                            )
+                          else
+                            ...List.generate(
+                              chapter.paragraphs.length,
+                              (i) => _paragraphTile(chapter.paragraphs[i], i),
+                            ),
+                        ],
+                      ),
+                      ..._handles(),
                     ],
                   ),
                 ),
@@ -1372,21 +1972,78 @@ class _BookReaderPageState extends State<BookReaderPage> {
                     child: ReaderPill(label: "Tap a paragraph to bookmark"),
                   ),
                 ),
-              if (showEnd) _finishArea(text),
-              ValueListenableBuilder<double>(
-                valueListenable: _progress,
-                builder: (context, value, _) => ReaderProgressBar(
-                  progress: value,
-                  background: _palette.chrome,
-                  textColor: _palette.secondaryText,
-                  trackColor: _palette.onChrome.withValues(alpha: .12),
-                  fontScale: _fontScale,
+              // Focus mode: what can be done with the open selection, floating where the bars were.
+              if (_range != null && !_panelOpen) _focusBar(),
+              _slideAway(
+                key: const ValueKey('bar-bottom'),
+                alignment: Alignment.topCenter,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (showEnd) _finishArea(text),
+                    ValueListenableBuilder<double>(
+                      valueListenable: _progress,
+                      builder: (context, value, _) => ReaderProgressBar(
+                        progress: value,
+                        background: _palette.chrome,
+                        textColor: _palette.secondaryText,
+                        trackColor: _palette.onChrome.withValues(alpha: .12),
+                        fontScale: _fontScale,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
         ),
       ],
+    );
+  }
+
+  /// The two drag handles of the open selection, inside the scrolling content so they move with the text.
+  List<Widget> _handles() {
+    if (_range == null) return const [];
+    _queueHandleSync();
+    final color = handleColor(_editCategory);
+    Widget at(Offset? o, bool isStart) => o == null
+        ? const SizedBox.shrink()
+        : Positioned(
+            left: o.dx - ReaderHandle.size / 2,
+            top: o.dy - 8,
+            child: ReaderHandle(
+              key: ValueKey(isStart ? 'handle-start' : 'handle-end'),
+              color: color,
+              isStart: isStart,
+              onDragStart: () {},
+              onDragUpdate: (g) => _dragHandle(isStart, g),
+              onDragEnd: _endDrag,
+            ),
+          );
+    return [at(_startHandle, true), at(_endHandle, false)];
+  }
+
+  Widget _focusBar() {
+    final editing = _editingId != null;
+    final onChrome = _palette.onChrome;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12, left: 12, right: 12),
+      child: ReaderActionBar(
+        background: _palette.chrome,
+        foreground: onChrome,
+        children: editing
+            ? [
+                ReaderActionButton(key: const ValueKey('edit-delete'), label: 'Delete', color: FolkCalendarTokens.legendMissed, onPressed: _deleteEdited),
+                ReaderActionButton(key: const ValueKey('edit-cancel'), label: 'Cancel', color: onChrome, onPressed: _closeRange),
+                ReaderActionButton(key: const ValueKey('edit-save'), label: 'Save', color: onChrome, strong: true, onPressed: _saveEdit),
+              ]
+            : [
+                ReaderActionButton(key: const ValueKey('sel-sentence'), label: 'Sentence', color: onChrome, onPressed: () => _expandSelection(sentence: true)),
+                ReaderActionButton(key: const ValueKey('sel-paragraph'), label: 'Paragraph', color: onChrome, onPressed: () => _expandSelection(sentence: false)),
+                ReaderActionButton(key: const ValueKey('sel-cancel'), label: 'Cancel', color: onChrome, onPressed: _closeRange),
+                ReaderActionButton(key: const ValueKey('sel-highlight'), label: 'Highlight', color: onChrome, strong: true, onPressed: _submitSelection),
+              ],
+      ),
     );
   }
 
