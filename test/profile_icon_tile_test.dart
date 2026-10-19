@@ -29,7 +29,7 @@ const rows = [
   ('My Guide', 'SBSD', CupertinoIcons.person_2, false),
   ('Notifications', 'Choose what you are notified about', CupertinoIcons.bell, true),
   ('Date of Birth', 'Tap to add your date of birth', CupertinoIcons.gift, true),
-  ('Chanting Commitment', 'Tap to set your daily rounds commitment', CupertinoIcons.flame_fill, true),
+  ('Commitment', 'Tap to set your daily commitment', CupertinoIcons.flame_fill, true),
 ];
 
 // The real row the Profile uses (My Guide has no tap: display only).
@@ -64,7 +64,7 @@ void main() {
     final row = File('lib/widgets/ProfileMenuRow.dart').readAsStringSync();
     expect(RegExp(r'ProfileMenuIconTile\(').allMatches(row).length, 1, reason: 'one shared row widget');
     expect(src.contains('ProfileMenuIconTile('), isFalse);
-    for (final label in ['My Competitions', 'My Guide', 'Notifications', 'Date of Birth', 'Chanting Commitment']) {
+    for (final label in ['My Competitions', 'My Guide', 'Notifications', 'Date of Birth', 'Commitment']) {
       expect(src, contains("'$label'"));
     }
     for (final gone in ['Book read', 'My Achievements', "'Chanting Competition'"]) {

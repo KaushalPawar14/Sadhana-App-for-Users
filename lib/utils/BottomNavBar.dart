@@ -17,6 +17,7 @@ import 'package:folk_app/widgets/FloatingPillNavBar.dart';
 import 'package:folk_app/widgets/FolkPageBackground.dart';
 import 'package:folk_app/widgets/FolkStatusBar.dart';
 import 'package:folk_app/widgets/NavHostGhost.dart';
+import 'package:folk_app/widgets/CommitmentDialog.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -205,6 +206,11 @@ class _CurvedNavBarState extends State<CurvedNavBar>
     // The tab host is only ever built once registration is complete: tell the
     // floating buttons the student has reached the main app.
     MainAppReached.instance.enter();
+    // A student who has not set a daily reading commitment is asked for it (the
+    // dialog cannot be dismissed; 0 is allowed) - the points are measured against it.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) askForReadingCommitmentIfMissing(context);
+    });
   }
 
   @override

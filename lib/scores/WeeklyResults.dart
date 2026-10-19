@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../utils/ScoreBreakdown.dart';
 import '../widgets/FolkErrorRetry.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:folk_app/utils/SameGender.dart';
@@ -340,17 +341,21 @@ class _WeeklyResultsPageState extends State<WeeklyResultsPage>
               color: colors.surfaceSecondary,
               borderRadius: BorderRadius.circular(FolkShape.tileRadius),
             ),
-            child: Wrap(
-              spacing: 16, // horizontal spacing between items
-              runSpacing: 8, // vertical spacing if items wrap
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (!_hostelLocalite)
-                  Text("🛕 Temple x ${user['templeMultiplier']}  ",
-                      style: text.bodyStrong),
-                Text("📿 Japa x ${user['japaMultiplier']}  ",
-                    style: text.bodyStrong),
-                Text("😴 Sleep x ${user['sleepMultiplier']}",
-                    style: text.bodyStrong),
+                Text(kBreakdownCaption, style: text.caption),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 16, // horizontal spacing between items
+                  runSpacing: 8, // vertical spacing if items wrap
+                  children: [
+                    for (final line in user['multipliers']
+                        as List<({String label, String value})>)
+                      Text("${line.label} x ${line.value}",
+                          style: text.bodyStrong),
+                  ],
+                ),
               ],
             ),
           ),
@@ -438,6 +443,7 @@ class _WeeklyResultsPageState extends State<WeeklyResultsPage>
                                         (data['weekly.sleeping_multiplier'] ??
                                                 0)
                                             .toDouble(),
+                                    "multipliers": multiplierLines(data, 'weekly', hostelLocalite: _hostelLocalite),
                                     "days": (data['weekly.days_count'] ?? 0)
                                         .toInt(),
                                   };

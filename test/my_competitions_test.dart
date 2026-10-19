@@ -76,7 +76,7 @@ void main() {
 
     test('Profile wiring: the rows and their order, the fields they read, the ghost', () {
       final src = File('lib/pages/Profile.dart').readAsStringSync();
-      final order = ['My Competitions', 'My Guide', 'Notifications', 'Date of Birth', 'Chanting Commitment'].map((l) => src.indexOf("'$l'")).toList();
+      final order = ['My Competitions', 'My Guide', 'Notifications', 'Date of Birth', 'Commitment'].map((l) => src.indexOf("'$l'")).toList();
       expect(order.every((i) => i > 0), isTrue);
       expect(order, [...order]..sort());
       for (final gone in ['Book read', 'My Achievements', "'Chanting Competition'", 'BooksSelectionScreen', 'AchievementsPage', 'ChantingCompetitionPage']) {

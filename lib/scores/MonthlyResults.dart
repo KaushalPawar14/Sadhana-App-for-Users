@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../utils/ScoreBreakdown.dart';
 import '../widgets/FolkErrorRetry.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:folk_app/utils/SameGender.dart';
@@ -337,17 +338,21 @@ class _MonthlyResultsPageState extends State<MonthlyResultsPage> with TickerProv
               color: colors.surfaceSecondary,
               borderRadius: BorderRadius.circular(FolkShape.tileRadius),
             ),
-            child: Wrap(
-              spacing: 16, // horizontal spacing between items
-              runSpacing: 8, // vertical spacing if items wrap
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (!_hostelLocalite)
-                  Text("🛕 Temple x ${user['templeMultiplier']}  ",
-                      style: text.bodyStrong),
-                Text("📿 Japa x ${user['japaMultiplier']}  ",
-                    style: text.bodyStrong),
-                Text("😴 Sleep x ${user['sleepMultiplier']}",
-                    style: text.bodyStrong),
+                Text(kBreakdownCaption, style: text.caption),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 16, // horizontal spacing between items
+                  runSpacing: 8, // vertical spacing if items wrap
+                  children: [
+                    for (final line in user['multipliers']
+                        as List<({String label, String value})>)
+                      Text("${line.label} x ${line.value}",
+                          style: text.bodyStrong),
+                  ],
+                ),
               ],
             ),
           ),
@@ -417,7 +422,8 @@ class _MonthlyResultsPageState extends State<MonthlyResultsPage> with TickerProv
                         "templeMultiplier": (data['monthly.temple_multiplier'] ?? 0).toDouble(),
                         "japaMultiplier": (data['monthly.japa_multiplier'] ?? 0).toDouble(),
                         "sleepMultiplier": (data['monthly.sleeping_multiplier'] ?? 0).toDouble(),
-                        "days": (data['monthly.days_count'] ?? 0).toInt(),
+                        "multipliers": multiplierLines(data, 'monthly', hostelLocalite: _hostelLocalite),
+                                    "days": (data['monthly.days_count'] ?? 0).toInt(),
                       };
 
                               return Column(

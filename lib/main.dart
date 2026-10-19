@@ -78,7 +78,6 @@ import 'package:folk_app/widgets/StartupWaiting.dart';
      await FirebaseCM().initNotifications();
      await updateFCMToken();
      watchFCMToken(); // follow sign-ins, token rotation and sign-out from here on
-     await ensureUserCompetitionDocument();
      User? user = FirebaseAuth.instance.currentUser;
 
      if (user != null) {
@@ -226,64 +225,6 @@ import 'package:folk_app/widgets/StartupWaiting.dart';
      );
    }
  }
- Future<void> ensureUserCompetitionDocument() async {
 
-   final currentUser = FirebaseAuth.instance.currentUser;
-   if (currentUser == null) return;
-
-   // 🔹 Fetch name from users collection
-   final userDoc = await FirebaseFirestore.instance
-       .collection('users')
-       .doc(currentUser.uid)
-       .get();
-
-   if (!userDoc.exists) return;
-
-   final username = userDoc.data()?['name'];
-   final role = userDoc.data()?['role'];
-   if (username == null || username.toString().isEmpty) return;
-   // Localites (Master Task, 2026-09-03) are excluded exactly like Hostel
-   // residents — the competition/leaderboard feature is FOLK-only.
-   if(role == "Stay at Hostel" || role == "Stay at Localite")return;
-
-   print("First test passed");
-
-   final docRef =
-   FirebaseFirestore.instance.collection('competition').doc(username);
-
-   await FirebaseFirestore.instance.runTransaction((transaction) async {
-     final snapshot = await transaction.get(docRef);
-
-     if (!snapshot.exists) {
-       transaction.set(docRef, {
-         "Name": username,
-
-         "weekly.total_score": 0.0,
-         "weekly.bhagavatam_class": 0.0,
-         "weekly.daily_service": 0.0,
-         "weekly.chanting_rounds": 0.0,
-         "weekly.book_reading": 0.0,
-         "weekly.extra_lecture": 0.0,
-         "weekly.temple_multiplier": 0.0,
-         "weekly.japa_multiplier": 0.0,
-         "weekly.sleeping_multiplier": 0.0,
-         "weekly.days_count": 0,
-
-         "monthly.total_score": 0.0,
-         "monthly.bhagavatam_class": 0.0,
-         "monthly.daily_service": 0.0,
-         "monthly.chanting_rounds": 0.0,
-         "monthly.book_reading": 0.0,
-         "monthly.extra_lecture": 0.0,
-         "monthly.temple_multiplier": 0.0,
-         "monthly.japa_multiplier": 0.0,
-         "monthly.sleeping_multiplier": 0.0,
-         "monthly.days_count": 0,
-       });
-       print("All test failed");
-     }
-     print("Second test passed");
-   });
- }
-
-
+ // The competition document is written by the server from the student's reports
+ // (functions/scoreRecompute.js); the app no longer creates or updates it.

@@ -10,6 +10,7 @@ import 'package:intl/intl.dart';
 
 import '../theme/FolkTheme.dart';
 import '../theme/FolkTokens.dart';
+import '../utils/Commitments.dart';
 import '../utils/ManualEntryMatch.dart';
 import '../utils/StudentNameGuard.dart';
 import '../widgets/FolkChip.dart';
@@ -101,6 +102,9 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
   final TextEditingController nameController = TextEditingController();
   final TextEditingController mobileController = TextEditingController();
   final TextEditingController commitmentRoundsController =
+      TextEditingController();
+  // Daily reading commitment in minutes (0 = a beginner), asked with the chanting one.
+  final TextEditingController readingCommitmentController =
       TextEditingController();
 
   bool isLoading = true;
@@ -203,6 +207,10 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
         final commitment = userData['commitmentRounds'];
         if (commitment is num && commitment > 0) {
           commitmentRoundsController.text = commitment.toInt().toString();
+        }
+        final reading = userData['readingCommitmentMinutes'];
+        if (reading is num && reading >= 0) {
+          readingCommitmentController.text = reading.toInt().toString();
         }
       }
     } catch (e) {
@@ -403,6 +411,9 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
       final commitmentText = commitmentRoundsController.text.trim();
       final commitmentRounds =
           commitmentText.isEmpty ? null : int.tryParse(commitmentText);
+      final readingText = readingCommitmentController.text.trim();
+      final readingCommitment =
+          readingText.isEmpty ? null : parseReadingCommitment(readingText);
 
       // Residence resolution — Part 2 item 4 / this file's own header:
       //  - already locked from a prior save → leave untouched (omit key).
@@ -425,6 +436,8 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
         if (dob != null) 'dob': Timestamp.fromDate(dob!),
         if (commitmentRounds != null && commitmentRounds > 0)
           'commitmentRounds': commitmentRounds,
+        if (readingCommitment != null)
+          'readingCommitmentMinutes': readingCommitment,
         'uid': currentUser.uid,
       }, SetOptions(merge: true));
 
@@ -719,6 +732,27 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
                                   final n = int.tryParse(val.trim());
                                   if (n == null || n <= 0) {
                                     return 'Enter a whole number greater than 0, or leave blank';
+                                  }
+                                  return null;
+                                },
+                              ),
+
+                              const SizedBox(height: FolkSpace.xl),
+
+                              // Reading commitment — minutes a day; 0 is fine for a beginner.
+                              _label(
+                                  'How many minutes of reading do you commit to daily? (0 if you are a beginner)'),
+                              const SizedBox(height: FolkSpace.sm),
+                              TextFormField(
+                                controller: readingCommitmentController,
+                                keyboardType: TextInputType.number,
+                                style: text.body,
+                                decoration: sadhanaFieldDecoration(context,
+                                    hint: 'e.g. 30, or 0'),
+                                validator: (val) {
+                                  if (val == null || val.trim().isEmpty) return null;
+                                  if (parseReadingCommitment(val) == null) {
+                                    return 'Enter minutes from 0 to 1440, or leave blank';
                                   }
                                   return null;
                                 },

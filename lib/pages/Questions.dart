@@ -7,7 +7,7 @@ import 'package:folk_app/utils/SadhanaSave.dart';
 import 'package:folk_app/utils/Snackbar.dart';
 import 'package:intl/intl.dart';
 import '../models/SadhanaReports.dart';
-import '../services/CompetitionService.dart';
+import '../utils/Commitments.dart';
 import '../services/ScorecardUpdate.dart';
 import '../widgets/FolkScaffold.dart';
 import '../widgets/PrimaryButton.dart';
@@ -19,6 +19,7 @@ class QuestionsPage extends StatefulWidget {
     this.saveReport,
     this.saveTimeout = kSadhanaSaveTimeout,
     this.initialDate,
+    this.loadCommitments,
   });
 
   // A missed day tapped on the calendar opens the form with that date already in the
@@ -36,6 +37,10 @@ class QuestionsPage extends StatefulWidget {
       saveReport;
   @visibleForTesting
   final Duration saveTimeout;
+
+  // Tests hand in the commitments; the app reads them from the student's profile.
+  @visibleForTesting
+  final Future<Commitments> Function()? loadCommitments;
 
   @override
   State<QuestionsPage> createState() => _QuestionsPageState();
@@ -141,6 +146,23 @@ class _QuestionsPageState extends State<QuestionsPage> {
     }
     _errors.clear();
 
+    // Typo guard (no cap on the points): far more than the commitment asks first.
+    final commitments = await (widget.loadCommitments ?? loadMyCommitments)();
+    if (!mounted) return;
+    if (looksLikeTypo(roundsValue!, commitments.rounds) &&
+        !await confirmUnusualAmount(context,
+            what: 'Rounds chanted', entered: roundsValue, unit: 'rounds')) {
+      return;
+    }
+    if (!mounted) return;
+    final readingTarget = commitments.readingMinutes ?? 0;
+    if (looksLikeTypo(bookValue!, readingTarget) &&
+        !await confirmUnusualAmount(context,
+            what: 'Reading', entered: bookValue, unit: 'minutes')) {
+      return;
+    }
+    if (!mounted) return;
+
     print(answers);
 
     String? Rounds = answers[5];
@@ -187,8 +209,8 @@ class _QuestionsPageState extends State<QuestionsPage> {
 
     SadhanaReport newReport = SadhanaReport(
         templeEntry: parsedTempleEntry,
-        chantRounds: roundsValue!,
-        bookReading: bookValue!,
+        chantRounds: roundsValue,
+        bookReading: bookValue,
         classHearing: hearingValue!,
         dailyServices: serviceValue!,
         finishTiming: parsedFinishTiming,
@@ -635,12 +657,6 @@ Future<void> saveSadhanaReport(
         report.classHearing,
         report.dailyServices,
       );
-      await CompetitionService().updateScores(
-        userName,
-        report,
-        DateFormat("dd-MM-yyyy").parse(reportDate),             // <-- reported date
-        extraLecture: selectedExtraLecturePoints,
-      );
       scoringAttempted?.add(reportDate);
     } else {
       debugPrint(
@@ -668,6 +684,9 @@ Future<void> saveSadhanaReport(
 
     await reportRef.set({
       ...report.toMap(),
+      // The extra-lecture answer (0 none, 1 more than 15 mins, 2 more than 30 mins),
+      // which the server's point system reads (it used to be used only on the phone).
+      'extraLecture': selectedExtraLecturePoints.toInt(),
       // `chantRounds` stays exactly what the form typed — unchanged behaviour.
       // `roundsSource` only *describes* the document; no existing reader is
       // repointed by this change (that is a separate, later decision).

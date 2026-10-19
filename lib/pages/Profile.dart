@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/UpdateToken.dart';
+import '../utils/Commitments.dart';
+import '../widgets/CommitmentDialog.dart';
 import '../utils/SameGender.dart';
 import 'package:folk_app/pages/MyCompetitions.dart';
 import 'package:folk_app/pages/NotificationPreferences.dart';
@@ -47,6 +49,10 @@ class _ProfilePageState extends State<ProfilePage>
   /// Null (or absent/0 in Firestore) means "no commitment set yet" — never
   /// treated as a real commitment of 0 rounds/day.
   int? commitmentRounds;
+
+  /// Minutes of reading a day the student committed to; null = not set yet,
+  /// 0 = a beginner.
+  int? readingCommitmentMinutes;
 
   /// The most rounds / reading minutes the student ever reported in one day, from
   /// the user document (kept by the `updateBestStatsOn*` triggers). 0 until set.
@@ -182,6 +188,9 @@ class _ProfilePageState extends State<ProfilePage>
             commitmentRounds = rawCommitment is num && rawCommitment > 0
                 ? rawCommitment.toInt()
                 : null;
+            final rawReading = data['readingCommitmentMinutes'];
+            readingCommitmentMinutes =
+                rawReading is num && rawReading >= 0 ? rawReading.toInt() : null;
             guideId = (data['guideId'] ?? '').toString();
             _refreshGuideName(guideId);
             final rawBestChant = data['bestChantRounds'];
@@ -249,77 +258,22 @@ class _ProfilePageState extends State<ProfilePage>
     }
   }
 
-  /// Lets a student set — or change — their own daily chanting commitment,
-  /// any time (unlike `mobileNumber`/`dob`, which lock after first save).
+  /// Lets a student set — or change — both daily commitments (rounds and reading
+  /// minutes), any time (unlike `mobileNumber`/`dob`, which lock after first save).
   ///
-  /// Same "write only this one field, with merge" discipline as
+  /// Same "write only these fields, with merge" discipline as
   /// [_pickAndSaveDob] — nothing else on the user document is disturbed.
-  Future<void> _editCommitmentRounds() async {
-    final controller =
-        TextEditingController(text: commitmentRounds?.toString() ?? '');
-
-    final result = await showDialog<int>(
-      context: context,
-      builder: (dialogContext) {
-        final colors = dialogContext.folk;
-        final text = dialogContext.folkText;
-        return AlertDialog(
-          backgroundColor: colors.surface,
-          surfaceTintColor: Colors.transparent,
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(FolkShape.cardRadius)),
-          title: Text("Chanting commitment", style: text.topBarTitle),
-          content: TextField(
-            controller: controller,
-            keyboardType: TextInputType.number,
-            autofocus: true,
-            style: text.body,
-            cursorColor: colors.text,
-            decoration: InputDecoration(
-              hintText: 'Rounds per day',
-              hintStyle: text.body.copyWith(color: colors.mutedText),
-              filled: true,
-              fillColor: colors.surfaceSecondary,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(FolkShape.tileRadius),
-                borderSide: BorderSide.none,
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              style: _dialogTextButton(colors, text),
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text("Cancel"),
-            ),
-            ElevatedButton(
-              style: _dialogPrimaryButton(colors, text),
-              onPressed: () {
-                final n = int.tryParse(controller.text.trim());
-                if (n == null || n <= 0) {
-                  ScaffoldMessenger.of(dialogContext).showSnackBar(
-                    const SnackBar(
-                        content: Text("Enter a whole number greater than 0")),
-                  );
-                  return;
-                }
-                Navigator.of(dialogContext).pop(n);
-              },
-              child: const Text("Save"),
-            ),
-          ],
-        );
-      },
+  Future<void> _editCommitment() async {
+    final result = await showCommitmentDialog(
+      context,
+      current: Commitments(
+        rounds: commitmentRounds ?? kDefaultChantCommitment,
+        readingMinutes: readingCommitmentMinutes,
+      ),
     );
-
     if (result == null) return;
 
-    try {
-      await FirebaseFirestore.instance.collection('users').doc(uid).set(
-        {'commitmentRounds': result},
-        SetOptions(merge: true),
-      );
-    } catch (_) {
+    if (!await saveCommitments(result, uid: uid)) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Could not save your commitment")),
@@ -533,12 +487,14 @@ class _ProfilePageState extends State<ProfilePage>
                 /// change). This is the number the guide's compound
                 /// target evaluation checks against.
                 _menuRow(
-                  'Chanting Commitment',
-                  commitmentRounds == null
-                      ? "Tap to set your daily rounds commitment"
-                      : "$commitmentRounds rounds per day",
+                  'Commitment',
+                  commitmentRounds == null && readingCommitmentMinutes == null
+                      ? "Tap to set your daily commitment"
+                      : commitmentLine(Commitments(
+                          rounds: commitmentRounds ?? kDefaultChantCommitment,
+                          readingMinutes: readingCommitmentMinutes)),
                   CupertinoIcons.flame_fill,
-                  _editCommitmentRounds,
+                  _editCommitment,
                 ),
               ]),
             ),

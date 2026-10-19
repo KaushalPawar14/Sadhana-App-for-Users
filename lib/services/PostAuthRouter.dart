@@ -2,7 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-import '../main.dart';
 import '../pages/CompleteProfile.dart';
 import '../utils/BottomNavBar.dart';
 
@@ -68,8 +67,6 @@ Future<void> routeAfterAuthentication(BuildContext context, User user) async {
   final name = data['name'] as String?;
   final role = data['role'] as String?;
   final mobile = data['mobileNumber'] as String?;
-
-  await ensureUserCompetitionDocument();
 
   if (!context.mounted) return;
 

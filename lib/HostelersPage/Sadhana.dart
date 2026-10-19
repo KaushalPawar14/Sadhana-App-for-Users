@@ -4,6 +4,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:folk_app/models/HostelSadhana.dart';
 import 'package:folk_app/theme/FolkTheme.dart';
+import 'package:folk_app/utils/Commitments.dart';
 import 'package:folk_app/utils/SadhanaSave.dart';
 import 'package:folk_app/utils/Snackbar.dart';
 import 'package:intl/intl.dart';
@@ -17,6 +18,7 @@ class SadhanaPage extends StatefulWidget {
     this.saveReport,
     this.saveTimeout = kSadhanaSaveTimeout,
     this.initialDate,
+    this.loadCommitments,
   });
 
   // A missed day tapped on the calendar opens the form with that date already in the
@@ -33,6 +35,10 @@ class SadhanaPage extends StatefulWidget {
       saveReport;
   @visibleForTesting
   final Duration saveTimeout;
+
+  // Tests hand in the commitments; the app reads them from the student's profile.
+  @visibleForTesting
+  final Future<Commitments> Function()? loadCommitments;
 
   @override
   State<SadhanaPage> createState() => SadhanaPageState();
@@ -122,6 +128,23 @@ class SadhanaPageState extends State<SadhanaPage> {
     }
     _errors.clear();
 
+    // Typo guard (no cap on the points): far more than the commitment asks first.
+    final commitments = await (widget.loadCommitments ?? loadMyCommitments)();
+    if (!mounted) return;
+    if (looksLikeTypo(roundsValue!, commitments.rounds) &&
+        !await confirmUnusualAmount(context,
+            what: 'Rounds chanted', entered: roundsValue, unit: 'rounds')) {
+      return;
+    }
+    if (!mounted) return;
+    final readingTarget = commitments.readingMinutes ?? 0;
+    if (looksLikeTypo(bookValue!, readingTarget) &&
+        !await confirmUnusualAmount(context,
+            what: 'Reading', entered: bookValue, unit: 'minutes')) {
+      return;
+    }
+    if (!mounted) return;
+
     print(answers);
 
     String? Rounds = answers[5];
@@ -148,8 +171,8 @@ class SadhanaPageState extends State<SadhanaPage> {
 
     HostelSadhana newReport = HostelSadhana(
         wakeUpTime: parsedWakeUpTime,
-        chantRounds: roundsValue!,
-        bookReading: bookValue!,
+        chantRounds: roundsValue,
+        bookReading: bookValue,
         classHearing: hearingValue!,
         finishTiming: parsedFinishTiming,
         sleepTiming: parsedSleepingTiming);
