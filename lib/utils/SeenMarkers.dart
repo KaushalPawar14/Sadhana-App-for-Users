@@ -86,13 +86,22 @@ class SeenMarkers {
 
     controller = StreamController<bool>.broadcast(
       onListen: () {
+        // A failing input (offline, or refused by the rules) is "nothing": no dot, never an unhandled error.
         subA = latestActivity.listen((v) {
           latest = v;
+          gotLatest = true;
+          emit();
+        }, onError: (Object _) {
+          latest = null;
           gotLatest = true;
           emit();
         });
         subB = lastSeen.listen((v) {
           seen = v;
+          gotSeen = true;
+          emit();
+        }, onError: (Object _) {
+          seen = null;
           gotSeen = true;
           emit();
         });

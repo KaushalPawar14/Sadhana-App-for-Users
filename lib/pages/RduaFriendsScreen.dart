@@ -14,6 +14,7 @@ import '../widgets/FolkCard.dart';
 import '../widgets/FolkChip.dart';
 import '../widgets/FolkDialog.dart';
 import '../widgets/FolkScaffold.dart';
+import '../widgets/FolkErrorRetry.dart';
 import '../widgets/GhostPlaceholder.dart';
 import '../widgets/PrimaryButton.dart';
 import '../widgets/RoundIconButton.dart';
@@ -112,22 +113,21 @@ class _RduaFriendsScreenState extends State<RduaFriendsScreen>
       _directory = directory;
       _uid = user.uid;
       _myName = (snap.data()?['name'] ?? 'Student').toString();
-      _friendsStream = _firestore
-          .collection('friends')
-          .doc(user.uid)
-          .collection('list')
-          .snapshots();
-      _requestsStream = _firestore
-          .collection('friendRequests')
-          .where('toUid', isEqualTo: user.uid)
-          .snapshots();
-      _groupsStream = _firestore
-          .collection('friendGroups')
-          .doc(user.uid)
-          .collection('groups')
-          .snapshots();
+      _openStreams(user.uid);
     });
   }
+
+  void _openStreams(String uid) {
+    _friendsStream = _firestore.collection('friends').doc(uid).collection('list').snapshots();
+    _requestsStream = _firestore.collection('friendRequests').where('toUid', isEqualTo: uid).snapshots();
+    _groupsStream = _firestore.collection('friendGroups').doc(uid).collection('groups').snapshots();
+  }
+
+  /// What a tab shows when its stream failed: a friendly line and Retry (the streams are opened again).
+  Widget _tabFailed(String uid) => FolkErrorRetry(
+        message: "Couldn't load this just now.",
+        onRetry: () => setState(() => _openStreams(uid)),
+      );
 
   // ---------------------------------------------------------------------------
   // Search + send request
@@ -716,6 +716,7 @@ class _RduaFriendsScreenState extends State<RduaFriendsScreen>
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _friendsStream,
       builder: (context, snap) {
+        if (snap.hasError) return _tabFailed(uid);
         final docs = _sameGender(snap.data?.docs ?? []);
         if (docs.isEmpty) {
           return Center(
@@ -770,6 +771,7 @@ class _RduaFriendsScreenState extends State<RduaFriendsScreen>
       // StreamBuilders rather than one OR query for clarity here.
       stream: _requestsStream,
       builder: (context, incomingSnap) {
+        if (incomingSnap.hasError) return _tabFailed(uid);
         // Only requests from students of my gender are shown.
         final incoming = (incomingSnap.data?.docs ?? [])
             .where((d) => d.data()['status'] == 'pending')
@@ -828,6 +830,7 @@ class _RduaFriendsScreenState extends State<RduaFriendsScreen>
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _groupsStream,
       builder: (context, snap) {
+        if (snap.hasError) return _tabFailed(uid);
         final docs = snap.data?.docs ?? [];
         if (docs.isEmpty) {
           return Center(

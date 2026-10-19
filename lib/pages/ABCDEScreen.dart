@@ -64,14 +64,19 @@ class _ABCDEScreenState extends State<ABCDEScreen> {
   /// torn down and recreated first (a real account switch requires signing
   /// out, which unmounts this screen entirely).
   late final String _uid;
-  late final Stream<QuerySnapshot<Map<String, dynamic>>> _associationStream;
-  late final Stream<QuerySnapshot<Map<String, dynamic>>> _booksStream;
-  late final Stream<DocumentSnapshot<Map<String, dynamic>>> _userDocStream;
+  late Stream<QuerySnapshot<Map<String, dynamic>>> _associationStream;
+  late Stream<QuerySnapshot<Map<String, dynamic>>> _booksStream;
+  late Stream<DocumentSnapshot<Map<String, dynamic>>> _userDocStream;
 
   @override
   void initState() {
     super.initState();
     _uid = _auth.currentUser?.uid ?? '';
+    _openStreams();
+    _loadUserMeta();
+  }
+
+  void _openStreams() {
     _associationStream = _firestore
         .collection('associations')
         .where('studentUid', isEqualTo: _uid)
@@ -81,8 +86,15 @@ class _ABCDEScreenState extends State<ABCDEScreen> {
         .where('uid', isEqualTo: _uid)
         .snapshots();
     _userDocStream = _firestore.collection('users').doc(_uid).snapshots();
-    _loadUserMeta();
   }
+
+  /// A progress line whose stream failed (offline, or refused): a friendly line that opens the streams again when
+  /// tapped, instead of the misleading "No sessions yet".
+  Widget _failedLine() => GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => setState(_openStreams),
+        child: _progressText("Couldn't load — tap to retry"),
+      );
 
   /// Opens Ask by the same route name the floating button uses, so the
   /// button hides there. Today's message itself comes from
@@ -140,6 +152,7 @@ class _ABCDEScreenState extends State<ABCDEScreen> {
     return StreamBuilder<QuerySnapshot>(
       stream: _associationStream,
       builder: (context, snapshot) => _ghostedProgress(snapshot, () {
+        if (snapshot.hasError) return _failedLine();
         final count = snapshot.data?.docs.length ?? 0;
         return _progressText(
           count > 0 ? "$count sessions this month" : "No sessions yet",
@@ -154,6 +167,7 @@ class _ABCDEScreenState extends State<ABCDEScreen> {
     return StreamBuilder<QuerySnapshot>(
       stream: _booksStream,
       builder: (context, snapshot) => _ghostedProgress(snapshot, () {
+        if (snapshot.hasError) return _failedLine();
         final docs = snapshot.data?.docs ?? [];
 
         for (final doc in docs) {
@@ -181,6 +195,13 @@ class _ABCDEScreenState extends State<ABCDEScreen> {
     return StreamBuilder<DocumentSnapshot>(
       stream: _userDocStream,
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => setState(_openStreams),
+            child: Text('—', key: const ValueKey('abcde-chanting-failed'), style: context.folkText.bigStat),
+          );
+        }
         final data = snapshot.data?.data() as Map<String, dynamic>?;
         final raw = data?['lifetimeRounds'];
         final lifetime = raw is num ? raw.toInt() : 0;

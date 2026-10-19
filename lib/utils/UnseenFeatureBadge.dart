@@ -113,12 +113,19 @@ class _UnseenFeatureBadgeState extends State<UnseenFeatureBadge> {
 
     controller = StreamController<bool>.broadcast(
       onListen: () {
+        // A failing input (offline, or refused by the rules) is "nothing": no dot, never an unhandled error.
         subA = widget.latestQuery(uid).listen((snap) {
           docs = snap.docs;
+          emit();
+        }, onError: (Object _) {
+          docs = [];
           emit();
         });
         subB = SeenMarkers.subCursors(uid, widget.featureKey).listen((c) {
           cursors = c;
+          emit();
+        }, onError: (Object _) {
+          cursors = const {};
           emit();
         });
       },

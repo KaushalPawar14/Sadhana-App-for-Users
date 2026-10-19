@@ -153,6 +153,61 @@ class CurvedNavBar extends StatefulWidget {
   State<CurvedNavBar> createState() => _CurvedNavBarState();
 }
 
+/// True while any of [sources] says "unseen". A source that FAILS (offline, or a query the rules refuse) counts as
+/// "nothing unseen": a missing dot, never an unhandled exception.
+Stream<bool> anyUnseenOf(List<Stream<bool>> sources) {
+  late StreamController<bool> controller;
+  final latest = List<bool?>.filled(sources.length, null);
+  final subs = <StreamSubscription>[];
+
+  void emit() {
+    if (latest.any((v) => v == null)) return;
+    controller.add(latest.any((v) => v == true));
+  }
+
+  controller = StreamController<bool>.broadcast(
+    onListen: () {
+      for (var i = 0; i < sources.length; i++) {
+        subs.add(sources[i].listen((v) {
+          latest[i] = v;
+          emit();
+        }, onError: (Object _) {
+          latest[i] = false;
+          emit();
+        }));
+      }
+    },
+    onCancel: () {
+      for (final s in subs) {
+        s.cancel();
+      }
+    },
+  );
+  return controller.stream;
+}
+
+/// The newest `createdAt` of the trips the student may see: their own gender's, not archived. The rules allow a
+/// student exactly this query (an unfiltered read of `expeditions` is refused), so it first reads the student's
+/// gender (the same rule as the Expeditions screen: anything but "female" is male).
+Stream<Timestamp?> expeditionsLatest(FirebaseFirestore db, String uid) {
+  return Stream.fromFuture(db.collection('users').doc(uid).get()).asyncExpand((user) {
+    final gender = user.data()?['gender'] == 'female' ? 'female' : 'male';
+    return db
+        .collection('expeditions')
+        .where('targetGender', isEqualTo: gender)
+        .where('archived', isEqualTo: false)
+        .snapshots()
+        .map((snap) {
+      Timestamp? max;
+      for (final doc in snap.docs) {
+        final ts = doc.data()['createdAt'];
+        if (ts is Timestamp && (max == null || ts.compareTo(max) > 0)) max = ts;
+      }
+      return max;
+    });
+  });
+}
+
 class _CurvedNavBarState extends State<CurvedNavBar>
     with WidgetsBindingObserver {
   int currentIdx = 2; // Set default index to 2 for CalendarPage
@@ -243,33 +298,7 @@ class _CurvedNavBarState extends State<CurvedNavBar>
     });
   }
 
-  Stream<bool> _anyOf(List<Stream<bool>> sources) {
-    late StreamController<bool> controller;
-    final latest = List<bool?>.filled(sources.length, null);
-    final subs = <StreamSubscription>[];
-
-    void emit() {
-      if (latest.any((v) => v == null)) return;
-      controller.add(latest.any((v) => v == true));
-    }
-
-    controller = StreamController<bool>.broadcast(
-      onListen: () {
-        for (var i = 0; i < sources.length; i++) {
-          subs.add(sources[i].listen((v) {
-            latest[i] = v;
-            emit();
-          }));
-        }
-      },
-      onCancel: () {
-        for (final s in subs) {
-          s.cancel();
-        }
-      },
-    );
-    return controller.stream;
-  }
+  Stream<bool> _anyOf(List<Stream<bool>> sources) => anyUnseenOf(sources);
 
   void _buildUnseenStreams() {
     if (widget.journeyUnseen != null) {
@@ -329,7 +358,7 @@ class _CurvedNavBarState extends State<CurvedNavBar>
     );
 
     final expeditionsUnseen = SeenMarkers.unseenFrom(
-      _maxTimestamp(db.collection('expeditions').snapshots(), 'createdAt'),
+      expeditionsLatest(db, uid),
       SeenMarkers.seenAt(uid, 'expeditionTrips'),
     );
 

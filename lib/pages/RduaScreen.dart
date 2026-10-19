@@ -96,6 +96,8 @@ class _RduaScreenState extends State<RduaScreen> {
         next['${topicId}_$chapterNum'] = data['isRead'] == true;
       }
       setState(() => _progress = next);
+    }, onError: (Object _) {
+      // The ticks beside the chapters are a nicety: if they cannot be read the list still works.
     });
   }
 
