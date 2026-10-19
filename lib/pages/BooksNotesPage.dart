@@ -10,6 +10,7 @@ import '../widgets/FolkCard.dart';
 import '../widgets/FolkErrorRetry.dart';
 import '../widgets/FolkScaffold.dart';
 import '../widgets/GhostPlaceholder.dart';
+import '../widgets/NoteJump.dart';
 
 // Books -> Notes. Three screens:
 //   1. BooksNotesPage   GOOD (blue square, top left), EXCELLENT (green square, top right), RARE (purple wide
@@ -22,6 +23,13 @@ import '../widgets/GhostPlaceholder.dart';
 
 /// The text on a highlight-coloured tile: the app's dark ink (the colours are mid-tone, so dark ink reads best).
 const Color _ink = FolkColors.onGradient;
+
+/// The Notes tiles wear the app's own theme gradients: Good = coral (pink), Excellent = green, Rare = violet.
+LinearGradient categoryGradient(HighlightCategory c) => switch (c) {
+      HighlightCategory.good => FolkGradients.coral,
+      HighlightCategory.excellent => FolkGradients.green,
+      HighlightCategory.rare => FolkGradients.violet,
+    };
 
 class BooksNotesPage extends StatefulWidget {
   const BooksNotesPage({super.key, required this.uid, this.firestore});
@@ -89,13 +97,12 @@ class _BooksNotesPageState extends State<BooksNotesPage> {
         label: '${c.label}, ${n == 1 ? '1 highlight' : '$n highlights'}',
         excludeSemantics: true,
         child: Material(
-          color: color,
-          borderRadius: BorderRadius.circular(FolkShape.cardRadius),
-          elevation: 0,
-          child: DecoratedBox(
+          type: MaterialType.transparency,
+          child: Ink(
             decoration: BoxDecoration(
+              gradient: categoryGradient(c),
               borderRadius: BorderRadius.circular(FolkShape.cardRadius),
-              boxShadow: c.glows ? [BoxShadow(color: color.withValues(alpha: .55), blurRadius: 18)] : null,
+              boxShadow: c.glows ? [BoxShadow(color: color.withValues(alpha: c.glowAlpha * 1.3), blurRadius: 16)] : null,
             ),
             child: InkWell(
               key: key,
@@ -308,7 +315,7 @@ class _NotesCardsPageState extends State<NotesCardsPage> {
           color: colors.surface,
           borderRadius: BorderRadius.circular(FolkShape.cardRadius),
           border: Border.all(color: color, width: 1.6),
-          boxShadow: widget.category.glows ? [BoxShadow(color: color.withValues(alpha: .45), blurRadius: 16)] : colors.cardShadows,
+          boxShadow: widget.category.glows ? [BoxShadow(color: color.withValues(alpha: widget.category.glowAlpha * 1.3), blurRadius: 14)] : colors.cardShadows,
         ),
         padding: const EdgeInsets.all(FolkSpace.lg),
         child: Column(
@@ -356,6 +363,23 @@ class _NotesCardsPageState extends State<NotesCardsPage> {
     );
   }
 
+  /// "Note [n] of total": Done / Enter in the box. 1..total only; otherwise a short message and the cards stay.
+  void _jumpTo(String raw, int total) {
+    final n = int.tryParse(raw.trim());
+    if (n == null || n < 1 || n > total) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text('Enter a note between 1 and $total')));
+      return;
+    }
+    if (n - 1 == _index) return;
+    if (FolkMotion.reduced(context)) {
+      _pages.jumpToPage(n - 1);
+    } else {
+      _pages.animateToPage(n - 1, duration: FolkMotion.of(context, const Duration(milliseconds: 260)), curve: Curves.easeOutCubic);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final text = context.folkText;
@@ -379,7 +403,14 @@ class _NotesCardsPageState extends State<NotesCardsPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Text(progressLabel(_index, total), key: const ValueKey('notes-progress'), style: text.bodyStrong, textAlign: TextAlign.center),
+                      NoteJump(
+                        key: const ValueKey('notes-progress'),
+                        number: (_index + 1).clamp(1, total),
+                        total: total,
+                        textColor: colors.text,
+                        suffix: ' · ${(progressFraction(_index, total) * 100).round()}%',
+                        onSubmitted: (raw) => _jumpTo(raw, total),
+                      ),
                       const SizedBox(height: 8),
                       ClipRRect(
                         borderRadius: BorderRadius.circular(6),

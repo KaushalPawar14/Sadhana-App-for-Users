@@ -73,8 +73,8 @@ class ParagraphHighlightPainter extends CustomPainter {
         canvas.drawPath(
           path,
           Paint()
-            ..color = color.withValues(alpha: .55)
-            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7),
+            ..color = color.withValues(alpha: category.glowAlpha)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
         );
       }
       canvas.drawPath(path, Paint()..color = Color(category.tintArgb));
@@ -246,6 +246,152 @@ class ReaderActionButton extends StatelessWidget {
   }
 }
 
+
+// ---------------------------------------------------------------------------------------------------------
+// the selection bar's buttons: four raised, slightly 3D buttons in a 2 x 2 grid
+// ---------------------------------------------------------------------------------------------------------
+
+/// The colours of the selection buttons. The same in Light, Dark and Sepia (the bar sits on the reader's
+/// chrome, and each button carries its own background); every label is at least 4.5:1 on the whole gradient.
+enum ReaderPillTone { purple, red, gold }
+
+extension ReaderPillToneX on ReaderPillTone {
+  /// Light top, deeper bottom: the soft "raised" gradient.
+  List<Color> get gradient => switch (this) {
+        ReaderPillTone.purple => const [Color(0xFF7A55D2), Color(0xFF5E3AB4)],
+        ReaderPillTone.red => const [Color(0xFFC94848), Color(0xFFA83636)],
+        ReaderPillTone.gold => const [Color(0xFFFFC83D), Color(0xFFE8A317)],
+      };
+
+  /// The label: white on purple and red, deep brown on the golden yellow.
+  Color get label => this == ReaderPillTone.gold ? const Color(0xFF2B1D00) : Colors.white;
+}
+
+/// A raised pill button: a soft vertical gradient, a gentle shadow, and a press-down (it sinks a little and the
+/// shadow shrinks). At least 48 dp tall. With "reduce motion" the press is instant.
+class ReaderPillButton extends StatefulWidget {
+  const ReaderPillButton({super.key, required this.label, required this.tone, required this.onPressed});
+
+  final String label;
+  final ReaderPillTone tone;
+  final VoidCallback? onPressed;
+
+  @override
+  State<ReaderPillButton> createState() => _ReaderPillButtonState();
+}
+
+class _ReaderPillButtonState extends State<ReaderPillButton> {
+  bool _down = false;
+
+  void _set(bool v) {
+    if (_down != v && mounted) setState(() => _down = v);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = widget.onPressed != null;
+    final colors = widget.tone.gradient;
+    final duration = FolkMotion.of(context, const Duration(milliseconds: 90));
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: widget.label,
+      excludeSemantics: true,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: enabled ? (_) => _set(true) : null,
+        onTapCancel: () => _set(false),
+        onTapUp: (_) => _set(false),
+        onTap: widget.onPressed,
+        child: AnimatedScale(
+          scale: _down ? .96 : 1,
+          duration: duration,
+          child: AnimatedContainer(
+            duration: duration,
+            constraints: const BoxConstraints(minHeight: FolkShape.touchTarget, minWidth: FolkShape.touchTarget),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(24),
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: _down ? [colors[1], colors[1]] : colors,
+              ),
+              border: Border.all(color: Colors.white.withValues(alpha: .28), width: 1),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: _down ? .18 : .34),
+                  blurRadius: _down ? 2 : 7,
+                  offset: Offset(0, _down ? 1 : 3),
+                ),
+              ],
+            ),
+            child: Opacity(
+              opacity: enabled ? 1 : .5,
+              child: Text(
+                widget.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: widget.tone.label, fontWeight: FontWeight.w800, fontSize: 15),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// While a selection is open: Sentence and Paragraph (purple) on top, Cancel (red) and Highlight (golden) below.
+class ReaderSelectionBar extends StatelessWidget {
+  const ReaderSelectionBar({
+    super.key,
+    required this.background,
+    required this.onSentence,
+    required this.onParagraph,
+    required this.onCancel,
+    required this.onHighlight,
+  });
+
+  final Color background;
+  final VoidCallback onSentence;
+  final VoidCallback onParagraph;
+  final VoidCallback onCancel;
+  final VoidCallback onHighlight;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget cell(Key key, String label, ReaderPillTone tone, VoidCallback onTap) => Expanded(
+          child: Padding(
+            padding: const EdgeInsets.all(4),
+            child: ReaderPillButton(key: key, label: label, tone: tone, onPressed: onTap),
+          ),
+        );
+    return Material(
+      color: background,
+      elevation: 6,
+      borderRadius: BorderRadius.circular(28),
+      child: Padding(
+        padding: const EdgeInsets.all(6),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(children: [
+              cell(const ValueKey('sel-sentence'), 'Sentence', ReaderPillTone.purple, onSentence),
+              cell(const ValueKey('sel-paragraph'), 'Paragraph', ReaderPillTone.purple, onParagraph),
+            ]),
+            Row(children: [
+              cell(const ValueKey('sel-cancel'), 'Cancel', ReaderPillTone.red, onCancel),
+              cell(const ValueKey('sel-highlight'), 'Highlight', ReaderPillTone.gold, onHighlight),
+            ]),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------------------------------------
 // the category + note panel
 // ---------------------------------------------------------------------------------------------------------
@@ -346,7 +492,7 @@ class _HighlightSheetState extends State<_HighlightSheet> {
               color: Color(c.tintArgb),
               borderRadius: BorderRadius.circular(14),
               border: Border.all(color: color, width: selected ? 3 : 1.2),
-              boxShadow: c.glows ? [BoxShadow(color: color.withValues(alpha: selected ? .65 : .4), blurRadius: selected ? 16 : 10)] : null,
+              boxShadow: c.glows ? [BoxShadow(color: color.withValues(alpha: selected ? c.glowAlpha * 1.5 : c.glowAlpha), blurRadius: selected ? 14 : 9)] : null,
             ),
             alignment: Alignment.center,
             child: Text(
@@ -485,7 +631,7 @@ Future<HighlightAction?> showHighlightInfo(
                   color: Color(highlight.category.tintArgb),
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(color: color, width: 1.4),
-                  boxShadow: highlight.category.glows ? [BoxShadow(color: color.withValues(alpha: .5), blurRadius: 12)] : null,
+                  boxShadow: highlight.category.glows ? [BoxShadow(color: color.withValues(alpha: highlight.category.glowAlpha), blurRadius: 10)] : null,
                 ),
                 child: Text(highlight.category.label.toUpperCase(), style: text.label.copyWith(color: onChrome, fontWeight: FontWeight.w800)),
               ),

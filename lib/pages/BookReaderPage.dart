@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../theme/FolkColors.dart';
 import '../theme/FolkTheme.dart';
@@ -20,6 +21,7 @@ import '../utils/ReaderContrast.dart';
 import '../widgets/FolkDialog.dart';
 import '../widgets/ReaderChrome.dart';
 import '../widgets/ReaderHighlights.dart';
+import '../widgets/ReaderLoadingGhost.dart';
 
 /// Base style shared by every run of body text.
 const TextStyle kReaderParagraphStyle = TextStyle(
@@ -37,6 +39,44 @@ const TextStyle kReaderParagraphStyle = TextStyle(
 /// their "sepia" mode), paired with a dark warm brown — not black — so
 /// contrast stays comfortable (~8:1) without the harsher black-on-tan glare
 /// pure black text would give on a warm background.
+/// The reading mode and size last used, kept for this app session AND on the device (loaded when the app
+/// starts), so a book that opens starts in the reader's own colours on its very first frame - never a white
+/// page for a dark or sepia reader. The saved choice in `users/{uid}.readingPrefs` still wins when it arrives.
+abstract final class ReaderLook {
+  static String? theme;
+  static double? fontScale;
+
+  static const _themeKey = 'readerTheme';
+  static const _fontKey = 'readerFontScale';
+
+  /// Reads what was last used on this device (called once at app start; never throws).
+  static Future<void> primeFromDevice() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final t = prefs.getString(_themeKey);
+      if (t != null && kReaderPalettes.containsKey(t)) theme = t;
+      fontScale = prefs.getDouble(_fontKey) ?? fontScale;
+    } catch (_) {}
+  }
+
+  /// Remembers a choice, for this session and the device.
+  static Future<void> remember({String? newTheme, double? newFontScale}) async {
+    if (newTheme != null) theme = newTheme;
+    if (newFontScale != null) fontScale = newFontScale;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (newTheme != null) await prefs.setString(_themeKey, newTheme);
+      if (newFontScale != null) await prefs.setDouble(_fontKey, newFontScale);
+    } catch (_) {}
+  }
+
+  @visibleForTesting
+  static void debugReset() {
+    theme = null;
+    fontScale = null;
+  }
+}
+
 class ReaderPalette {
   final Color background;
   final Color text;
@@ -181,6 +221,32 @@ class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProvid
   String _theme = 'light';
   double _fontScale = 1.0;
 
+  bool _themeStarted = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_themeStarted) return;
+    _themeStarted = true;
+    // Before the first frame: the mode used last in this session, else the app's own (a dark app opens
+    // the book dark) until the reader's saved choice arrives a moment later.
+    _theme = ReaderLook.theme ?? (context.folk.isDark ? 'dark' : 'light');
+    _fontScale = ReaderLook.fontScale ?? _fontScale;
+  }
+
+  /// The saved reading mode arrives while the book is still opening: the loading screen takes it at once.
+  void _applyEarlyPrefs(Map<String, Object?> prefs) {
+    if (!mounted || !_loading) return;
+    final theme = prefs['theme'] as String?;
+    final scale = prefs['fontScale'] as double?;
+    if (theme == null && scale == null) return;
+    setState(() {
+      if (theme != null) _theme = theme;
+      if (scale != null) _fontScale = scale;
+    });
+    ReaderLook.remember(newTheme: _theme, newFontScale: _fontScale);
+  }
+
   ReaderPalette get _palette => kReaderPalettes[_theme] ?? kReaderPalettes['light']!;
 
   /// True once this content's completion doc (`booksRead` for a book,
@@ -295,13 +361,23 @@ class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProvid
   Future<void> _load() async {
     // The three Firestore reads start at once, alongside the download and the
     // parse, rather than after them.
+    final Future<Map<String, Object?>> prefsFuture = _fetchReadingPrefs();
+    if (widget.extras == null) {
+      prefsFuture.then(_applyEarlyPrefs);
+    }
     final Future<List<Object?>> extrasFuture = widget.extras?.call() ??
         Future.wait<Object?>([
           _fetchBookmark(),
-          _fetchReadingPrefs(),
+          prefsFuture,
           _fetchFinishedState(),
         ]);
 
+    if (widget.extras != null) {
+      // the test seam hands over the saved choice the same way: the loading screen takes it as soon as it is there
+      extrasFuture.then((e) {
+        if (e.length > 1 && e[1] is Map) _applyEarlyPrefs(Map<String, Object?>.from(e[1] as Map));
+      });
+    }
     try {
       final updates = (widget.loader ?? _defaultLoader)(
           _normalizeDropboxUrl(widget.dropboxUrl), widget.bookTitle);
@@ -363,6 +439,7 @@ class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProvid
           _rebuildParagraphKeys();
           _theme = (prefs['theme'] as String?) ?? 'light';
           _fontScale = (prefs['fontScale'] as double?) ?? 1.0;
+          ReaderLook.remember(newTheme: _theme, newFontScale: _fontScale);
           _finished = finished;
           _loading = false;
           // Timer starts only now that readable content is on screen.
@@ -688,12 +765,14 @@ class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProvid
   void _setTheme(String theme) {
     if (theme == _theme) return;
     setState(() => _theme = theme);
+    ReaderLook.remember(newTheme: theme);
     _saveReadingPrefs();
   }
 
   void _setFontScale(double scale) {
     if (scale == _fontScale) return;
     setState(() => _fontScale = scale);
+    ReaderLook.remember(newFontScale: scale);
     _saveReadingPrefs();
   }
 
@@ -1744,7 +1823,15 @@ class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProvid
         // The page is built once per state change, not once per animation frame.
         child: MediaQuery(
           data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(_fontScale)),
-          child: _buildBody(),
+          // The ghost fades into the text, in the same box: nothing moves ("reduce motion": instant).
+          child: AnimatedSwitcher(
+            duration: FolkMotion.of(context, const Duration(milliseconds: 260)),
+            layoutBuilder: (current, previous) => Stack(
+              fit: StackFit.expand,
+              children: [...previous, if (current != null) current],
+            ),
+            child: KeyedSubtree(key: ValueKey<bool>(_loading), child: _buildBody()),
+          ),
         ),
         builder: (context, page) {
           final shown = 1 - _focusAnim.value;
@@ -1843,7 +1930,8 @@ class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProvid
   Widget _buildBody() {
     final text = context.folkText;
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      // The book is opening: a ghost of the page in the CURRENT reading colours (never a spinner).
+      return ReaderLoadingGhost(background: _palette.background, line: _palette.secondaryText);
     }
 
     if (_error != null) {
@@ -2026,6 +2114,18 @@ class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProvid
   Widget _focusBar() {
     final editing = _editingId != null;
     final onChrome = _palette.onChrome;
+    if (!editing) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12, left: 12, right: 12),
+        child: ReaderSelectionBar(
+          background: _palette.chrome,
+          onSentence: () => _expandSelection(sentence: true),
+          onParagraph: () => _expandSelection(sentence: false),
+          onCancel: _closeRange,
+          onHighlight: _submitSelection,
+        ),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.only(bottom: 12, left: 12, right: 12),
       child: ReaderActionBar(
@@ -2037,12 +2137,7 @@ class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProvid
                 ReaderActionButton(key: const ValueKey('edit-cancel'), label: 'Cancel', color: onChrome, onPressed: _closeRange),
                 ReaderActionButton(key: const ValueKey('edit-save'), label: 'Save', color: onChrome, strong: true, onPressed: _saveEdit),
               ]
-            : [
-                ReaderActionButton(key: const ValueKey('sel-sentence'), label: 'Sentence', color: onChrome, onPressed: () => _expandSelection(sentence: true)),
-                ReaderActionButton(key: const ValueKey('sel-paragraph'), label: 'Paragraph', color: onChrome, onPressed: () => _expandSelection(sentence: false)),
-                ReaderActionButton(key: const ValueKey('sel-cancel'), label: 'Cancel', color: onChrome, onPressed: _closeRange),
-                ReaderActionButton(key: const ValueKey('sel-highlight'), label: 'Highlight', color: onChrome, strong: true, onPressed: _submitSelection),
-              ],
+            : const <Widget>[],
       ),
     );
   }

@@ -110,7 +110,8 @@ void main() {
     final controller = StreamController<BookLoadUpdate>();
     await tester.pumpWidget(host(reader((u, t) => controller.stream)));
     await tester.pump();
-    expect(find.byType(CircularProgressIndicator), findsOneWidget, reason: 'nothing yet');
+    expect(find.byKey(const ValueKey('reader-loading-ghost')), findsOneWidget, reason: 'nothing yet: the ghost of the page, no spinner');
+    expect(find.byType(CircularProgressIndicator), findsNothing);
 
     controller.add(BookLoadUpdate(ParsedBook([chapter(1)], const {}), complete: false));
     await tester.pump();

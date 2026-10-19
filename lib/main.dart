@@ -2,6 +2,7 @@ import 'package:firebase_core/firebase_core.dart';
  import 'package:flutter/material.dart';
  import 'package:flutter/services.dart';
  import 'package:folk_app/pages/CompleteProfile.dart';
+import 'package:folk_app/pages/BookReaderPage.dart' show ReaderLook;
 import 'package:folk_app/pages/SplashScreen.dart';
  import 'package:folk_app/pages/Welcome.dart';
 import 'package:folk_app/services/QuestionsSeed.dart';
@@ -43,6 +44,8 @@ import 'package:folk_app/widgets/StartupWaiting.dart';
        const [DeviceOrientation.portraitUp]);
    await Firebase.initializeApp();
    final themeController = await ThemeModeController.load();
+   // The reading mode last used on this device, so a book opens in its own colours from the first frame.
+   await ReaderLook.primeFromDevice();
 
    runApp(
      MultiProvider(

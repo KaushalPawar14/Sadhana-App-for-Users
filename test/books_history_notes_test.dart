@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:folk_app/pages/BooksHistoryPage.dart';
 import 'package:folk_app/pages/BooksNotesPage.dart';
 import 'package:folk_app/theme/FolkTheme.dart';
+import 'package:folk_app/theme/FolkTokens.dart';
 import 'package:folk_app/utils/BookHighlights.dart';
 import 'package:folk_app/utils/BookNotes.dart';
 import 'package:folk_app/utils/BookReadingLog.dart';
@@ -321,14 +322,14 @@ void main() {
       expect(rare.width, closeTo(good.width + excellent.width + 12, 14), reason: 'as wide as both squares together');
       expect(rare.height, lessThan(rare.width / 2), reason: 'a wide rectangle');
       // the highlight colours
-      Color colorOf(String key) {
-        final material = find.ancestor(of: find.byKey(ValueKey(key)), matching: find.byType(Material)).first;
-        return tester.widget<Material>(material).color!;
+      LinearGradient gradientOf(String key) {
+        final ink = find.ancestor(of: find.byKey(ValueKey(key)), matching: find.byType(Ink)).first;
+        return (tester.widget<Ink>(ink).decoration! as BoxDecoration).gradient! as LinearGradient;
       }
 
-      expect(colorOf('notes-good'), Color(HighlightCategory.good.argb));
-      expect(colorOf('notes-excellent'), Color(HighlightCategory.excellent.argb));
-      expect(colorOf('notes-rare'), Color(HighlightCategory.rare.argb));
+      expect(gradientOf('notes-good'), FolkGradients.coral, reason: 'Good: the theme pink / coral gradient');
+      expect(gradientOf('notes-excellent'), FolkGradients.green);
+      expect(gradientOf('notes-rare'), FolkGradients.violet);
       // counts (only this student's)
       expect(find.text('4 highlights'), findsOneWidget);
       expect(find.text('1 highlight'), findsOneWidget);
@@ -371,24 +372,28 @@ void main() {
       await settle(tester);
       await tester.tap(find.text('Bhagavad-gita As It Is'));
       await settle(tester);
-      expect(find.text('1 of 3 · 33%'), findsOneWidget);
+      expect(find.text('of 3 · 33%'), findsOneWidget);
+      expect(tester.widget<TextField>(find.byKey(const ValueKey('note-jump-box'))).controller!.text, '1');
       expect(tester.widget<Text>(find.byKey(const ValueKey('note-number-1'))).data, '1');
       expect(find.text('First in the book.'), findsOneWidget, reason: 'card 1 is the first passage in the book');
       expect(find.text('Third in the book.'), findsNothing, reason: 'not on screen until swiped to');
       // swipe: card 2 then card 3
       await tester.drag(find.byType(PageView), const Offset(-320, 0));
       await tester.pumpAndSettle();
-      expect(find.text('2 of 3 · 67%'), findsOneWidget);
+      expect(find.text('of 3 · 67%'), findsOneWidget);
+      expect(tester.widget<TextField>(find.byKey(const ValueKey('note-jump-box'))).controller!.text, '2', reason: 'the box follows the swipe');
       expect(find.text('Second in the book, no note.'), findsOneWidget);
       expect(tester.widget<Text>(find.byKey(const ValueKey('note-number-2'))).data, '2');
       await tester.drag(find.byType(PageView), const Offset(-320, 0));
       await tester.pumpAndSettle();
-      expect(find.text('3 of 3 · 100%'), findsOneWidget);
+      expect(find.text('of 3 · 100%'), findsOneWidget);
+      expect(tester.widget<TextField>(find.byKey(const ValueKey('note-jump-box'))).controller!.text, '3', reason: 'the box follows the swipe');
       expect(find.text('Third in the book.'), findsOneWidget);
       // and back
       await tester.drag(find.byType(PageView), const Offset(320, 0));
       await tester.pumpAndSettle();
-      expect(find.text('2 of 3 · 67%'), findsOneWidget);
+      expect(find.text('of 3 · 67%'), findsOneWidget);
+      expect(tester.widget<TextField>(find.byKey(const ValueKey('note-jump-box'))).controller!.text, '2', reason: 'the box follows the swipe');
       final bar = tester.widget<LinearProgressIndicator>(find.byKey(const ValueKey('notes-progress-bar')));
       expect(bar.value, closeTo(2 / 3, 1e-9));
     });
@@ -414,7 +419,7 @@ void main() {
       await tester.tapAt(const Offset(4, 790));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('note-dialog-text')), findsNothing);
-      expect(find.text('1 of 3 · 33%'), findsOneWidget, reason: 'back on the card');
+      expect(find.text('of 3 · 33%'), findsOneWidget, reason: 'back on the card');
     });
 
     testWidgets('a short note shows in the dialog; a card without a note says "No note added" and has no button', (tester) async {

@@ -253,15 +253,17 @@ void main() {
   });
 
   group('colours', () {
-    test('the three categories: a medium blue, a green, a purple that glows; same in every mode', () {
-      expect(HighlightCategory.good.argb, 0xFF3D7BD6);
+    test('the three categories: a pink, a green, a soft purple that glows a little; same in every mode', () {
+      expect(HighlightCategory.good.argb, 0xFFE2578A);
       expect(HighlightCategory.excellent.argb, 0xFF2FA55A);
-      expect(HighlightCategory.rare.argb, 0xFF9C4DFF);
+      expect(HighlightCategory.rare.argb, 0xFFAE7DF3);
       expect([for (final c in HighlightCategory.values) c.glows], [false, false, true]);
       expect([for (final c in HighlightCategory.values) c.label], ['Good', 'Excellent', 'Rare']);
-      // medium blue: darker than sky blue, lighter than navy
-      expect(luminance(HighlightCategory.good.argb), lessThan(luminance(0xFF87CEEB)));
-      expect(luminance(HighlightCategory.good.argb), greaterThan(luminance(0xFF000080)));
+      // Rare is a touch lighter than the others (it used to look dark and harsh), still clearly purple
+      expect(luminance(HighlightCategory.rare.argb), greaterThan(luminance(0xFF9C4DFF)));
+      expect((HighlightCategory.rare.argb >> 16) & 0xFF, lessThan(HighlightCategory.rare.argb & 0xFF), reason: 'more blue than red: purple');
+      expect(HighlightCategory.rare.glowAlpha, lessThan(.5), reason: 'a soft glow');
+      expect(HighlightCategory.good.glowAlpha, 0);
       for (final c in HighlightCategory.values) {
         expect((c.tintArgb >> 24) & 0xFF, kHighlightTintAlpha, reason: 'a soft translucent tint');
         expect(c.tintArgb & 0xFFFFFF, c.argb & 0xFFFFFF);
