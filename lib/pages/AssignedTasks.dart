@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/FolkErrorRetry.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../theme/FolkColors.dart';
@@ -18,6 +19,9 @@ class AssignedTasks extends StatefulWidget {
 }
 
 class AssignedTasksState extends State<AssignedTasks> {
+  // Reads every level again (their streams are built in `build`).
+  void refresh() => setState(() {});
+
   final FirebaseFirestore firestore = FirebaseFirestore.instance;
 
   Future<void> updateAnswer(String level, String qKey, bool value) async {
@@ -112,6 +116,13 @@ class AssignedTasksState extends State<AssignedTasks> {
           .doc(level)
           .snapshots(),
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return FolkErrorRetry(
+            compact: true,
+            message: "Couldn't load this level just now.",
+            onRetry: () => setState(() {}),
+          );
+        }
         if (!snapshot.hasData) {
           return const GhostPlaceholder(
               width: double.infinity,
@@ -184,6 +195,15 @@ class _LevelWidget extends StatelessWidget {
           .doc(level)
           .snapshots(),
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return FolkErrorRetry(
+            compact: true,
+            message: "Couldn't load this level just now.",
+            onRetry: () => context
+                .findAncestorStateOfType<AssignedTasksState>()
+                ?.refresh(),
+          );
+        }
         if (!snapshot.hasData) {
           return const Padding(
             padding: EdgeInsets.symmetric(vertical: 10),

@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import '../widgets/FolkErrorRetry.dart';
 import 'package:intl/intl.dart';
 
 import '../theme/FolkColors.dart';
@@ -50,8 +51,8 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
   /// rebuild). Hoisted to fields, built once in `initState()` — safe
   /// unconditionally, since `widget.uid` is fixed for this screen's whole
   /// life (a pushed, single-student route).
-  late final Stream<QuerySnapshot<Map<String, dynamic>>> _tripsStream;
-  late final Stream<QuerySnapshot<Map<String, dynamic>>> _registrationsStream;
+  late Stream<QuerySnapshot<Map<String, dynamic>>> _tripsStream;
+  late Stream<QuerySnapshot<Map<String, dynamic>>> _registrationsStream;
 
   @override
   void initState() {
@@ -521,6 +522,18 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
         body: StreamBuilder<QuerySnapshot>(
           stream: _tripsStream,
           builder: (context, tripSnap) {
+            if (tripSnap.hasError) {
+              return FolkErrorRetry(
+                message: "Couldn't load the trips just now.",
+                onRetry: () => setState(() {
+                  _tripsStream = _firestore.collection('expeditions').snapshots();
+                  _registrationsStream = _firestore
+                      .collection('expeditionRegistrations')
+                      .where('studentUid', isEqualTo: widget.uid)
+                      .snapshots();
+                }),
+              );
+            }
             if (tripSnap.connectionState == ConnectionState.waiting) {
               // Ghost trip cards while the trips load.
               return GhostScope(

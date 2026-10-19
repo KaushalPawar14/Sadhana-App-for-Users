@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/FolkErrorRetry.dart';
 
 import '../theme/FolkColors.dart';
 import '../theme/FolkTheme.dart';
@@ -60,7 +61,7 @@ class _ServiceBankScreenState extends State<ServiceBankScreen> {
   /// fixed for this screen's whole life (a pushed, single-student route).
   /// `ServiceAssignments.dart`'s own query (filters, scoping) is unchanged —
   /// only where it gets called from moved.
-  late final Stream<List<ServiceAssignment>> _assignmentsStream;
+  late Stream<List<ServiceAssignment>> _assignmentsStream;
 
   @override
   void initState() {
@@ -293,6 +294,14 @@ class _ServiceBankScreenState extends State<ServiceBankScreen> {
       body: StreamBuilder<List<ServiceAssignment>>(
         stream: _assignmentsStream,
         builder: (context, snap) {
+          if (snap.hasError) {
+            return FolkErrorRetry(
+              message: "Couldn't load your services just now.",
+              onRetry: () => setState(() {
+                _assignmentsStream = assignmentsForStudentStream(widget.uid);
+              }),
+            );
+          }
           if (!snap.hasData) {
             // Ghost rows while the assignments load.
             return GhostScope(

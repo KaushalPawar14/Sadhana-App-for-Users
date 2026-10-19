@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:folk_app/utils/SameGender.dart';
 import 'package:flutter/material.dart';
+import '../widgets/FolkErrorRetry.dart';
 import 'package:folk_app/theme/FolkTheme.dart';
 import 'package:folk_app/theme/FolkTokens.dart';
 import 'package:folk_app/widgets/EntryAnimation.dart';
@@ -46,7 +47,7 @@ class BookReading extends StatelessWidget {
       onBack: () {
         Navigator.pop(context);
       },
-      body: FutureBuilder<List<Map<String, dynamic>>>(
+      body: FolkRetryScope(builder: (context, retry) => FutureBuilder<List<Map<String, dynamic>>>(
         future: fetchLeaderboard(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -54,8 +55,10 @@ class BookReading extends StatelessWidget {
           }
 
           if (snapshot.hasError) {
-            return Center(
-                child: Text('Error: ${snapshot.error}', style: text.body));
+            return FolkErrorRetry(
+              message: "Couldn't load the leaderboard just now.",
+              onRetry: retry,
+            );
           }
 
           if (!snapshot.hasData || snapshot.data!.isEmpty) {
@@ -143,7 +146,7 @@ class BookReading extends StatelessWidget {
             },
           );
         },
-      ),
+      )),
     );
   }
 }

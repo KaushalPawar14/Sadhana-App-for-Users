@@ -9,6 +9,7 @@ import '../theme/FolkTokens.dart';
 import '../widgets/EntryAnimation.dart';
 import '../widgets/FolkScaffold.dart';
 import '../widgets/GhostPlaceholder.dart';
+import '../widgets/FolkErrorRetry.dart';
 import 'BookReaderPage.dart';
 
 /// RDUA Modules — a structured study course of 50 fixed topics, each split
@@ -278,8 +279,11 @@ class _RduaScreenState extends State<RduaScreen> {
             );
           }
           if (snapshot.hasError) {
-            return Center(
-                child: Text("Error: ${snapshot.error}", style: text.body));
+            // The stream is built in `build`, so a rebuild reads it again.
+            return FolkErrorRetry(
+              message: "Couldn't load the topics just now.",
+              onRetry: () => setState(() {}),
+            );
           }
 
           final docs = snapshot.data?.docs ?? [];

@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
+import '../widgets/FolkErrorRetry.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:folk_app/utils/SameGender.dart';
 import 'package:folk_app/utils/BadgeDialog.dart';
@@ -369,6 +370,12 @@ class _MonthlyLeaderboardPageState extends State<MonthlyLeaderboardPage> with Ti
       body: FutureBuilder<List<Map<String, dynamic>>>(
         future: fetchTop3(),
         builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return FolkErrorRetry(
+              message: "Couldn't load the winners just now.",
+              onRetry: () => setState(() {}),
+            );
+          }
           if (!snapshot.hasData) {
             return const LeaderboardGhost(rows: 3);
           }

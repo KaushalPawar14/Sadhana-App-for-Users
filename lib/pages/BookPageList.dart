@@ -22,6 +22,7 @@ import '../widgets/FolkDialog.dart';
 import '../widgets/FolkScaffold.dart';
 import '../widgets/LanguageButton.dart';
 import '../widgets/GhostPlaceholder.dart';
+import '../widgets/FolkErrorRetry.dart';
 import '../widgets/PrimaryButton.dart';
 import 'BookReaderPage.dart';
 
@@ -102,22 +103,32 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
   ///
   /// (Neither stream depends on `_language`; that only picks which links
   /// document a book's URL is read from, in memory.)
-  late final BookLibrary _library;
+  late BookLibrary _library;
+
+  BookLibrary _newLibrary() => BookLibrary(
+        booksStream: _firestore.collection('books').snapshots().map((snap) => {
+              for (final doc in snap.docs) doc.id: doc.data(),
+            }),
+        entriesStream: _firestore
+            .collection('booksRead')
+            .where('uid', isEqualTo: _uid ?? '')
+            .snapshots()
+            .map((snap) => [for (final doc in snap.docs) doc.data()]),
+      );
+
+  // Retry after a failed read: a fresh library listens to both streams again.
+  void _retryLibrary() {
+    if (widget.library != null) return;
+    setState(() {
+      _library.dispose();
+      _library = _newLibrary();
+    });
+  }
 
   @override
   void initState() {
     super.initState();
-    _library = widget.library ??
-        BookLibrary(
-          booksStream: _firestore.collection('books').snapshots().map((snap) => {
-                for (final doc in snap.docs) doc.id: doc.data(),
-              }),
-          entriesStream: _firestore
-              .collection('booksRead')
-              .where('uid', isEqualTo: _uid ?? '')
-              .snapshots()
-              .map((snap) => [for (final doc in snap.docs) doc.data()]),
-        );
+    _library = widget.library ?? _newLibrary();
     if (widget.library == null) _loadUserMeta();
     // Master Task 2026-09-10, Part 6 — opening this screen is "seen" for
     // guide-driven book commitments.
@@ -1419,9 +1430,10 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
                 final docs = _library.books;
                 if (docs == null) {
                   if (_library.booksError != null) {
-                    return Center(
-                        child: Text("Error: ${_library.booksError}",
-                            style: text.body));
+                    return FolkErrorRetry(
+                      message: "Couldn't load the books just now.",
+                      onRetry: _retryLibrary,
+                    );
                   }
                   return _loadingGhost();
                 }

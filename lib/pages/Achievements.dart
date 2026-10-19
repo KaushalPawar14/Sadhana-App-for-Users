@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/material.dart';
+import '../widgets/FolkErrorRetry.dart';
 import '../theme/FolkTokens.dart';
 import '../utils/CompetitionRules.dart';
 import '../widgets/Group2Widgets.dart';
@@ -32,7 +33,7 @@ class _AchievementsSectionState extends State<AchievementsSection>
   // Looked up only when the counts are read, so a test's own counts never need Firebase.
   FirebaseFirestore get firestore => FirebaseFirestore.instance;
   late AnimationController _controller;
-  late final Future<Map<String, int>> _badges =
+  late Future<Map<String, int>> _badges =
       (widget.badgesLoader ?? fetchBadges)();
 
   /// 🔥 FETCH BADGES FROM USERS COLLECTION USING 'name' FIELD
@@ -106,6 +107,15 @@ class _AchievementsSectionState extends State<AchievementsSection>
     return FutureBuilder<Map<String, int>>(
       future: _badges,
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return FolkErrorRetry(
+            compact: true,
+            message: "Couldn't load your badges just now.",
+            onRetry: () => setState(() {
+              _badges = (widget.badgesLoader ?? fetchBadges)();
+            }),
+          );
+        }
         if (!snapshot.hasData) {
           // Ghost badge cards while the counts load.
           return const GhostScope(

@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../widgets/FolkErrorRetry.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:folk_app/utils/SameGender.dart';
 import '../services/PercentageServices.dart';
@@ -34,15 +35,30 @@ class _WeeklyResultsPageState extends State<WeeklyResultsPage>
   /// Firestore-listener-in-build() fix (2026-09-09, size/perf task) — same
   /// fix as `MonthlyResults.dart`'s own twin fields; see that file's doc
   /// comment for the full reasoning.
-  late final Stream<QuerySnapshot<Map<String, dynamic>>> _leaderboardStream;
+  late Stream<QuerySnapshot<Map<String, dynamic>>> _leaderboardStream;
   Stream<DocumentSnapshot<Map<String, dynamic>>>? _myRankStream;
 
   /// Who is of my gender (read once per student): your position counts only them.
-  final Future<GenderDirectory> _genderDirectory = GenderDirectory.forCurrentUser();
+  Future<GenderDirectory> _genderDirectory = GenderDirectory.forCurrentUser();
 
   /// Hostel and Localite students have no daily services, extra lecture or temple
   /// entry in their form, so those parts are not shown to them.
   bool _hostelLocalite = false;
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> _openLeaderboard() =>
+      Stream.fromFuture(GenderDirectory.forCurrentUser()).asyncExpand(
+          (directory) => firestore
+              .collection('competition')
+              .where('gender', isEqualTo: directory.mine)
+              .where('category', isEqualTo: directory.category)
+              .snapshots());
+
+  // Retry: ask for the student's category again and open the ranking again.
+  void _retryRanking() => setState(() {
+        GenderDirectory.reset();
+        _genderDirectory = GenderDirectory.forCurrentUser();
+        _leaderboardStream = _openLeaderboard();
+      });
 
   @override
   void initState() {
@@ -50,12 +66,7 @@ class _WeeklyResultsPageState extends State<WeeklyResultsPage>
     _genderDirectory.then((d) {
       if (mounted && d.isHostelLocalite) setState(() => _hostelLocalite = true);
     }).catchError((Object _) {});
-    _leaderboardStream = Stream.fromFuture(GenderDirectory.forCurrentUser()).asyncExpand(
-            (directory) => firestore
-                .collection('competition')
-                .where('gender', isEqualTo: directory.mine)
-                .where('category', isEqualTo: directory.category)
-                .snapshots());
+    _leaderboardStream = _openLeaderboard();
     fetchUsername();
     // Animation setup
     _controller = AnimationController(
@@ -210,11 +221,23 @@ class _WeeklyResultsPageState extends State<WeeklyResultsPage>
     return FutureBuilder<GenderDirectory>(
       future: _genderDirectory,
       builder: (context, directorySnapshot) {
+        if (directorySnapshot.hasError) {
+          return FolkErrorRetry(
+            message: "Couldn't load the leaderboard just now.",
+            onRetry: _retryRanking,
+          );
+        }
         if (!directorySnapshot.hasData) return const SizedBox();
         final directory = directorySnapshot.data!;
         return StreamBuilder<QuerySnapshot>(
       stream: _leaderboardStream,
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return FolkErrorRetry(
+            message: "Couldn't load the leaderboard just now.",
+            onRetry: _retryRanking,
+          );
+        }
 
         if (!snapshot.hasData) {
           return const SizedBox();

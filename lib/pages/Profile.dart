@@ -26,6 +26,7 @@ import '../widgets/LogoutButton.dart';
 import '../widgets/ProfileMenuRow.dart';
 import '../widgets/ProfileStatTiles.dart';
 import '../services/StudentApi.dart';
+import '../widgets/FolkErrorRetry.dart';
 
 class ProfilePage extends StatefulWidget {
   @override
@@ -85,11 +86,11 @@ class _ProfilePageState extends State<ProfilePage>
   /// pushed screen. Hoisted to a field, built once in `initState()`, right
   /// after `uid` itself is known — safe unconditionally, since `uid` is
   /// fixed for this tab's whole life.
-  late final Stream<DocumentSnapshot<Map<String, dynamic>>> _userStream;
+  late Stream<DocumentSnapshot<Map<String, dynamic>>> _userStream;
 
   /// This student's books (the same `booksRead` query the Journey tab already
   /// uses), for the "books completed" tile. Built once, like [_userStream].
-  late final Stream<QuerySnapshot<Map<String, dynamic>>> _booksStream;
+  late Stream<QuerySnapshot<Map<String, dynamic>>> _booksStream;
 
   @override
   void initState() {
@@ -148,9 +149,19 @@ class _ProfilePageState extends State<ProfilePage>
             if (snapshot.hasError) {
               return _swap(
                   'error',
-                  Center(
-                      child: Text("Error: ${snapshot.error}",
-                          style: text.body)));
+                  FolkErrorRetry(
+                    message: "Couldn't load your profile just now.",
+                    onRetry: () => setState(() {
+                      _userStream = FirebaseFirestore.instance
+                          .collection('users')
+                          .doc(uid)
+                          .snapshots();
+                      _booksStream = FirebaseFirestore.instance
+                          .collection('booksRead')
+                          .where('uid', isEqualTo: uid)
+                          .snapshots();
+                    }),
+                  ));
             }
 
             if (!snapshot.hasData || !snapshot.data!.exists) {

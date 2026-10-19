@@ -19,6 +19,7 @@ import '../widgets/MotionHelpers.dart';
 import '../widgets/PlayPauseIcon.dart';
 import '../widgets/PressScale.dart';
 import '../widgets/RoundIconButton.dart';
+import '../widgets/FolkErrorRetry.dart';
 
 /// FOLK-2/4/8/12/16 — audiobook / podcast modules.
 ///
@@ -103,7 +104,7 @@ class _PodcastModulesScreenState extends State<PodcastModulesScreen>
   /// built once in `initState()` — this screen takes no `uid`/constructor
   /// args at all (see the class doc comment), so there is nothing that
   /// could ever change to justify rebuilding it.
-  late final Stream<QuerySnapshot<Map<String, dynamic>>> _modulesStream;
+  late Stream<QuerySnapshot<Map<String, dynamic>>> _modulesStream;
 
   /// Follow-up task, 2026-09-10, Part 4 — the student's reading language,
   /// reused unchanged from `BookPageList.dart` (same field, same map, same
@@ -676,7 +677,6 @@ class _PodcastModulesScreenState extends State<PodcastModulesScreen>
   @override
   Widget build(BuildContext context) {
     final colors = context.folk;
-    final text = context.folkText;
     final safeBottom = MediaQuery.paddingOf(context).bottom;
     // Room under the last episode so the floating player never covers it.
     final listBottom = _currentKey != null
@@ -707,14 +707,13 @@ class _PodcastModulesScreenState extends State<PodcastModulesScreen>
                       if (snapshot.hasError) {
                         return _swap(
                           'error',
-                          Center(
-                            child: Padding(
-                              padding: const EdgeInsets.all(24),
-                              child: Text(
-                                "Could not load the modules just now.",
-                                style: text.body,
-                              ),
-                            ),
+                          FolkErrorRetry(
+                            message: "Couldn't load the modules just now.",
+                            onRetry: () => setState(() {
+                              _modulesStream = FirebaseFirestore.instance
+                                  .collection('podcastModules')
+                                  .snapshots();
+                            }),
                           ),
                         );
                       }

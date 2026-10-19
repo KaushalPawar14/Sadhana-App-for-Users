@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import '../widgets/FolkErrorRetry.dart';
 
 import '../theme/FolkTheme.dart';
 import '../theme/FolkTokens.dart';
@@ -108,7 +109,7 @@ class _NotificationPreferencesPageState
   /// reference object); only the STREAM built once from it is hoisted,
   /// built in `initState()` since `widget.uid` is fixed for this screen's
   /// whole life.
-  late final Stream<DocumentSnapshot<Map<String, dynamic>>> _userStream;
+  late Stream<DocumentSnapshot<Map<String, dynamic>>> _userStream;
 
   @override
   void initState() {
@@ -160,6 +161,14 @@ class _NotificationPreferencesPageState
         // state that could drift from Firestore.
         stream: _userStream,
         builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return FolkErrorRetry(
+              message: "Couldn't load your notification settings just now.",
+              onRetry: () => setState(() {
+                _userStream = _userRef.snapshots();
+              }),
+            );
+          }
           if (snapshot.connectionState == ConnectionState.waiting) {
             // Ghost rows while the stored choices load.
             return const GhostScope(

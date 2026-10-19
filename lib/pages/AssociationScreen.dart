@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import '../widgets/FolkErrorRetry.dart';
 import 'package:intl/intl.dart';
 
 import '../theme/FolkColors.dart';
@@ -46,7 +47,7 @@ class _AssociationScreenState extends State<AssociationScreen> {
   /// — safe unconditionally: `widget.uid` is fixed for this screen's whole
   /// life (a pushed, single-student route; nothing ever rebuilds this
   /// widget with a different `uid`).
-  late final Stream<QuerySnapshot<Map<String, dynamic>>> _meetingsStream;
+  late Stream<QuerySnapshot<Map<String, dynamic>>> _meetingsStream;
 
   @override
   void initState() {
@@ -726,6 +727,18 @@ class _AssociationScreenState extends State<AssociationScreen> {
     return StreamBuilder<QuerySnapshot>(
       stream: _meetingsStream,
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return FolkErrorRetry(
+            compact: true,
+            message: "Couldn't load your meetings just now.",
+            onRetry: () => setState(() {
+              _meetingsStream = _firestore
+                  .collection('associations')
+                  .where('studentUid', isEqualTo: widget.uid)
+                  .snapshots();
+            }),
+          );
+        }
         if (snapshot.connectionState == ConnectionState.waiting) {
           // Ghost meeting cards while the list loads.
           return const GhostScope(

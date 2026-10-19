@@ -505,7 +505,11 @@ void main() {
       rig.booksController.addError(StateError('offline'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
-      expect(find.textContaining('Error:'), findsOneWidget);
+      // a friendly line and Retry, never the raw error
+      expect(find.text("Couldn't load the books just now."), findsOneWidget);
+      expect(find.text('Retry'), findsOneWidget);
+      expect(find.textContaining('Error:'), findsNothing);
+      expect(find.textContaining('offline'), findsNothing);
     });
   });
 }

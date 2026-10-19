@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../utils/SameGender.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../widgets/FolkErrorRetry.dart';
 import 'package:intl/intl.dart';
 
 import '../theme/FolkTheme.dart';
@@ -516,6 +517,16 @@ class _ChantingCompetitionSectionState
         StreamBuilder<QuerySnapshot>(
           stream: _contributionsStreamFor(challenge['id'] as String),
           builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return FolkErrorRetry(
+                compact: true,
+                message: "Couldn't load the contributions just now.",
+                onRetry: () => setState(() {
+                  // Forgetting the cached stream makes the next build open it again.
+                  _contributionsStreamChallengeId = null;
+                }),
+              );
+            }
             if (!snapshot.hasData) {
               return const GhostScope(
                 child: Column(

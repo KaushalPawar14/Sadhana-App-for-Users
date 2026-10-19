@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../widgets/FolkErrorRetry.dart';
 import 'package:folk_app/HostelersPage/Sadhana.dart';
 import 'package:folk_app/pages/Questions.dart';
 import 'package:table_calendar/table_calendar.dart';
@@ -223,9 +224,13 @@ class _CalendarPageState extends State<CalendarPage> {
             if (snapshot.hasError) {
               return _swap(
                   'error',
-                  Center(
-                      child:
-                          Text("Error: ${snapshot.error}", style: text.body)));
+                  FolkErrorRetry(
+                    message: "Couldn't load your calendar just now.",
+                    onRetry: () => setState(() {
+                      _datesStream = widget.datesStream ??
+                          mergedAvailableDatesStream(widget.username);
+                    }),
+                  ));
             }
 
             // 🔥 UPDATE AVAILABLE DATES FROM STREAM

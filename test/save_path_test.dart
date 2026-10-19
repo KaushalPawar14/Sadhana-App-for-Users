@@ -501,17 +501,20 @@ void main() {
       }
     });
 
-    testWidgets('the Calendar shows its existing error branch instead of the ghost', (tester) async {
+    testWidgets('the Calendar shows a friendly line and Retry instead of the ghost or the raw error', (tester) async {
       phone(tester);
       final controller = StreamController<Set<String>>();
       addTearDown(controller.close);
       await tester.pumpWidget(app(CalendarPage(username: 'Asha', role: 'Stay at Hostel', datesStream: controller.stream)));
       await tester.pump();
-      expect(find.textContaining('Error:'), findsNothing, reason: 'ghost while waiting');
+      expect(find.text("Couldn't load your calendar just now."), findsNothing, reason: 'ghost while waiting');
       controller.addError(FirebaseException(plugin: 'cloud_firestore', code: 'permission-denied'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
-      expect(find.textContaining('Error:'), findsOneWidget);
+      expect(find.text("Couldn't load your calendar just now."), findsOneWidget);
+      expect(find.text('Retry'), findsOneWidget);
+      expect(find.textContaining('Error:'), findsNothing);
+      expect(find.textContaining('permission-denied'), findsNothing);
       expect(find.textContaining('Submit Sadhana'), findsNothing);
     });
 
