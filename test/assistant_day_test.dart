@@ -19,7 +19,9 @@ import 'text_scale_test.dart' show scales, loadAppFonts;
 const uid = 'u1';
 const dailyText = 'You are on a 7-day streak. Keep going, Prabhu!';
 const limitLine =
-    "You've used today's 9 questions — I'll be here again tomorrow. Meanwhile, chant and read!";
+    "You've used today's 9 questions — I'll be here again tomorrow. Until then, only urgent or emergency "
+    "messages will be answered. If you're going through something difficult, write to me and I'll respond.";
+const limitHint = 'Only urgent or emergency messages today';
 
 void phone(WidgetTester tester, double scale) {
   tester.view.devicePixelRatio = 1;
@@ -248,7 +250,7 @@ void main() {
       }
     });
 
-    testWidgets('at the limit: the friendly line, the composer off, nothing sent', (tester) async {
+    testWidgets('at the limit: the warm message and "0 questions left today", the composer stays ON, the cards are gone', (tester) async {
       phone(tester, 1.0);
       final fs = await seededToday(count: 9);
       final asked = <String>[];
@@ -256,15 +258,26 @@ void main() {
       await settle(tester);
       expect(find.byKey(const ValueKey('limit-line')), findsOneWidget);
       expect(find.text(limitLine), findsOneWidget);
-      expect(find.byKey(const ValueKey('remaining-line')), findsNothing);
-      expect(tester.widget<TextField>(find.byType(TextField)).enabled, isFalse);
-      // even a card, if one were tapped, sends nothing
-      await cardsShown(tester);
-      if (find.text('DAILY PRACTICE').evaluate().isNotEmpty) {
-        await tester.tap(find.text('DAILY PRACTICE'), warnIfMissed: false);
-        await settle(tester);
+      expect(find.byKey(const ValueKey('remaining-line')), findsOneWidget);
+      expect(find.text('0 questions left today'), findsOneWidget);
+      final field = tester.widget<TextField>(find.byType(TextField));
+      expect(field.enabled, isTrue, reason: 'an urgent message must always be sendable');
+      expect(field.decoration!.hintText, limitHint);
+      for (final l in cardLabels) {
+        expect(find.text(l), findsNothing, reason: 'no starter cards at the limit');
       }
-      expect(asked, isEmpty);
+      // an urgent message goes through to the server (which answers it)
+      await send(tester, 'I am going through something very hard');
+      expect(asked, ['I am going through something very hard']);
+    });
+
+    testWidgets('before the limit the hint is the usual one', (tester) async {
+      phone(tester, 1.0);
+      final fs = await seededToday(count: 3);
+      await tester.pumpWidget(chatScreen(fs, []));
+      await settle(tester);
+      expect(tester.widget<TextField>(find.byType(TextField)).decoration!.hintText, 'Ask something…');
+      expect(find.byKey(const ValueKey('limit-line')), findsNothing);
     });
 
     testWidgets('the ninth question uses the day up, live', (tester) async {
@@ -276,7 +289,8 @@ void main() {
       expect(find.text('1 question left today'), findsOneWidget);
       await send(tester, 'One more question about japa?');
       expect(find.text(limitLine), findsOneWidget);
-      expect(tester.widget<TextField>(find.byType(TextField)).enabled, isFalse);
+      expect(find.text('0 questions left today'), findsOneWidget);
+      expect(tester.widget<TextField>(find.byType(TextField)).enabled, isTrue);
     });
   });
 
@@ -420,6 +434,8 @@ void main() {
         await tester.pumpWidget(chatScreen(fs, [], dark: dark));
         await settle(tester);
         expect(find.text(limitLine), findsOneWidget);
+        expect(find.text('0 questions left today'), findsOneWidget);
+        expect(tester.widget<TextField>(find.byType(TextField)).enabled, isTrue);
         expect(tester.takeException(), isNull);
       });
 

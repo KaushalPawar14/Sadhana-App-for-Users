@@ -36,7 +36,8 @@ const int kDailyQuestionLimit = 9;
 
 /// The friendly line shown (and used as the reply) when the day's questions are used up.
 const String kDailyLimitLine =
-    "You've used today's 9 questions — I'll be here again tomorrow. Meanwhile, chant and read!";
+    "You've used today's 9 questions — I'll be here again tomorrow. Until then, only urgent or emergency "
+    "messages will be answered. If you're going through something difficult, write to me and I'll respond.";
 
 /// `dd-MM-yyyy` in the student's local time, matching the doc-id convention
 /// every date-keyed collection in this project already uses.
@@ -549,7 +550,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
 
   Future<void> _send([String? preset]) async {
     final text = (preset ?? _input.text).trim();
-    if (text.isEmpty || _sending || _limitReached) return;
+    if (text.isEmpty || _sending) return;
 
     // Client-mints the reply doc id — the standard Firestore idiom
     // (`.doc()` with no argument), already used server-side throughout this
@@ -855,14 +856,14 @@ class _AssistantScreenState extends State<AssistantScreen> {
           style: text.small.copyWith(height: 1.45),
         ),
         const SizedBox(height: 24),
-        AssistantStarterCards(onPick: _send, enabled: !_sending && !_limitReached),
+        if (!_limitReached) AssistantStarterCards(onPick: _send, enabled: !_sending),
       ],
     );
   }
 
   Widget _messageList() {
     _rise.markDrawn(_turns.length);
-    final showCards = !_realQuestionAsked;
+    final showCards = !_realQuestionAsked && !_limitReached;
     return ListView.builder(
       controller: _scroll,
       padding: const EdgeInsets.fromLTRB(FolkSpace.pagePadding, FolkSpace.lg,
@@ -896,7 +897,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
             style: text.small.copyWith(height: 1.45),
           ),
           const SizedBox(height: FolkSpace.lg),
-          AssistantStarterCards(onPick: _send, enabled: !_sending && !_limitReached),
+          AssistantStarterCards(onPick: _send, enabled: !_sending),
         ],
       ),
     );
@@ -1008,37 +1009,46 @@ class _AssistantScreenState extends State<AssistantScreen> {
     return const SizedBox.shrink();
   }
 
-  /// "7 questions left today", quietly, above the composer; when the day's questions are used up, the
-  /// friendly line instead (and the composer is disabled).
+  /// "7 questions left today", quietly, above the composer. When the day's questions are used up the
+  /// line stays ("0 questions left today") and the warm limit message sits above it; the composer
+  /// stays ON (only urgent or emergency messages are answered, and the starter cards are hidden).
   Widget _limitLine() {
     final colors = context.folk;
     final text = context.folkText;
-    if (_limitReached) {
-      return Container(
-        key: const ValueKey<String>('limit-line'),
-        width: double.infinity,
-        margin: const EdgeInsets.fromLTRB(
-            FolkSpace.pagePadding, FolkSpace.sm, FolkSpace.pagePadding, 0),
-        padding: const EdgeInsets.symmetric(
-            horizontal: FolkSpace.lg, vertical: FolkSpace.md),
-        decoration: BoxDecoration(
-          color: colors.surfaceSecondary,
-          borderRadius: BorderRadius.circular(FolkShape.tileRadius),
-        ),
-        child: Text(kDailyLimitLine,
-            textAlign: TextAlign.center,
-            style: text.small.copyWith(height: 1.45, color: colors.text)),
-      );
-    }
     final n = _remaining;
-    return Padding(
-      key: const ValueKey<String>('remaining-line'),
-      padding: const EdgeInsets.only(top: FolkSpace.xs),
-      child: Text(
-        "$n question${n == 1 ? '' : 's'} left today",
-        textAlign: TextAlign.center,
-        style: text.caption.copyWith(color: colors.mutedText),
-      ),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (_limitReached)
+          Container(
+            key: const ValueKey<String>('limit-line'),
+            width: double.infinity,
+            // Never taller than a third of the screen, however large the text size.
+            constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.33),
+            margin: const EdgeInsets.fromLTRB(
+                FolkSpace.pagePadding, FolkSpace.sm, FolkSpace.pagePadding, 0),
+            padding: const EdgeInsets.symmetric(
+                horizontal: FolkSpace.lg, vertical: FolkSpace.md),
+            decoration: BoxDecoration(
+              color: colors.surfaceSecondary,
+              borderRadius: BorderRadius.circular(FolkShape.tileRadius),
+            ),
+            child: SingleChildScrollView(
+              child: Text(kDailyLimitLine,
+                  textAlign: TextAlign.center,
+                  style: text.small.copyWith(height: 1.45, color: colors.text)),
+            ),
+          ),
+        Padding(
+          key: const ValueKey<String>('remaining-line'),
+          padding: const EdgeInsets.only(top: FolkSpace.xs),
+          child: Text(
+            "$n question${n == 1 ? '' : 's'} left today",
+            textAlign: TextAlign.center,
+            style: text.caption.copyWith(color: colors.mutedText),
+          ),
+        ),
+      ],
     );
   }
 
@@ -1095,14 +1105,14 @@ class _AssistantScreenState extends State<AssistantScreen> {
             Expanded(
               child: TextField(
                 controller: _input,
-                enabled: !_sending && !_limitReached,
+                enabled: !_sending,
                 minLines: 1,
                 maxLines: 4,
                 textCapitalization: TextCapitalization.sentences,
                 style: text.body,
                 cursorColor: colors.text,
                 decoration: InputDecoration(
-                  hintText: _limitReached ? "See you tomorrow" : "Ask something…",
+                  hintText: _limitReached ? "Only urgent or emergency messages today" : "Ask something…",
                   hintStyle: text.body.copyWith(color: colors.mutedText),
                   isDense: true,
                   contentPadding: const EdgeInsets.symmetric(vertical: 14),
@@ -1111,20 +1121,20 @@ class _AssistantScreenState extends State<AssistantScreen> {
                   disabledBorder: InputBorder.none,
                   focusedBorder: InputBorder.none,
                 ),
-                onSubmitted: (_sending || _limitReached) ? null : (_) => _send(),
+                onSubmitted: _sending ? null : (_) => _send(),
               ),
             ),
             const SizedBox(width: FolkSpace.sm),
             Semantics(
               button: true,
               label: 'Send',
-              enabled: !_sending && !_limitReached,
+              enabled: !_sending,
               excludeSemantics: true,
               child: PressScale(
-                enabled: !_sending && !_limitReached,
+                enabled: !_sending,
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: (_sending || _limitReached) ? null : () => _send(),
+                  onTap: _sending ? null : () => _send(),
                   child: SizedBox(
                     width: FolkShape.touchTarget,
                     height: FolkShape.touchTarget,
@@ -1134,9 +1144,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                         height: 46,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: (_sending || _limitReached)
-                              ? colors.disabledText
-                              : colors.primaryBg,
+                          color: _sending ? colors.disabledText : colors.primaryBg,
                         ),
                         child: Icon(Icons.send_rounded,
                             size: 20, color: colors.primaryFg),
