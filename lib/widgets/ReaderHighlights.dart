@@ -250,68 +250,84 @@ class ReaderActionButton extends StatelessWidget {
 
 
 // ---------------------------------------------------------------------------------------------------------
-// the selection bar's buttons: four compact pills in a 2 x 2 grid, in the app's own button style
+// the selection toolbar: ONE compact floating container with a 2 x 2 grid of four small pills
 // ---------------------------------------------------------------------------------------------------------
 
-/// The colours of the selection buttons: the app's own gradients (violet and saffron, the same as Books and Expeditions)
-/// and a soft medium red. They look the same in Light, Dark and Sepia (each button carries its own background, like every
-/// gradient tile in the app) and the label is always the app's ink colour, at least 4.5:1 on the whole gradient.
-enum ReaderPillTone { purple, red, gold }
+/// The colours of the selection toolbar's pills in one reading mode (Light, Dark or Sepia): derived from the mode's own
+/// background so every label reaches 4.5:1 on its pill and on the toolbar.
+class ReaderToolbarLook {
+  const ReaderToolbarLook._(this.dark, this.violetText, this.violetFill, this.redText);
 
-extension ReaderPillToneX on ReaderPillTone {
-  /// The tile gradient of the tone (light to deeper, 135 degrees like the other gradient tiles).
-  LinearGradient get gradient => switch (this) {
-        ReaderPillTone.purple => FolkGradients.violet,
-        ReaderPillTone.red => const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFFFFB5AA), Color(0xFFEE7872)]),
-        ReaderPillTone.gold => FolkGradients.saffron,
-      };
+  factory ReaderToolbarLook.of(Color background) {
+    final dark = background.computeLuminance() < .3;
+    return ReaderToolbarLook._(
+      dark,
+      dark ? const Color(0xFFD7CAFF) : const Color(0xFF5A3DB5),
+      const Color(0xFFAE95F7).withValues(alpha: dark ? .24 : .2),
+      dark ? const Color(0xFFFF9D96) : const Color(0xFFB3362D),
+    );
+  }
 
-  /// The label: the ink colour on every gradient.
-  Color get label => FolkColors.onGradient;
+  final bool dark;
+
+  /// Sentence and Paragraph: violet text on a light violet tint.
+  final Color violetText;
+  final Color violetFill;
+
+  /// Cancel: a quiet pill (no fill), soft red text.
+  final Color redText;
+
+  /// Highlight: the app's gold gradient with the ink colour.
+  LinearGradient get gold => FolkGradients.saffron;
+  Color get goldText => FolkColors.onGradient;
 }
 
-/// A compact pill button: the app's button radius and chip typography, a theme gradient, a soft shadow and the app's
-/// own press feedback (`PressScale`). 44 dp tall (and at least 44 wide), growing with large text.
-class ReaderPillButton extends StatelessWidget {
-  const ReaderPillButton({super.key, required this.label, required this.tone, required this.onPressed});
+enum ReaderPillKind { violet, quiet, gold }
 
-  /// The tap target of a selection button (the bar is compact; 44 dp is the Material minimum).
-  static const double minHeight = 44;
+/// One small pill: about 38 dp tall inside a 48 dp tap target, the app's label typography, the app's press feedback.
+/// It fills the width of its grid cell, so the four pills are the same size.
+class ReaderToolbarPill extends StatelessWidget {
+  const ReaderToolbarPill({super.key, required this.label, required this.kind, required this.look, required this.onPressed});
+
+  /// The visual height of a pill, and its tap target.
+  static const double visualHeight = 38;
+  static const double tapTarget = 48;
 
   final String label;
-  final ReaderPillTone tone;
-  final VoidCallback? onPressed;
+  final ReaderPillKind kind;
+  final ReaderToolbarLook look;
+  final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
-    final enabled = onPressed != null;
-    final text = context.folkText;
+    final text = context.folkText.chip.copyWith(fontSize: 13);
+    final Color color = switch (kind) {
+      ReaderPillKind.violet => look.violetText,
+      ReaderPillKind.quiet => look.redText,
+      ReaderPillKind.gold => look.goldText,
+    };
     return Semantics(
       button: true,
-      enabled: enabled,
       label: label,
       excludeSemantics: true,
       child: PressScale(
-        enabled: enabled,
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: onPressed,
-          child: Container(
-            constraints: const BoxConstraints(minHeight: minHeight, minWidth: minHeight),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(FolkShape.buttonRadius),
-              gradient: tone.gradient,
-              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .14), blurRadius: 6, offset: const Offset(0, 2))],
-            ),
-            child: Opacity(
-              opacity: enabled ? 1 : .5,
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: text.chip.copyWith(color: tone.label),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: tapTarget, minWidth: tapTarget),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: (tapTarget - visualHeight) / 2),
+              child: Container(
+                constraints: const BoxConstraints(minHeight: visualHeight),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(visualHeight / 2),
+                  color: kind == ReaderPillKind.violet ? look.violetFill : null,
+                  gradient: kind == ReaderPillKind.gold ? look.gold : null,
+                ),
+                child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: text.copyWith(color: color)),
               ),
             ),
           ),
@@ -321,7 +337,8 @@ class ReaderPillButton extends StatelessWidget {
   }
 }
 
-/// While a selection is open: Sentence and Paragraph (violet) on top, Cancel (red) and Highlight (gold) below.
+/// While a selection is open: ONE small floating container with a 2 x 2 grid of equal pills - Sentence and Paragraph on
+/// top, Cancel and Highlight below (Highlight, the primary action, bottom right). Always 2 x 2, at every text size.
 class ReaderSelectionBar extends StatelessWidget {
   const ReaderSelectionBar({
     super.key,
@@ -332,38 +349,50 @@ class ReaderSelectionBar extends StatelessWidget {
     required this.onHighlight,
   });
 
+  /// The reading mode's surface colour.
   final Color background;
   final VoidCallback onSentence;
   final VoidCallback onParagraph;
   final VoidCallback onCancel;
   final VoidCallback onHighlight;
 
+  /// The toolbar floats this far above the bottom edge (plus the system inset) and keeps this margin at the sides.
+  static const double bottomGap = 16;
+  static const double sideMargin = 12;
+
   @override
   Widget build(BuildContext context) {
-    Widget cell(Key key, String label, ReaderPillTone tone, VoidCallback onTap) => Expanded(
-          child: Padding(
-            padding: const EdgeInsets.all(3),
-            child: ReaderPillButton(key: key, label: label, tone: tone, onPressed: onTap),
+    final look = ReaderToolbarLook.of(background);
+    Widget cell(String key, String label, ReaderPillKind kind, VoidCallback onTap) =>
+        Expanded(child: ReaderToolbarPill(key: ValueKey(key), label: label, kind: kind, look: look, onPressed: onTap));
+    final fade = FolkMotion.of(context, const Duration(milliseconds: 140));
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: fade,
+      builder: (context, t, child) => Opacity(opacity: t, child: child),
+      child: Container(
+        key: const ValueKey('selection-toolbar'),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(FolkShape.navRadius),
+          border: Border.all(color: (look.dark ? Colors.white : Colors.black).withValues(alpha: .08)),
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: look.dark ? .5 : .2), blurRadius: 24, offset: const Offset(0, 8))],
+        ),
+        child: IntrinsicWidth(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(children: [
+                cell('sel-sentence', 'Sentence', ReaderPillKind.violet, onSentence),
+                cell('sel-paragraph', 'Paragraph', ReaderPillKind.violet, onParagraph),
+              ]),
+              Row(children: [
+                cell('sel-cancel', 'Cancel', ReaderPillKind.quiet, onCancel),
+                cell('sel-highlight', 'Highlight', ReaderPillKind.gold, onHighlight),
+              ]),
+            ],
           ),
-        );
-    return Material(
-      color: background,
-      elevation: 3,
-      borderRadius: BorderRadius.circular(24),
-      child: Padding(
-        padding: const EdgeInsets.all(4),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(children: [
-              cell(const ValueKey('sel-sentence'), 'Sentence', ReaderPillTone.purple, onSentence),
-              cell(const ValueKey('sel-paragraph'), 'Paragraph', ReaderPillTone.purple, onParagraph),
-            ]),
-            Row(children: [
-              cell(const ValueKey('sel-cancel'), 'Cancel', ReaderPillTone.red, onCancel),
-              cell(const ValueKey('sel-highlight'), 'Highlight', ReaderPillTone.gold, onHighlight),
-            ]),
-          ],
         ),
       ),
     );

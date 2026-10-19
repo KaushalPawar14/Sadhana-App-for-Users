@@ -197,6 +197,37 @@ void main() {
       expect(painted(tester)[0], [const PaintedRange(0, 5, null)]);
     });
 
+    testWidgets('the toolbar floats 16 dp above the bottom edge, centred; the selected text stays visible above it (page scrolls it clear)', (tester) async {
+      final longChapter = [for (var i = 0; i < 40; i++) 'Paragraph number $i of the long chapter, with enough words in it to take a couple of lines on a phone screen.'];
+      await open(tester, FakeStore(), book: theBook(first: longChapter));
+      // a paragraph that starts out low on the page, right where the toolbar will float
+      var lowIndex = -1;
+      for (var i = 0; i < 40 && lowIndex < 0; i++) {
+        final f = richStarting('Paragraph number $i ');
+        if (f.evaluate().isEmpty) continue;
+        final rect = tester.getRect(f);
+        if (rect.top > 650 && rect.top < 690) lowIndex = i;
+      }
+      expect(lowIndex, greaterThan(0), reason: 'a paragraph STARTS low on the first screen, where the toolbar will float');
+      final prefix = 'Paragraph number $lowIndex ';
+      final topBefore = tester.getRect(richStarting(prefix)).top;
+      await longPress(tester, pointAt(tester, prefix, 12));
+      await settle(tester);
+      await tester.pump(const Duration(milliseconds: 400));
+      final bar = tester.getRect(byKeyName('selection-toolbar'));
+      expect(800 - bar.bottom, closeTo(16, 1), reason: 'hovering 16 dp above the bottom edge');
+      expect(((bar.left + bar.right) / 2 - 180).abs(), lessThan(1), reason: 'centred');
+      expect(bar.left, greaterThanOrEqualTo(11.5));
+      // the selected word's line is above the toolbar
+      final rp = tester.renderObject<RenderParagraph>(richStarting(prefix));
+      final caret = rp.getOffsetForCaret(const TextPosition(offset: 12), Rect.zero);
+      final lineBottom = rp.localToGlobal(caret.translate(0, rp.getFullHeightForCaret(const TextPosition(offset: 12)))).dy;
+      expect(tester.getRect(richStarting(prefix)).top, lessThan(topBefore - 4), reason: 'the page scrolled to bring the selection clear');
+      expect(lineBottom, lessThanOrEqualTo(bar.top), reason: 'the selected line is not under the toolbar');
+      expect(lineBottom, greaterThan(0), reason: 'and still on the page');
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('the bars come back when the selection is cancelled; nothing is saved', (tester) async {
       final store = FakeStore();
       await open(tester, store);

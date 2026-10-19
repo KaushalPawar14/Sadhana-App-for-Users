@@ -53,11 +53,11 @@ void main() {
   });
 
   // ----------------------------------------------------------------------------------------- the selection bar
-  group('selection bar: 2 x 2 compact pills in the app\'s button style', () {
+  group('selection toolbar: one small floating container with a 2 x 2 grid of pills', () {
     Widget bar(String mode, {List<String>? log}) => Align(
           alignment: Alignment.bottomCenter,
           child: Padding(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.fromLTRB(ReaderSelectionBar.sideMargin, 0, ReaderSelectionBar.sideMargin, ReaderSelectionBar.bottomGap),
             child: ReaderSelectionBar(
               background: kReaderPalettes[mode]!.chrome,
               onSentence: () => log?.add('sentence'),
@@ -68,127 +68,182 @@ void main() {
           ),
         );
 
+    Future<void> show(WidgetTester tester, String mode, double scale, {double width = 360, bool reduce = true}) async {
+      phone(tester, scale);
+      tester.view.physicalSize = Size(width, 800);
+      await tester.pumpWidget(host(Scaffold(backgroundColor: kReaderPalettes[mode]!.background, body: bar(mode)), dark: mode == 'dark', reduce: reduce));
+      await tester.pumpAndSettle();
+    }
+
+    const keys = ['sel-sentence', 'sel-paragraph', 'sel-cancel', 'sel-highlight'];
+    Rect r(WidgetTester tester, String k) => tester.getRect(find.byKey(ValueKey(k)));
+    Rect toolbar(WidgetTester tester) => tester.getRect(find.byKey(const ValueKey('selection-toolbar')));
+
+    void expectGrid(WidgetTester tester, {required String reason}) {
+      final sen = r(tester, 'sel-sentence'), par = r(tester, 'sel-paragraph'), can = r(tester, 'sel-cancel'), hi = r(tester, 'sel-highlight');
+      expect((sen.top - par.top).abs(), lessThan(1), reason: '$reason: Sentence and Paragraph share the top row');
+      expect((can.top - hi.top).abs(), lessThan(1), reason: '$reason: Cancel and Highlight share the bottom row');
+      expect(can.top, greaterThanOrEqualTo(sen.bottom - .5), reason: '$reason: the second row is below, never beside');
+      expect((sen.left - can.left).abs(), lessThan(1), reason: '$reason: the left column lines up');
+      expect((par.left - hi.left).abs(), lessThan(1), reason: '$reason: the right column lines up');
+      expect(sen.left, lessThan(par.left));
+      expect((sen.width - par.width).abs(), lessThan(1), reason: '$reason: equal pills');
+      expect((sen.width - can.width).abs(), lessThan(1));
+      expect((sen.width - hi.width).abs(), lessThan(1));
+      expect(hi.top, greaterThan(par.top), reason: '$reason: Highlight, the primary action, bottom right');
+    }
+
     for (final mode in ['light', 'dark', 'sepia']) {
-      for (final scale in scales) {
-        testWidgets('layout, compact 44 dp targets, no overflow — $mode, text $scale', (tester) async {
-          phone(tester, scale);
-          await tester.pumpWidget(host(Scaffold(backgroundColor: kReaderPalettes[mode]!.background, body: bar(mode)), dark: mode == 'dark'));
-          await tester.pumpAndSettle();
-          Rect r(String k) => tester.getRect(find.byKey(ValueKey(k)));
-          final s = r('sel-sentence'), p = r('sel-paragraph'), c = r('sel-cancel'), h = r('sel-highlight');
-          expect((s.top - p.top).abs(), lessThan(1), reason: 'Sentence and Paragraph share the top row');
-          expect((c.top - h.top).abs(), lessThan(1), reason: 'Cancel and Highlight share the bottom row');
-          expect(c.top, greaterThanOrEqualTo(s.bottom), reason: 'the second row is below');
-          expect(s.left, lessThan(p.left));
-          expect(c.left, lessThan(h.left), reason: 'Cancel left, Highlight right');
-          expect((s.left - c.left).abs(), lessThan(1), reason: 'the columns line up');
-          for (final rect in [s, p, c, h]) {
-            expect(rect.height, greaterThanOrEqualTo(ReaderPillButton.minHeight), reason: 'a 44 dp tap target at least');
-            expect(rect.width, greaterThanOrEqualTo(ReaderPillButton.minHeight));
-            expect(rect.right, lessThanOrEqualTo(360));
+      testWidgets('text 1.0, 360 dp ($mode): ONE small container, a 2 x 2 grid, compact, centred, 16 dp above the bottom', (tester) async {
+        await show(tester, mode, 1.0);
+        expect(find.byKey(const ValueKey('selection-toolbar')), findsOneWidget, reason: 'one container for all four');
+        expectGrid(tester, reason: mode);
+        final box = toolbar(tester);
+        for (final k in keys) {
+          final rect = r(tester, k);
+          expect(rect.left, greaterThanOrEqualTo(box.left));
+          expect(rect.right, lessThanOrEqualTo(box.right));
+          expect(rect.top, greaterThanOrEqualTo(box.top));
+          expect(rect.bottom, lessThanOrEqualTo(box.bottom));
+        }
+        expect(box.width, lessThanOrEqualTo(260), reason: 'compact: a small card, not a full-width bar');
+        expect(box.height, lessThanOrEqualTo(106), reason: 'two rows of 48 dp targets and a little padding');
+        expect(box.left, greaterThanOrEqualTo(ReaderSelectionBar.sideMargin - .5));
+        expect(360 - box.right, greaterThanOrEqualTo(ReaderSelectionBar.sideMargin - .5));
+        expect(((box.left + box.right) / 2 - 180).abs(), lessThan(1), reason: 'centred');
+        expect(800 - box.bottom, closeTo(ReaderSelectionBar.bottomGap, 1), reason: 'hovering 16 dp above the bottom edge');
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    for (final scale in scales) {
+      for (final mode in ['light', 'dark', 'sepia']) {
+        testWidgets('tap targets and no overflow - $mode, text $scale', (tester) async {
+          await show(tester, mode, scale);
+          final box = toolbar(tester);
+          for (final k in keys) {
+            final rect = r(tester, k);
+            expect(rect.height, greaterThanOrEqualTo(ReaderToolbarPill.tapTarget), reason: '$k: a 48 dp tap target');
+            expect(rect.width, greaterThanOrEqualTo(ReaderToolbarPill.tapTarget), reason: '$k: wide enough');
+            expect(rect.left, greaterThanOrEqualTo(box.left - .5));
+            expect(rect.right, lessThanOrEqualTo(box.right + .5));
+            expect(rect.top, greaterThanOrEqualTo(box.top - .5));
+            expect(rect.bottom, lessThanOrEqualTo(box.bottom + .5));
+            // the visible pill is about 38 dp tall inside that target
+            final pill = tester.getRect(find.descendant(of: find.byKey(ValueKey(k)), matching: find.byType(Container)).first);
+            if (scale == 1.0) {
+              expect(pill.height, ReaderToolbarPill.visualHeight);
+            } else {
+              expect(pill.height, greaterThanOrEqualTo(ReaderToolbarPill.visualHeight), reason: 'grows with the text, never clips it');
+            }
           }
-          expect(ReaderPillButton.minHeight, inInclusiveRange(44, 48));
-          if (scale == 1.0) {
-            expect(s.height, 44, reason: 'compact at the normal text size');
-            final bar = tester.getRect(find.byType(ReaderSelectionBar));
-            expect(bar.height, lessThanOrEqualTo(112), reason: 'the bar takes little vertical space (it was 128 dp)');
-          }
+          expect(box.left, greaterThanOrEqualTo(ReaderSelectionBar.sideMargin - .5));
+          expect(box.right, lessThanOrEqualTo(360 - ReaderSelectionBar.sideMargin + .5));
+          expectGrid(tester, reason: '$mode text $scale: still exactly 2 x 2');
           expect(tester.takeException(), isNull);
         });
       }
     }
 
-    test('the colours: the theme violet and saffron gradients and a soft medium red; the ink label is readable on every stop', () {
-      expect(ReaderPillTone.purple.gradient, FolkGradients.violet, reason: 'Sentence + Paragraph: the theme violet');
-      expect(ReaderPillTone.gold.gradient, FolkGradients.saffron, reason: 'Highlight: the theme saffron / gold');
-      for (final tone in ReaderPillTone.values) {
-        expect(tone.label, FolkColors.onGradient, reason: 'the ink colour on every gradient, like the other gradient tiles');
-        for (final stop in tone.gradient.colors) {
-          expect(contrastRatio(argb(tone.label), argb(stop)), greaterThanOrEqualTo(4.5), reason: '$tone label on ${stop.toARGB32().toRadixString(16)}');
+    testWidgets('text 1.6: still 2 x 2 (never 4 x 1, never a different layout), all inside the one container', (tester) async {
+      await show(tester, 'light', 1.6);
+      expectGrid(tester, reason: 'text 1.6');
+      final tops = {for (final k in keys) r(tester, k).top.round()};
+      final lefts = {for (final k in keys) r(tester, k).left.round()};
+      expect(tops.length, 2, reason: 'two rows');
+      expect(lefts.length, 2, reason: 'two columns');
+      expect(find.byKey(const ValueKey('selection-toolbar')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a narrow 320 dp phone: still 2 x 2, no overflow', (tester) async {
+      await show(tester, 'light', 1.6, width: 320);
+      expect(tester.takeException(), isNull);
+      expectGrid(tester, reason: '320 dp, text 1.6');
+      final box = toolbar(tester);
+      expect(box.left, greaterThanOrEqualTo(0));
+      expect(box.right, lessThanOrEqualTo(320));
+      for (final k in keys) {
+        expect(r(tester, k).right, lessThanOrEqualTo(box.right + .5));
+      }
+    });
+
+    for (final mode in ['light', 'dark', 'sepia']) {
+      test('colours ($mode): every label is 4.5:1 on its pill (violet on its tint, red on the toolbar, ink on both gold stops)', () {
+        final chrome = kReaderPalettes[mode]!.chrome;
+        final look = ReaderToolbarLook.of(chrome);
+        final violetPill = compositeOver(argb(look.violetFill), argb(chrome));
+        expect(contrastRatio(argb(look.violetText), violetPill), greaterThanOrEqualTo(4.5), reason: '$mode violet text on the violet tint');
+        expect(contrastRatio(argb(look.redText), argb(chrome)), greaterThanOrEqualTo(4.5), reason: '$mode soft red text on the toolbar');
+        for (final stop in look.gold.colors) {
+          expect(contrastRatio(argb(look.goldText), argb(stop)), greaterThanOrEqualTo(4.5), reason: '$mode ink on gold ${stop.toARGB32().toRadixString(16)}');
         }
-        expect(tone.gradient.colors.first.computeLuminance(), greaterThan(tone.gradient.colors.last.computeLuminance()), reason: 'light to deeper');
+        // violet really is violet, red really is red (soft), gold is the app's own
+        expect(look.violetText.b, greaterThan(look.violetText.g));
+        expect(look.redText.r, greaterThan(look.redText.g));
+        expect(look.redText.r, greaterThan(look.redText.b));
+        expect(look.gold, FolkGradients.saffron);
+        expect(look.goldText, FolkColors.onGradient);
+      });
+    }
+
+    testWidgets('only Highlight is solid: Sentence / Paragraph are tinted, Cancel has no fill', (tester) async {
+      await show(tester, 'light', 1.0);
+      BoxDecoration deco(String k) => tester.widget<Container>(find.descendant(of: find.byKey(ValueKey(k)), matching: find.byType(Container)).first).decoration! as BoxDecoration;
+      for (final k in ['sel-sentence', 'sel-paragraph']) {
+        expect(deco(k).color, isNotNull, reason: '$k: a light violet tint');
+        expect(deco(k).gradient, isNull);
       }
-      final purple = ReaderPillTone.purple.gradient.colors.last;
-      expect(purple.b, greaterThan(purple.g));
-      expect(purple.r, lessThan(purple.b), reason: 'violet');
-      for (final red in ReaderPillTone.red.gradient.colors) {
-        expect(red.r * 255, greaterThan(220), reason: 'a red family: red dominant');
-        expect(red.g, lessThan(red.r), reason: 'red, not orange or pink');
-        expect(red.g * 255, lessThan(200));
-      }
-      expect(ReaderPillTone.red.gradient.colors.last.g * 255, lessThan(140), reason: 'medium, not a pastel pink');
-      final gold = ReaderPillTone.gold.gradient.colors.last;
-      expect(gold.r * 255, greaterThan(240));
-      expect(gold.g * 255, inInclusiveRange(150, 210), reason: 'golden');
-      expect(gold.b * 255, lessThan(120));
+      expect(deco('sel-cancel').color, isNull, reason: 'Cancel: a quiet pill');
+      expect(deco('sel-cancel').gradient, isNull);
+      expect(deco('sel-highlight').gradient, FolkGradients.saffron, reason: 'Highlight: the theme gold gradient, the primary action');
+      expect(deco('sel-highlight').color, isNull);
+      // Highlight is the last one, on the right
+      expect(r(tester, 'sel-highlight').left, greaterThan(r(tester, 'sel-cancel').left));
     });
 
-    testWidgets('the buttons are the app\'s: pill radius, chip typography, a soft shadow only', (tester) async {
-      phone(tester, 1.0);
-      await tester.pumpWidget(host(Scaffold(body: bar('light'))));
-      await tester.pumpAndSettle();
-      for (final k in ['sel-sentence', 'sel-paragraph', 'sel-cancel', 'sel-highlight']) {
-        final container = tester.widget<Container>(find.descendant(of: find.byKey(ValueKey(k)), matching: find.byType(Container)).first);
-        final deco = container.decoration! as BoxDecoration;
-        expect(deco.borderRadius, BorderRadius.circular(FolkShape.buttonRadius), reason: 'the same radius as the other buttons');
-        expect(deco.border, isNull, reason: 'no outline: less bulky');
-        expect(deco.boxShadow, hasLength(1));
-        expect(deco.boxShadow!.single.blurRadius, lessThanOrEqualTo(8));
-        expect(deco.boxShadow!.single.color.a, lessThanOrEqualTo(.2), reason: 'soft');
-        final label = tester.widget<Text>(find.descendant(of: find.byKey(ValueKey(k)), matching: find.byType(Text)));
-        expect(label.style!.fontSize, 14);
-        expect(label.style!.fontWeight, FontWeight.w700);
-        expect(label.style!.color, FolkColors.onGradient);
-      }
-    });
-
-    testWidgets('the buttons call back; the colours are the same in every reading mode', (tester) async {
+    testWidgets('the buttons call back', (tester) async {
       final log = <String>[];
       phone(tester, 1.0);
-      for (final mode in ['light', 'dark', 'sepia']) {
-        await tester.pumpWidget(host(Scaffold(body: bar(mode, log: log)), dark: mode == 'dark'));
-        await tester.pumpAndSettle();
-        final gradients = [
-          for (final k in ['sel-sentence', 'sel-paragraph', 'sel-cancel', 'sel-highlight'])
-            (tester.widget<Container>(find.descendant(of: find.byKey(ValueKey(k)), matching: find.byType(Container)).first).decoration! as BoxDecoration).gradient
-        ];
-        expect(gradients[0], ReaderPillTone.purple.gradient);
-        expect(gradients[1], ReaderPillTone.purple.gradient);
-        expect(gradients[2], ReaderPillTone.red.gradient);
-        expect(gradients[3], ReaderPillTone.gold.gradient);
-      }
-      for (final k in ['sel-sentence', 'sel-paragraph', 'sel-cancel', 'sel-highlight']) {
+      await tester.pumpWidget(host(Scaffold(body: bar('light', log: log))));
+      await tester.pumpAndSettle();
+      for (final k in keys) {
         await tester.tap(find.byKey(ValueKey(k)));
         await tester.pump();
       }
       expect(log, ['sentence', 'paragraph', 'cancel', 'highlight']);
     });
 
-    testWidgets('press feedback is the app\'s PressScale: it sinks while pressed and comes back', (tester) async {
+    testWidgets('a quick fade-in (and none with reduce motion); press feedback is the app\'s PressScale', (tester) async {
       phone(tester, 1.0);
       await tester.pumpWidget(host(Scaffold(body: bar('light')), reduce: false));
-      await tester.pumpAndSettle();
+      double opacity() => tester.widget<Opacity>(find.ancestor(of: find.byKey(const ValueKey('selection-toolbar')), matching: find.byType(Opacity)).first).opacity;
+      await tester.pump();
+      expect(opacity(), lessThan(1), reason: 'starts transparent');
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(opacity(), 1);
+      expect(find.descendant(of: find.byKey(const ValueKey('sel-highlight')), matching: find.byType(PressScale)), findsOneWidget);
       final button = find.byKey(const ValueKey('sel-highlight'));
       double scale() => tester.widget<AnimatedScale>(find.descendant(of: button, matching: find.byType(AnimatedScale))).scale;
-      expect(find.descendant(of: button, matching: find.byType(PressScale)), findsOneWidget);
-      expect(scale(), 1);
       final g = await tester.startGesture(tester.getCenter(button));
       await tester.pump(const Duration(milliseconds: 200));
       expect(scale(), lessThan(1));
       await g.up();
       await tester.pump(const Duration(milliseconds: 200));
       expect(scale(), 1);
+      // reduce motion: shown at once
+      await tester.pumpWidget(host(Scaffold(body: bar('light')), reduce: true));
+      await tester.pump();
+      expect(opacity(), 1);
     });
 
-    testWidgets('reduce motion: no scale at all', (tester) async {
-      phone(tester, 1.0);
-      await tester.pumpWidget(host(Scaffold(body: bar('light')), reduce: true));
-      await tester.pumpAndSettle();
-      final button = find.byKey(const ValueKey('sel-cancel'));
-      final g = await tester.startGesture(tester.getCenter(button));
-      await tester.pump(const Duration(milliseconds: 200));
-      expect(tester.widget<AnimatedScale>(find.descendant(of: button, matching: find.byType(AnimatedScale))).scale, 1);
-      await g.up();
+    testWidgets('the shadow is the only elevation: a soft shadow, a hairline border, no animation beyond the fade', (tester) async {
+      await show(tester, 'light', 1.0);
+      final deco = tester.widget<Container>(find.byKey(const ValueKey('selection-toolbar'))).decoration! as BoxDecoration;
+      expect(deco.boxShadow, hasLength(1));
+      expect(deco.boxShadow!.single.blurRadius, greaterThanOrEqualTo(16), reason: 'soft');
+      expect(deco.borderRadius, BorderRadius.circular(FolkShape.navRadius), reason: 'the radius of the app\'s floating nav pill');
+      expect(deco.color, kReaderPalettes['light']!.chrome, reason: 'the reading mode\'s surface colour');
     });
   });
 

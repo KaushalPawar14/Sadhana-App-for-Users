@@ -315,6 +315,13 @@ class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProvid
   final GlobalKey _contentKey = GlobalKey();
   final GlobalKey _viewportKey = GlobalKey();
 
+  /// The floating selection toolbar (measured, so the selection can be kept clear of it).
+  final GlobalKey _toolbarKey = GlobalKey();
+
+  /// Extra room under the text while a new selection is open: the toolbar floats over the page, so the last lines can
+  /// be scrolled clear of it.
+  static const double _toolbarClearance = 130;
+
   /// Where the two handles sit, in the scrolling content's own coordinates.
   Offset? _startHandle;
   Offset? _endHandle;
@@ -1174,7 +1181,31 @@ class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProvid
           _endHandle = end;
         });
       }
+      _keepSelectionClear(start, end);
     });
+  }
+
+  /// The toolbar hovers over the bottom of the page: when the selection's last line would sit under it, the page
+  /// scrolls just enough to bring the selection above it - but never so far that the start of the selection leaves the top.
+  void _keepSelectionClear(Offset? start, Offset? end) {
+    if (_editingId != null || end == null || !_scrollController.hasClients) return;
+    final toolbar = _toolbarKey.currentContext?.findRenderObject();
+    final content = _contentKey.currentContext?.findRenderObject();
+    final viewport = _viewportKey.currentContext?.findRenderObject();
+    if (toolbar is! RenderBox || !toolbar.hasSize || content is! RenderBox || viewport is! RenderBox || !viewport.hasSize) return;
+    final toolbarTop = toolbar.localToGlobal(Offset.zero).dy;
+    final endY = content.localToGlobal(end).dy;
+    final overlap = endY + 14 - toolbarTop;
+    if (overlap <= 0) return;
+    final viewportTop = viewport.localToGlobal(Offset.zero).dy;
+    // how far the start's line may still go up before it leaves the page
+    final startRoom = start == null ? double.infinity : content.localToGlobal(start).dy - 26 - viewportTop - 8;
+    final amount = math.min(overlap, math.max(0.0, startRoom));
+    if (amount < 1) return;
+    final position = _scrollController.position;
+    final target = (position.pixels + amount).clamp(position.minScrollExtent, position.maxScrollExtent);
+    if (target - position.pixels < 1) return;
+    _scrollController.animateTo(target, duration: const Duration(milliseconds: 180), curve: Curves.easeOut);
   }
 
   /// The paragraph and character under a screen point (the nearest paragraph when the point is between two).
@@ -2014,7 +2045,7 @@ class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProvid
     final barContent = ReaderProgressBar.contentHeightFor(_fontScale);
     final bottomInset = MediaQuery.paddingOf(context).bottom;
     // Room under the last line for the fixed bar (and the finish area above it).
-    final bottomPadding = barContent + bottomInset + (showEnd ? _endAreaHeight : 0);
+    final bottomPadding = barContent + bottomInset + (showEnd ? _endAreaHeight : 0) + (_range != null && _editingId == null ? _toolbarClearance : 0);
 
     return Stack(
       children: [
@@ -2157,14 +2188,22 @@ class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProvid
     final editing = _editingId != null;
     final onChrome = _palette.onChrome;
     if (!editing) {
+      // ONE floating toolbar, centred, hovering above the bottom edge.
       return Padding(
-        padding: const EdgeInsets.only(bottom: 12, left: 12, right: 12),
-        child: ReaderSelectionBar(
-          background: _palette.chrome,
-          onSentence: () => _expandSelection(sentence: true),
-          onParagraph: () => _expandSelection(sentence: false),
-          onCancel: _closeRange,
-          onHighlight: _submitSelection,
+        padding: EdgeInsets.only(
+          bottom: ReaderSelectionBar.bottomGap + MediaQuery.paddingOf(context).bottom,
+          left: ReaderSelectionBar.sideMargin,
+          right: ReaderSelectionBar.sideMargin,
+        ),
+        child: KeyedSubtree(
+          key: _toolbarKey,
+          child: ReaderSelectionBar(
+            background: _palette.chrome,
+            onSentence: () => _expandSelection(sentence: true),
+            onParagraph: () => _expandSelection(sentence: false),
+            onCancel: _closeRange,
+            onHighlight: _submitSelection,
+          ),
         ),
       );
     }
