@@ -76,6 +76,9 @@ class CacheManagerBookStore implements BookFileStore {
   }
 }
 
+/// How long a book may take to download before the reader says so (instead of waiting for ever on a stalled connection).
+const Duration kBookDownloadTimeout = Duration(seconds: 40);
+
 String _parsedKey(String url, File raw) {
   final stat = raw.statSync();
   return 'parsed$kParsedBookVersion|$url|${stat.size}|${stat.modified.millisecondsSinceEpoch}';
@@ -87,6 +90,7 @@ Stream<BookLoadUpdate> loadBook({
   BookFileStore? store,
   // Tests: parse inline instead of on an isolate.
   bool useIsolate = true,
+  Duration downloadTimeout = kBookDownloadTimeout,
 }) {
   final controller = StreamController<BookLoadUpdate>();
   () async {
@@ -113,7 +117,8 @@ Stream<BookLoadUpdate> loadBook({
       }
 
       // 2. Download (or reuse the downloaded file) and parse off the UI thread.
-      final raw = await files.fetchRaw(url);
+      // A TimeoutException when the download stalls: the reader shows "taking too long" with Try again.
+      final raw = await files.fetchRaw(url).timeout(downloadTimeout);
       final key = _parsedKey(url, raw);
       final bytes = await raw.readAsBytes();
       await for (final update in _parseOffThread(bytes, fallbackTitle, key, files, useIsolate)) {

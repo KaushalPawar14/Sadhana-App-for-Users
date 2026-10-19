@@ -76,6 +76,20 @@ class FolderStore implements BookFileStore {
   }
 }
 
+// A connection that connects and then says nothing.
+class _StalledStore implements BookFileStore {
+  @override
+  Future<File?> cachedRaw(String url) async => null;
+  @override
+  Future<File> fetchRaw(String url) => Completer<File>().future;
+  @override
+  Future<bool> rawIsStale(String url) async => false;
+  @override
+  Future<File?> cachedParsed(String key) async => null;
+  @override
+  Future<void> saveParsed(String key, Uint8List data) async {}
+}
+
 void main() {
   group('parseDocx', () {
     test('chapters split on Heading 1; runs keep bold, italic, colour, size; blank paragraphs dropped', () {
@@ -201,6 +215,17 @@ void main() {
     late Directory dir;
     setUp(() => dir = Directory.systemTemp.createTempSync('book_loader'));
     tearDown(() => dir.deleteSync(recursive: true));
+
+    test('a download that never answers ends with a TimeoutException (the reader says "taking too long") instead of waiting for ever', () async {
+      final store = _StalledStore();
+      final sw = Stopwatch()..start();
+      await expectLater(
+        loadBook(url: 'u', fallbackTitle: 'x', store: store, downloadTimeout: const Duration(milliseconds: 150)).toList(),
+        throwsA(isA<TimeoutException>()),
+      );
+      expect(sw.elapsedMilliseconds, lessThan(3000));
+      expect(kBookDownloadTimeout, const Duration(seconds: 40), reason: 'the real limit');
+    });
 
     test('first open: downloads once, parses off the UI thread, first chapter first, then saves the parsed copy', () async {
       final store = FolderStore(dir, bigDocx(5, 30));

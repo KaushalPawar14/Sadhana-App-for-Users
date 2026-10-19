@@ -154,6 +154,61 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 
+  testWidgets('the three small Firestore reads never answer: the book still opens (it does not wait for them for ever)', (tester) async {
+    phone(tester, 1.0);
+    final saved = BookReaderPage.extrasWait;
+    BookReaderPage.extrasWait = const Duration(milliseconds: 300);
+    addTearDown(() => BookReaderPage.extrasWait = saved);
+    final never = Completer<List<Object?>>();
+    await tester.pumpWidget(host(BookReaderPage(
+      dropboxUrl: 'https://example.invalid/book.docx?dl=0',
+      bookTitle: 'Test Book',
+      bookKey: 'book_1',
+      level: 'level-1',
+      uid: 'u1',
+      loader: (u, t) => Stream.value(BookLoadUpdate(book(2), complete: true)),
+      extras: () => never.future,
+    )));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(runsOnScreen(tester), isEmpty, reason: 'still waiting for the reads at 100 ms');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(runsOnScreen(tester), isNotEmpty, reason: 'after the wait the book is on screen, from the start');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a download that is too slow says so with Try again, and Try again opens the book', (tester) async {
+    phone(tester, 1.0);
+    var calls = 0;
+    await tester.pumpWidget(host(reader((u, t) {
+      calls++;
+      return calls == 1 ? Stream<BookLoadUpdate>.error(TimeoutException('slow')) : Stream.value(BookLoadUpdate(book(2), complete: true));
+    })));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('This book is taking too long to open.'), findsOneWidget);
+    expect(find.text('Check your connection, then try again.'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('reader-retry')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(calls, 2);
+    expect(find.text('This book is taking too long to open.'), findsNothing);
+    expect(runsOnScreen(tester), isNotEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a bad file keeps its own message and also offers Try again', (tester) async {
+    phone(tester, 1.0);
+    await tester.pumpWidget(host(reader((u, t) => Stream<BookLoadUpdate>.error(StateError('bad')))));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('Could not open this book.'), findsOneWidget);
+    expect(find.textContaining('may not be a .docx'), findsOneWidget);
+    expect(find.byKey(const ValueKey('reader-retry')), findsOneWidget);
+  });
+
   testWidgets('an empty result is an error too', (tester) async {
     phone(tester, 1.0);
     await tester.pumpWidget(host(reader((u, t) => const Stream<BookLoadUpdate>.empty())));

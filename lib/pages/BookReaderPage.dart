@@ -19,6 +19,7 @@ import '../utils/BookHighlights.dart';
 import '../utils/BookLoader.dart';
 import '../utils/ReaderContrast.dart';
 import '../widgets/FolkDialog.dart';
+import '../widgets/PrimaryButton.dart';
 import '../widgets/ReaderChrome.dart';
 import '../widgets/ReaderHighlights.dart';
 import '../widgets/ReaderLoadingGhost.dart';
@@ -130,6 +131,12 @@ const List<double> kReaderFontScaleSteps = [0.85, 1.0, 1.15, 1.3, 1.45, 1.6];
 /// paragraphs. Reading time is measured only while readable content is on
 /// screen and is returned to the caller via `Navigator.pop(elapsedSeconds)`.
 class BookReaderPage extends StatefulWidget {
+  /// How long the book waits for the bookmark, the saved reading mode and the finished flag (three small Firestore
+  /// reads). On a poor connection they can take very long; the book must not wait for them: after this it opens at the
+  /// start with the app's own look, and the bookmark is still one tap away.
+  @visibleForTesting
+  static Duration extrasWait = const Duration(seconds: 6);
+
   final String dropboxUrl;
   final String bookTitle;
   final String bookKey;
@@ -335,6 +342,7 @@ class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProvid
 
   @override
   void dispose() {
+    _extrasTimer?.cancel();
     _edgeScrollTimer?.cancel();
     _focusController.dispose();
     _progress.dispose();
@@ -358,6 +366,20 @@ class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProvid
     return trimmed.contains('?') ? '$trimmed&dl=1' : '$trimmed?dl=1';
   }
 
+  /// True when the last attempt failed because it was too slow (not because the file is bad).
+  bool _tooSlow = false;
+
+  Timer? _extrasTimer;
+
+  void _retry() {
+    setState(() {
+      _loading = true;
+      _error = null;
+      _tooSlow = false;
+    });
+    _load();
+  }
+
   Future<void> _load() async {
     // The three Firestore reads start at once, alongside the download and the
     // parse, rather than after them.
@@ -365,12 +387,27 @@ class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProvid
     if (widget.extras == null) {
       prefsFuture.then(_applyEarlyPrefs);
     }
-    final Future<List<Object?>> extrasFuture = widget.extras?.call() ??
-        Future.wait<Object?>([
-          _fetchBookmark(),
-          prefsFuture,
-          _fetchFinishedState(),
-        ]);
+    // Whichever comes first: the three reads, or the wait running out (then the defaults). The timer is cancelled
+    // when the page closes.
+    final extrasDone = Completer<List<Object?>>();
+    _extrasTimer?.cancel();
+    _extrasTimer = Timer(BookReaderPage.extrasWait, () {
+      if (!extrasDone.isCompleted) extrasDone.complete(<Object?>[null, const <String, Object?>{}, false]);
+    });
+    (widget.extras?.call() ??
+            Future.wait<Object?>([
+              _fetchBookmark(),
+              prefsFuture,
+              _fetchFinishedState(),
+            ]))
+        .then((v) {
+      _extrasTimer?.cancel();
+      if (!extrasDone.isCompleted) extrasDone.complete(v);
+    }, onError: (Object e, StackTrace st) {
+      _extrasTimer?.cancel();
+      if (!extrasDone.isCompleted) extrasDone.completeError(e, st);
+    });
+    final Future<List<Object?>> extrasFuture = extrasDone.future;
 
     if (widget.extras != null) {
       // the test seam hands over the saved choice the same way: the loading screen takes it as soon as it is there
@@ -464,7 +501,8 @@ class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProvid
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = "Could not open this book.";
+        _tooSlow = e is TimeoutException;
+        _error = e is TimeoutException ? "This book is taking too long to open." : "Could not open this book.";
       });
     }
   }
@@ -1951,10 +1989,14 @@ class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProvid
             ),
             const SizedBox(height: 8),
             Text(
-              "The file may not be a .docx, or the link may not allow direct download.",
+              _tooSlow
+                  ? "Check your connection, then try again."
+                  : "The file may not be a .docx, or the link may not allow direct download.",
               textAlign: TextAlign.center,
               style: text.small.copyWith(color: _palette.secondaryText),
             ),
+            const SizedBox(height: 18),
+            PrimaryButton(key: const ValueKey('reader-retry'), label: 'Try again', expanded: false, onPressed: _retry),
           ],
         ),
       );

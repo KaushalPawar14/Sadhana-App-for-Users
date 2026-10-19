@@ -334,7 +334,8 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
 
     Map<String, dynamic>? data;
     try {
-      data = (await docRef.get()).data();
+      // Bounded: on a poor connection the read can wait very long, and the student sees nothing happen.
+      data = (await docRef.get().timeout(const Duration(seconds: 8))).data();
     } catch (_) {
       // A failed read must not silently skip the mandatory prompt — treat it
       // the same as "no doc yet".
@@ -377,7 +378,7 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
             },
             SetOptions(merge: true));
         return true;
-      });
+      }).timeout(const Duration(seconds: 25));
       if (!stillOpen) return true; // completed meanwhile: nothing to commit to
     } catch (_) {
       if (!mounted) return false;
