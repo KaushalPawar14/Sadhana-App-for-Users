@@ -13,6 +13,8 @@ import '../widgets/FolkScaffold.dart';
 import '../widgets/GhostPlaceholder.dart';
 import '../widgets/InsightTile.dart';
 import '../widgets/NoteJump.dart';
+import '../widgets/NotesHowItWorks.dart';
+import '../widgets/RoundIconButton.dart';
 
 // Books -> Notes. Three screens:
 //   1. BooksNotesPage   GOOD (gold, dots) and EXCELLENT (green, leaves) squares on top, RARE (violet, sparkle) wide
@@ -129,6 +131,15 @@ class _BooksNotesPageState extends State<BooksNotesPage> {
     return FolkScaffold(
       title: 'Notes',
       onBack: () => Navigator.pop(context),
+      actions: [
+        RoundIconButton(
+          key: const ValueKey('notes-how-button'),
+          icon: Icons.info_outline_rounded,
+          iconSize: 22,
+          semanticLabel: 'How notes work',
+          onPressed: () => showNotesHowItWorks(context),
+        ),
+      ],
       body: _failed
           ? FolkErrorRetry(message: "Couldn't load your notes just now.", onRetry: _load)
           : LayoutBuilder(
