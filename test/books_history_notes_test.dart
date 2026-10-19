@@ -327,7 +327,7 @@ void main() {
         return (tester.widget<Ink>(ink).decoration! as BoxDecoration).gradient! as LinearGradient;
       }
 
-      expect(gradientOf('notes-good'), FolkGradients.coral, reason: 'Good: the theme pink / coral gradient');
+      expect(gradientOf('notes-good'), FolkGradients.saffron, reason: 'Good: the theme saffron / gold gradient');
       expect(gradientOf('notes-excellent'), FolkGradients.green);
       expect(gradientOf('notes-rare'), FolkGradients.violet);
       // counts (only this student's)

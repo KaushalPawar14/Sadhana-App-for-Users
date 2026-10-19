@@ -24,9 +24,9 @@ import '../widgets/NoteJump.dart';
 /// The text on a highlight-coloured tile: the app's dark ink (the colours are mid-tone, so dark ink reads best).
 const Color _ink = FolkColors.onGradient;
 
-/// The Notes tiles wear the app's own theme gradients: Good = coral (pink), Excellent = green, Rare = violet.
+/// The Notes tiles wear the app's own theme gradients: Good = saffron (gold), Excellent = green, Rare = violet.
 LinearGradient categoryGradient(HighlightCategory c) => switch (c) {
-      HighlightCategory.good => FolkGradients.coral,
+      HighlightCategory.good => FolkGradients.saffron,
       HighlightCategory.excellent => FolkGradients.green,
       HighlightCategory.rare => FolkGradients.violet,
     };

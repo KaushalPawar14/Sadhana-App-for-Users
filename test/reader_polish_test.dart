@@ -164,10 +164,12 @@ void main() {
 
   // ----------------------------------------------------------------------------------------- the colours
   group('category colours', () {
-    test('Good pink, Excellent green, Rare a soft purple that glows a little', () {
+    test('Good gold, Excellent green, Rare a soft purple that glows a little', () {
       Color c(HighlightCategory x) => Color(x.argb);
-      expect(c(HighlightCategory.good).r, greaterThan(c(HighlightCategory.good).b), reason: 'pink: red over blue');
-      expect(c(HighlightCategory.good).g, lessThan(c(HighlightCategory.good).b));
+      final gold = c(HighlightCategory.good);
+      expect(gold.r, greaterThan(gold.g), reason: 'gold: red over green over blue');
+      expect(gold.g, greaterThan(gold.b * 3));
+      expect(gold.b, lessThan(.1), reason: 'a warm, saturated gold');
       expect(c(HighlightCategory.excellent).g, greaterThan(c(HighlightCategory.excellent).r));
       expect(c(HighlightCategory.rare).b, greaterThan(c(HighlightCategory.rare).g), reason: 'purple');
       expect(c(HighlightCategory.rare).r, greaterThan(c(HighlightCategory.rare).g));
@@ -182,6 +184,22 @@ void main() {
         expect(spread, lessThan(mode == 'dark' ? .08 : .12), reason: '$mode: the three tints look about equally strong');
       }
       expect(luminance(HighlightCategory.rare.argb), greaterThan(luminance(0xFF9C4DFF)), reason: 'lighter than the old Rare');
+    });
+
+    test('every category stays clearly visible in every mode - the gold Good too, even on sepia (a gold-ish page)', () {
+      for (final mode in ['light', 'dark', 'sepia']) {
+        final page = kReaderModeColors[mode]!.background;
+        for (final k in HighlightCategory.values) {
+          expect(contrastRatio(k.argb, page), greaterThanOrEqualTo(2.3), reason: '$mode ${k.label}: the border against the page');
+          final tint = compositeOver(k.tintArgb, page);
+          expect(contrastRatio(tint, page), greaterThan(1.07), reason: '$mode ${k.label}: the tint is a visible patch on the page');
+          expect(contrastRatio(k.argb, tint), greaterThanOrEqualTo(2.0), reason: '$mode ${k.label}: the border against its own tint');
+        }
+        // Good (gold) against the three modes' backgrounds is not weaker than the other two by much
+        double edge(HighlightCategory k) => contrastRatio(k.argb, page);
+        final weakest = HighlightCategory.values.map(edge).reduce((a, b) => a < b ? a : b);
+        expect(edge(HighlightCategory.good), lessThan(weakest + 3.5), reason: '$mode: balanced, not a different strength');
+      }
     });
 
     test('text stays at 4.5:1 on every tint, in light, dark and sepia', () {
@@ -204,9 +222,9 @@ void main() {
   });
 
   group('Notes tiles wear the theme gradients', () {
-    // (checked on the real screen in books_history_notes_test: Good = coral, Excellent = green, Rare = violet)
+    // (checked on the real screen in books_history_notes_test: Good = saffron / gold, Excellent = green, Rare = violet)
     test('the three gradients are the theme\'s own', () {
-      expect(categoryGradient(HighlightCategory.good), FolkGradients.coral);
+      expect(categoryGradient(HighlightCategory.good), FolkGradients.saffron);
       expect(categoryGradient(HighlightCategory.excellent), FolkGradients.green);
       expect(categoryGradient(HighlightCategory.rare), FolkGradients.violet);
     });

@@ -39,13 +39,13 @@ extension HighlightCategoryX on HighlightCategory {
     }
   }
 
-  /// The app's own category colours: a pink (Good), a green (Excellent) and a soft purple that glows a little
+  /// The app's own category colours: a warm gold (Good), a green (Excellent) and a soft purple that glows a little
   /// (Rare). The same in Light, Dark and Sepia. Rare is deliberately a touch lighter than the other two, so its
   /// border, tint and glow are balanced with them (it used to look dark and harsh).
   int get argb {
     switch (this) {
       case HighlightCategory.good:
-        return 0xFFE2578A;
+        return 0xFFC38400;
       case HighlightCategory.excellent:
         return 0xFF2FA55A;
       case HighlightCategory.rare:

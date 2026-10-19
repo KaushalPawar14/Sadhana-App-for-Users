@@ -253,8 +253,8 @@ void main() {
   });
 
   group('colours', () {
-    test('the three categories: a pink, a green, a soft purple that glows a little; same in every mode', () {
-      expect(HighlightCategory.good.argb, 0xFFE2578A);
+    test('the three categories: a warm gold, a green, a soft purple that glows a little; same in every mode', () {
+      expect(HighlightCategory.good.argb, 0xFFC38400);
       expect(HighlightCategory.excellent.argb, 0xFF2FA55A);
       expect(HighlightCategory.rare.argb, 0xFFAE7DF3);
       expect([for (final c in HighlightCategory.values) c.glows], [false, false, true]);

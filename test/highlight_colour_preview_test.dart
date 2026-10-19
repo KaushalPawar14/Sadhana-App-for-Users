@@ -21,16 +21,16 @@ class _Look {
 }
 
 const _before = [
-  _Look('Good', 0xFF3D7BD6, false, 0x33),
+  _Look('Good', 0xFFE2578A, false, 0x33), // the pink it was
   _Look('Excellent', 0xFF2FA55A, false, 0x33),
-  _Look('Rare', 0xFF9C4DFF, true, 0x33),
+  _Look('Rare', 0xFFAE7DF3, true, 0x33),
 ];
 
 Widget _chip(_Look l, String mode, {required bool after}) {
   final color = Color(l.border);
   final page = kReaderModeColors[mode]!;
   final tint = Color((l.border & 0x00FFFFFF) | (l.tintAlpha << 24));
-  final glowAlpha = after ? .3 : .55;
+  final glowAlpha = .3;
   final category = HighlightCategory.values.firstWhere((c) => c.label == l.name);
   final textColor = Color(readableOnHighlights(null, mode, {category}));
   return Container(
@@ -40,7 +40,7 @@ Widget _chip(_Look l, String mode, {required bool after}) {
       color: tint,
       borderRadius: BorderRadius.circular(6),
       border: Border.all(color: color, width: 1.3),
-      boxShadow: l.glow ? [BoxShadow(color: color.withValues(alpha: glowAlpha), blurRadius: after ? 7 : 9)] : null,
+      boxShadow: l.glow ? [BoxShadow(color: color.withValues(alpha: glowAlpha), blurRadius: 7)] : null,
     ),
     child: Text(l.name, style: TextStyle(fontFamily: 'DM Sans', color: textColor, fontSize: 15, fontWeight: FontWeight.w600)),
   );
