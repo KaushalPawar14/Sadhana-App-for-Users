@@ -12,6 +12,7 @@ import 'package:intl/intl.dart';
 import 'package:folk_app/widgets/FolkScaffold.dart';
 import 'package:folk_app/widgets/PrimaryButton.dart';
 import 'package:folk_app/widgets/SadhanaFormWidgets.dart';
+import 'package:folk_app/utils/DayScore.dart';
 
 class SadhanaPage extends StatefulWidget {
   const SadhanaPage({
@@ -202,7 +203,10 @@ class SadhanaPageState extends State<SadhanaPage> {
     }
 
     if (!mounted) return;
-    showSnackbar(context, 'Sadhana submitted successfully',
+    // The points of THIS day (same rules as the server), shown after a successful save.
+    final dayPoints = scoreDayTotal(newReport.toMap(),
+        form: ReportForm.hostel, chantCommitment: commitments.rounds, readCommitment: commitments.readingMinutes ?? 0);
+    showSnackbar(context, sadhanaSubmittedMessage(dayPoints),
         CupertinoColors.activeGreen, Icons.done_outline_rounded);
 
     setState(() {

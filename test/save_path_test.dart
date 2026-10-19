@@ -212,7 +212,7 @@ void main() {
         expect(find.text('Please correct the highlighted fields.'), findsOneWidget);
         expect(fieldTexts(tester)[3], bad);
         expect(fieldTexts(tester)[4], '30');
-        expect(find.text('Sadhana submitted successfully'), findsNothing);
+        expect(find.textContaining('Sadhana submitted'), findsNothing);
         // editing the field clears its message
         await tester.enterText(find.byType(TextField, skipOffstage: false).at(3), '16');
         await tester.pump();
@@ -238,7 +238,7 @@ void main() {
       // while the save is running: busy button, nothing cleared, no success yet
       expect(calls.length, 1);
       expect(find.descendant(of: find.byType(PrimaryButton), matching: find.byType(CircularProgressIndicator)), findsOneWidget);
-      expect(find.text('Sadhana submitted successfully'), findsNothing);
+      expect(find.textContaining('Sadhana submitted'), findsNothing);
       expect(fieldTexts(tester)[3], '16');
       // a second tap while saving does nothing
       await tester.tap(find.byType(PrimaryButton), warnIfMissed: false);
@@ -247,7 +247,7 @@ void main() {
       completer.complete();
       await tester.pump();
       await tester.pump();
-      expect(find.text('Sadhana submitted successfully'), findsOneWidget);
+      expect(find.textContaining('Sadhana submitted'), findsOneWidget);
       expect(fieldTexts(tester), everyElement(''));
       final (report, date) = calls.single;
       expect(date, '08-10-2026');
@@ -273,7 +273,7 @@ void main() {
       await tester.pump();
       await tester.pump();
       expect(find.text("Couldn't save your report — please try again"), findsOneWidget);
-      expect(find.text('Sadhana submitted successfully'), findsNothing);
+      expect(find.textContaining('Sadhana submitted'), findsNothing);
       expect(fieldTexts(tester), before);
       expect(find.descendant(of: find.byType(PrimaryButton), matching: find.byType(CircularProgressIndicator)), findsNothing);
       await flushBanner(tester);
@@ -281,7 +281,7 @@ void main() {
       await tester.pump();
       await tester.pump();
       expect(calls.length, 2);
-      expect(find.text('Sadhana submitted successfully'), findsOneWidget);
+      expect(find.textContaining('Sadhana submitted'), findsOneWidget);
       expect(fieldTexts(tester), everyElement(''));
       await flushBanner(tester);
     });
@@ -296,7 +296,7 @@ void main() {
       expect(calls.length, 1);
       expect(find.text("Couldn't reach the server — please try again"), findsOneWidget);
       expect(fieldTexts(tester), before);
-      expect(find.text('Sadhana submitted successfully'), findsNothing);
+      expect(find.textContaining('Sadhana submitted'), findsNothing);
       await flushBanner(tester);
     });
 
@@ -310,7 +310,7 @@ void main() {
       expect(calls.length, 1);
       expect(find.text('Your profile is incomplete — please contact your guide.'), findsOneWidget);
       expect(fieldTexts(tester), before);
-      expect(find.text('Sadhana submitted successfully'), findsNothing);
+      expect(find.textContaining('Sadhana submitted'), findsNothing);
       await flushBanner(tester);
     });
 
@@ -366,7 +366,7 @@ void main() {
         expect(find.text(kWholeNumberMessage), findsOneWidget);
         expect(fieldTexts(tester)[3], bad);
         expect(fieldTexts(tester)[4], '30');
-        expect(find.text('Sadhana submitted successfully'), findsNothing);
+        expect(find.textContaining('Sadhana submitted'), findsNothing);
         await flushBanner(tester);
       });
     }
@@ -387,14 +387,14 @@ void main() {
       await tapSubmit(tester);
       expect(calls.length, 1);
       expect(find.descendant(of: find.byType(PrimaryButton), matching: find.byType(CircularProgressIndicator)), findsOneWidget);
-      expect(find.text('Sadhana submitted successfully'), findsNothing);
+      expect(find.textContaining('Sadhana submitted'), findsNothing);
       await tester.tap(find.byType(PrimaryButton), warnIfMissed: false);
       await tester.pump();
       expect(calls.length, 1);
       completer.complete();
       await tester.pump();
       await tester.pump();
-      expect(find.text('Sadhana submitted successfully'), findsOneWidget);
+      expect(find.textContaining('Sadhana submitted'), findsOneWidget);
       expect(fieldTexts(tester), everyElement(''));
       final (report, date, extra) = calls.single;
       expect(date, '08-10-2026');
@@ -425,7 +425,7 @@ void main() {
       await tester.pump();
       expect(calls.length, 2);
       expect(calls[0].$1.toMap(), calls[1].$1.toMap());
-      expect(find.text('Sadhana submitted successfully'), findsOneWidget);
+      expect(find.textContaining('Sadhana submitted'), findsOneWidget);
       await flushBanner(tester);
     });
 
@@ -450,7 +450,7 @@ void main() {
       await tester.pump();
       expect(find.text('Your profile is incomplete — please contact your guide.'), findsOneWidget);
       expect(fieldTexts(tester), before);
-      expect(find.text('Sadhana submitted successfully'), findsNothing);
+      expect(find.textContaining('Sadhana submitted'), findsNothing);
       await flushBanner(tester);
     });
   });

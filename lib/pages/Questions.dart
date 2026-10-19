@@ -12,6 +12,7 @@ import 'package:folk_app/widgets/CommitmentDialog.dart';
 import '../widgets/FolkScaffold.dart';
 import '../widgets/PrimaryButton.dart';
 import '../widgets/SadhanaFormWidgets.dart';
+import '../utils/DayScore.dart';
 
 class QuestionsPage extends StatefulWidget {
   const QuestionsPage({
@@ -236,7 +237,11 @@ class _QuestionsPageState extends State<QuestionsPage> {
     }
 
     if (!mounted) return;
-    showSnackbar(context, 'Sadhana submitted successfully',
+    // The points of THIS day (what the server will also work out from the saved report); a re-submission of the
+    // same date shows that day's updated points because it is scored from what was just saved.
+    final dayPoints = scoreDayTotal({...newReport.toMap(), 'extraLecture': extraLecturePoints},
+        form: ReportForm.folk, chantCommitment: commitments.rounds, readCommitment: commitments.readingMinutes ?? 0);
+    showSnackbar(context, sadhanaSubmittedMessage(dayPoints),
         CupertinoColors.activeGreen, Icons.done_outline_rounded);
 
     setState(() {
