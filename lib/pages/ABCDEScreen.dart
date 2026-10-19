@@ -45,6 +45,9 @@ class _ABCDEScreenState extends State<ABCDEScreen> {
   String? _userName;
   String? _role;
 
+  /// 'male' or 'female', from the student's own document: trips are for one gender.
+  String? _gender;
+
   /// Firestore-listener-in-build() fix (2026-09-09, size/perf task) — these
   /// three used to be constructed fresh inside `_associationProgress`/
   /// `_booksProgress`/`_chantingProgress`, called directly from `build()`,
@@ -114,6 +117,7 @@ class _ABCDEScreenState extends State<ABCDEScreen> {
       setState(() {
         _userName = (doc.data()?['name'] ?? '').toString();
         _role = (doc.data()?['role'] ?? '').toString();
+        _gender = doc.data()?['gender'] == 'female' ? 'female' : 'male';
       });
     } catch (_) {
       // Non-fatal — the chanting card simply falls back to its empty state.
@@ -441,16 +445,22 @@ class _ABCDEScreenState extends State<ABCDEScreen> {
               style: FolkFeatureGradients.expeditions,
               progress: _progressText("View upcoming trips"),
               // Unseen = a new trip posted since this student last opened this
-              // screen — every student sees the same `expeditions` list, no
-              // per-student filter.
-              wrapBadge: (avatar) => UnseenFeatureBadge(
-                featureKey: 'expeditionTrips',
-                timestampField: 'createdAt',
-                latestQuery: (_) => FirebaseFirestore.instance
-                    .collection('expeditions')
-                    .snapshots(),
-                child: avatar,
-              ),
+              // screen. Trips are for one gender and move to History after their
+              // date: the dot follows the same filter as the list (own gender,
+              // still active), which is also what the rules allow a student to read.
+              wrapBadge: (avatar) => _gender == null
+                  ? avatar
+                  : UnseenFeatureBadge(
+                      key: ValueKey('expedition-dot-$_gender'),
+                      featureKey: 'expeditionTrips',
+                      timestampField: 'createdAt',
+                      latestQuery: (_) => FirebaseFirestore.instance
+                          .collection('expeditions')
+                          .where('targetGender', isEqualTo: _gender)
+                          .where('archived', isEqualTo: false)
+                          .snapshots(),
+                      child: avatar,
+                    ),
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(

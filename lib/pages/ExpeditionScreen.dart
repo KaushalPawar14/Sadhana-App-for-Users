@@ -24,11 +24,15 @@ class ExpeditionScreen extends StatefulWidget {
   final String userName;
   final String role;
 
+  /// Test seam: the app never sets this.
+  final FirebaseFirestore? firestore;
+
   const ExpeditionScreen({
     super.key,
     required this.uid,
     required this.userName,
     required this.role,
+    this.firestore,
   });
 
   @override
@@ -36,7 +40,7 @@ class ExpeditionScreen extends StatefulWidget {
 }
 
 class _ExpeditionScreenState extends State<ExpeditionScreen> {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  FirebaseFirestore get _firestore => widget.firestore ?? FirebaseFirestore.instance;
 
   String _guideId = '';
   String _studentName = '';
@@ -51,13 +55,17 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
   /// rebuild). Hoisted to fields, built once in `initState()` — safe
   /// unconditionally, since `widget.uid` is fixed for this screen's whole
   /// life (a pushed, single-student route).
-  late Stream<QuerySnapshot<Map<String, dynamic>>> _tripsStream;
+  ///
+  /// Trips are for ONE gender and leave the app the day after their date (the
+  /// server marks them `archived`): a student reads only the active trips of
+  /// their own gender, which is also the only query the rules allow. So the
+  /// trips stream opens once the student's gender is known (`_loadProfile`).
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _tripsStream;
   late Stream<QuerySnapshot<Map<String, dynamic>>> _registrationsStream;
 
   @override
   void initState() {
     super.initState();
-    _tripsStream = _firestore.collection('expeditions').snapshots();
     _registrationsStream = _firestore
         .collection('expeditionRegistrations')
         .where('studentUid', isEqualTo: widget.uid)
@@ -65,7 +73,7 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
     _loadProfile();
     // Master Task 2026-09-10, Part 6 — opening this screen is "seen" for
     // newly-posted trips.
-    SeenMarkers.markSeen(widget.uid, 'expeditionTrips');
+    SeenMarkers.markSeen(widget.uid, 'expeditionTrips').catchError((_) {});
   }
 
   Future<void> _loadProfile() async {
@@ -79,11 +87,22 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
         _studentName = widget.userName.isNotEmpty
             ? widget.userName
             : (data['name'] ?? '').toString();
+        _tripsStream = _openTripsStream(data['gender'] == 'female' ? 'female' : 'male');
       });
     } catch (_) {
-      // Registration re-reads what it needs before writing.
+      // Registration re-reads what it needs before writing. Without the
+      // profile there is no gender, so no trips: show the retry.
+      if (mounted) setState(() => _tripsFailed = true);
     }
   }
+
+  bool _tripsFailed = false;
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> _openTripsStream(String gender) => _firestore
+      .collection('expeditions')
+      .where('targetGender', isEqualTo: gender)
+      .where('archived', isEqualTo: false)
+      .snapshots();
 
   String _formatTs(dynamic value) {
     if (value is! Timestamp) return "Not set";
@@ -522,19 +541,21 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
         body: StreamBuilder<QuerySnapshot>(
           stream: _tripsStream,
           builder: (context, tripSnap) {
-            if (tripSnap.hasError) {
+            if (tripSnap.hasError || _tripsFailed) {
               return FolkErrorRetry(
                 message: "Couldn't load the trips just now.",
                 onRetry: () => setState(() {
-                  _tripsStream = _firestore.collection('expeditions').snapshots();
+                  _tripsFailed = false;
+                  _tripsStream = null;
                   _registrationsStream = _firestore
                       .collection('expeditionRegistrations')
                       .where('studentUid', isEqualTo: widget.uid)
                       .snapshots();
+                  _loadProfile();
                 }),
               );
             }
-            if (tripSnap.connectionState == ConnectionState.waiting) {
+            if (_tripsStream == null || tripSnap.connectionState == ConnectionState.waiting) {
               // Ghost trip cards while the trips load.
               return GhostScope(
                 child: ListView(
@@ -569,6 +590,11 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
                     ((r.data() as Map<String, dynamic>)['expeditionId'] ?? '')
                         .toString()
                 };
+
+                final myTrips = myRegs
+                    .where((r) => tripsById.containsKey(
+                        ((r.data() as Map<String, dynamic>)['expeditionId'] ?? '').toString()))
+                    .toList();
 
                 // Upcoming trips, soonest first. Sorted client-side so no
                 // composite index is needed alongside the status filter.
@@ -612,10 +638,12 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
                       }),
                     const SizedBox(height: 26),
                     _sectionHeading("My Trips"),
-                    if (myRegs.isEmpty)
+                    // Only trips still on the list: a trip that has moved to History
+                    // (or is for the other gender) is gone from the app.
+                    if (myTrips.isEmpty)
                       _emptyCard("You have not registered for any trips yet")
                     else
-                      ...myRegs.map((reg) {
+                      ...myTrips.map((reg) {
                         final data = reg.data() as Map<String, dynamic>;
                         final expId = (data['expeditionId'] ?? '').toString();
 
