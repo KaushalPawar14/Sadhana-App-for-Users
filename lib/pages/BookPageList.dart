@@ -9,6 +9,7 @@ import '../theme/FolkTheme.dart';
 import '../theme/FolkTokens.dart';
 import '../utils/BookCurrentBook.dart';
 import '../utils/BookLibrary.dart';
+import '../utils/BookReadingLog.dart';
 import '../utils/BookSections.dart';
 import '../utils/ReadingLanguages.dart';
 import '../utils/SeenMarkers.dart';
@@ -26,7 +27,8 @@ import '../widgets/GhostPlaceholder.dart';
 import '../widgets/FolkErrorRetry.dart';
 import '../widgets/PrimaryButton.dart';
 import 'BookReaderPage.dart';
-import 'ComingSoonPage.dart';
+import 'BooksHistoryPage.dart';
+import 'BooksNotesPage.dart';
 
 /// Book library screen.
 ///
@@ -451,6 +453,16 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
     final seconds = elapsed is int ? elapsed : 0;
 
     await _recordReadingSession(seconds);
+    // The reading history (Books -> History): the same seconds, by day and by book. Separate from the totals above, which
+    // are untouched; a failure here is silent.
+    await recordReadingDay(
+      db: _firestore,
+      uid: uid,
+      level: level,
+      bookKey: bookKey,
+      title: title,
+      seconds: seconds,
+    );
 
     if (!mounted || seconds <= 0) return;
 
@@ -1409,11 +1421,11 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
               ],
             ),
           ),
-        // Under the sections: "Notes" and "History" (their pages are to come).
+        // Under the sections: "Notes" and "History".
         BookExtrasRow(
           key: const ValueKey('books-extras'),
-          onNotes: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ComingSoonPage(title: 'Notes', icon: Icons.sticky_note_2_outlined))),
-          onHistory: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ComingSoonPage(title: 'History', icon: Icons.history_rounded))),
+          onNotes: () => Navigator.push(context, MaterialPageRoute(builder: (_) => BooksNotesPage(uid: _uid ?? ''))),
+          onHistory: () => Navigator.push(context, MaterialPageRoute(builder: (_) => BooksHistoryPage(uid: _uid ?? ''))),
         ),
       ],
     );

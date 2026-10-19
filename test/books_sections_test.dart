@@ -11,6 +11,8 @@ import 'package:folk_app/pages/BookReaderPage.dart';
 import 'package:folk_app/theme/FolkTheme.dart';
 import 'package:folk_app/utils/BookCurrentBook.dart';
 import 'package:folk_app/utils/BookLibrary.dart';
+import 'package:folk_app/pages/BooksHistoryPage.dart';
+import 'package:folk_app/pages/BooksNotesPage.dart';
 import 'package:folk_app/utils/BookSections.dart';
 import 'package:folk_app/widgets/BookLevelSection.dart';
 import 'package:folk_app/widgets/CompletedBookTile.dart';
@@ -461,22 +463,24 @@ void main() {
       expect(n.top, greaterThan(completed.bottom - 1), reason: 'under the sections');
     });
 
-    testWidgets('Notes opens a Coming soon page', (tester) async {
+    testWidgets('Notes opens the Notes screen (not a placeholder)', (tester) async {
       await pump(tester);
       await toExtras(tester);
       await tester.tap(find.byKey(const ValueKey('books-notes-button')));
-      await tester.pumpAndSettle();
-      expect(find.text('Notes'), findsOneWidget);
-      expect(find.byKey(const ValueKey('coming-soon')), findsOneWidget);
-      expect(find.text('Coming soon'), findsOneWidget);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byType(BooksNotesPage), findsOneWidget);
+      expect(find.text('Coming soon'), findsNothing);
     });
 
-    testWidgets('History opens a Coming soon page', (tester) async {
+    testWidgets('History opens the History screen (not a placeholder)', (tester) async {
       await pump(tester);
       await toExtras(tester);
       await tester.tap(find.byKey(const ValueKey('books-history-button')));
-      await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('coming-soon')), findsOneWidget);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byType(BooksHistoryPage), findsOneWidget);
+      expect(find.text('Coming soon'), findsNothing);
     });
 
     for (final dark in [false, true]) {
