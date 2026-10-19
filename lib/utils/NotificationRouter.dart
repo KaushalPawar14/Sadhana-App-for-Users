@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../main.dart';
 import '../pages/BookPageList.dart';
 import '../pages/Calendar.dart';
+import '../pages/ExpeditionScreen.dart';
 import '../pages/MyCompetitions.dart';
 import '../pages/RduaFriendsScreen.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -135,6 +136,11 @@ Future<void> _dispatch(Map<String, dynamic> data) async {
         );
         break;
 
+      // A new trip for this student's gender: opens Expeditions.
+      case 'student_expeditions':
+        await _openExpeditions(navState);
+        break;
+
       case 'student_chanting':
         navState.push(
           MaterialPageRoute(builder: (_) => const MyCompetitionsPage()),
@@ -188,6 +194,24 @@ Future<void> _openCalendar(NavigatorState navState) async {
   );
 }
 
+
+/// `ExpeditionScreen` needs the CURRENT student's uid, name and residence, read the same way `_openCalendar` does.
+Future<void> _openExpeditions(NavigatorState navState) async {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) return;
+
+  final doc =
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+  navState.push(
+    MaterialPageRoute(
+      builder: (_) => ExpeditionScreen(
+        uid: user.uid,
+        userName: (doc.data()?['name'] ?? '').toString(),
+        role: (doc.data()?['role'] ?? '').toString(),
+      ),
+    ),
+  );
+}
 
 /// Opens FOLK Students on the Play Store (market:// first, the web page as a
 /// fallback). Used by the `play_store` notification destination.

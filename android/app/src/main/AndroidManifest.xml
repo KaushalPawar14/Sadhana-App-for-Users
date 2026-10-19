@@ -54,6 +54,11 @@
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_color"
             android:resource="@color/notification_color" />
+        <!-- A notification Android draws itself (app in the background or closed) goes to the same channel the
+             app's own foreground notification uses (created in `FirebaseCM.initPushNotifications`). -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="notification" />
 
         <meta-data
             android:name="flutterEmbedding"

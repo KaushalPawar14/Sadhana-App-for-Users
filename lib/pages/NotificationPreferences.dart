@@ -86,6 +86,12 @@ const List<_PrefItem> _kPrefs = [
     icon: Icons.self_improvement,
   ),
   _PrefItem(
+    key: 'newTrip',
+    title: 'New trips',
+    subtitle: 'When a new trip is announced for you',
+    icon: Icons.explore_outlined,
+  ),
+  _PrefItem(
     key: 'guideManualReminder',
     title: 'Reminders from your guide',
     subtitle: 'When your guide personally nudges you about a report',

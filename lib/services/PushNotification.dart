@@ -12,13 +12,34 @@ import '../utils/NotificationRouter.dart';
 // refers to, and the native side cannot find an unannotated one
 // ("To closurize ... from native code, it must be annotated").
 @pragma('vm:entry-point')
-Future<void> handleBG(RemoteMessage message) async {
-  // Handling background notifications
+Future<void> handleBG(RemoteMessage message) =>
+    handleBackgroundMessage(message, show: (m) => FirebaseCM().showLocalNotification(m));
+
+/// Draws a notification itself (a local one).
+typedef ShowLocal = Future<void> Function(RemoteMessage message);
+
+/// Should the APP draw a notification for [message]?
+///
+/// ONE notification per message, in every state of the app:
+///  - A message that carries a `notification` payload (every push this system sends) is drawn BY ANDROID whenever the
+///    app is in the background or closed. Firebase Messaging still runs [handleBG] for it, so drawing a local
+///    notification there as well (what this app used to do) put a SECOND, identical notification on the screen: the
+///    "8:00 reminder arrives twice" bug.
+///  - In the foreground Android draws nothing, so the app draws it (once, from `onMessage`).
+///  - A data-only message has nothing to show, as before.
+bool shouldShowLocally(RemoteMessage message, {required bool foreground}) =>
+    message.notification != null && foreground;
+
+/// Background / closed app: Android has already drawn the notification, so nothing is drawn here.
+Future<void> handleBackgroundMessage(RemoteMessage message, {required ShowLocal show}) async {
   print("Background notification received: ${message.notification?.title}");
-  if (message.notification != null) {
-    // You can show a local notification in the background (for consistency)
-    await FirebaseCM().showLocalNotification(message);
-  }
+  if (shouldShowLocally(message, foreground: false)) await show(message);
+}
+
+/// Foreground: Android draws nothing, so the app draws the notification, once.
+Future<void> handleForegroundMessage(RemoteMessage message, {required ShowLocal show}) async {
+  print('Foreground notification received: ${message.notification?.title}');
+  if (shouldShowLocally(message, foreground: true)) await show(message);
 }
 
 class FirebaseCM {
@@ -96,6 +117,12 @@ class FirebaseCM {
       },
     );
 
+    // The channel exists from the first launch, so a notification Android draws itself (background / closed app) uses
+    // it too (`default_notification_channel_id` in the manifest): same sound and pop-up as the foreground one.
+    await localNotifications
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(channel);
+
     // Configure Firebase to show notifications in the foreground
     await firebaseMessaging.setForegroundNotificationPresentationOptions(
       alert: true,
@@ -112,13 +139,8 @@ class FirebaseCM {
   }
 
   // Handle notifications in the foreground
-  Future<void> handleForegroundNotification(RemoteMessage message) async {
-    print('Foreground notification received: ${message.notification?.title}');
-    if (message.notification != null) {
-      // Show local notification when the app is in the foreground
-      await showLocalNotification(message);
-    }
-  }
+  Future<void> handleForegroundNotification(RemoteMessage message) =>
+      handleForegroundMessage(message, show: showLocalNotification);
 
   // Show a local notification (in foreground or background)
   Future<void> showLocalNotification(RemoteMessage message) async {
