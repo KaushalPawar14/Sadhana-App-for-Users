@@ -156,10 +156,8 @@ void main() {
       }
     });
 
-    test('name-keyed competition / scorecard / contribution reads are gender-filtered', () {
-      expect(read('lib/scores/WeeklyResults.dart'), contains("where('gender', isEqualTo: directory.mine)"));
-      expect(read('lib/scores/MonthlyResults.dart'), contains("where('gender', isEqualTo: directory.mine)"));
-      expect(read('lib/utils/SameGender.dart'), contains(".where('gender', isEqualTo: directory.mine)"));
+    test('name-keyed competition / contribution reads are gender-filtered', () {
+      expect(read('lib/pages/LeaderboardPage.dart'), contains(".where('gender', isEqualTo: directory.mine)"));
       expect(read('lib/pages/ChantingCompetition.dart'), contains("where('gender', isEqualTo:"));
     });
 

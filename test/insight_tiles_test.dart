@@ -19,7 +19,7 @@ void phone(WidgetTester tester, double scale) {
   });
 }
 
-const titles = ['Leaderboard', 'Weekly Performance', 'Monthly Performance', 'Best Performer'];
+const titles = ['Leaderboard', 'Best Performer'];
 
 Future<void> pump(WidgetTester tester, {double scale = 1.0, bool dark = false, bool reduce = true, String role = 'Stay at FOLK'}) async {
   phone(tester, scale);
@@ -87,13 +87,13 @@ void main() {
     await tester.pump();
     final wide = tester.getRect(tile('Leaderboard'));
     expect(wide.width, 320);
-    final square = tester.getRect(tile('Weekly Performance'));
-    expect(tester.getTopLeft(titleOf('Leaderboard')).dx - wide.left, tester.getTopLeft(titleOf('Weekly Performance')).dx - square.left);
-    expect(tester.widget<Text>(titleOf('Leaderboard')).style, tester.widget<Text>(titleOf('Weekly Performance')).style);
-    expect(tester.widget<Text>(subtitleOf('Leaderboard')).style, tester.widget<Text>(subtitleOf('Weekly Performance')).style);
+    final other = tester.getRect(tile('Best Performer'));
+    expect(tester.getTopLeft(titleOf('Leaderboard')).dx - wide.left, tester.getTopLeft(titleOf('Best Performer')).dx - other.left);
+    expect(tester.widget<Text>(titleOf('Leaderboard')).style, tester.widget<Text>(titleOf('Best Performer')).style);
+    expect(tester.widget<Text>(subtitleOf('Leaderboard')).style, tester.widget<Text>(subtitleOf('Best Performer')).style);
   });
 
-  testWidgets('layout: icon circle top-left in every tile; tiles at least as tall as a square; equal squares in a row; Best Performer wide', (tester) async {
+  testWidgets('layout: icon circle top-left in every tile; tiles at least as tall as a square; both tiles wide', (tester) async {
     await pump(tester);
     for (final t in titles) {
       await tester.ensureVisible(tile(t));
@@ -104,7 +104,7 @@ void main() {
       expect(icon.left - box.left, closeTo(16, 1), reason: '$t: icon circle at the top left');
       expect(icon.top - box.top, closeTo(16, 1), reason: t);
     }
-    expect(tester.getRect(tile('Weekly Performance')).height, closeTo(tester.getRect(tile('Monthly Performance')).height, .5));
+    expect(tester.getRect(tile('Leaderboard')).height, closeTo(tester.getRect(tile('Best Performer')).height, .5));
     // Best Performer is a full-width card like the Leaderboard one
     expect(tester.getRect(tile('Best Performer')).width, 320);
     expect(tester.getRect(tile('Best Performer')).height, greaterThanOrEqualTo(154 - .5));
@@ -115,8 +115,6 @@ void main() {
     final styles = {for (final t in titles) t: tester.widget<InsightTile>(tile(t)).style.name};
     expect(styles, {
       'Leaderboard': 'saffron',
-      'Weekly Performance': 'green',
-      'Monthly Performance': 'coral',
       'Best Performer': 'violet',
     });
   });

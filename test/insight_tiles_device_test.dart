@@ -27,7 +27,7 @@ void realPhone(WidgetTester tester, Size logical, double scale) {
   });
 }
 
-const titles = ['Leaderboard', 'Weekly Performance', 'Monthly Performance', 'Best Performer'];
+const titles = ['Leaderboard', 'Best Performer'];
 
 Finder tile(String title) => find.byWidgetPredicate((w) => w is InsightTile && w.title == title);
 

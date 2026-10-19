@@ -3,10 +3,8 @@ import 'dart:io';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:folk_app/pages/Scorecard.dart';
-import 'package:folk_app/scores/BhagavatamClass.dart';
-import 'package:folk_app/scores/BookReading.dart';
-import 'package:folk_app/scores/Chanting.dart';
+import 'package:folk_app/pages/LeaderboardPage.dart';
+import 'package:folk_app/utils/LeaderboardData.dart';
 import 'package:folk_app/services/StudentApi.dart';
 import 'package:folk_app/theme/FolkTheme.dart';
 import 'package:folk_app/utils/SameGender.dart';
@@ -23,20 +21,20 @@ GenderDirectory dir(String category, String mine) => GenderDirectory(
       femaleUids: {'g1'},
     );
 
-// scorecard documents, stamped by the server with category + gender
-Map<String, Map<String, dynamic>> scorecardDocs() => {
-      'Arjun': {'category': 'folk', 'gender': 'male', 'totalChantRounds': 90},
-      'Radha': {'category': 'folk', 'gender': 'female', 'totalChantRounds': 80},
-      'Hari': {'category': 'hostel_localite', 'gender': 'male', 'totalChantRounds': 70},
-      'Hans': {'category': 'hostel_localite', 'gender': 'male', 'totalChantRounds': 60},
-      'Gopi': {'category': 'hostel_localite', 'gender': 'female', 'totalChantRounds': 50},
-      'Old': {'gender': 'male', 'totalChantRounds': 40}, // not yet stamped with a category
+// competition documents, stamped by the server with category + gender
+Map<String, Map<String, dynamic>> competitionDocs() => {
+      'Arjun': {'category': 'folk', 'gender': 'male', 'weekly.total_score': 90},
+      'Radha': {'category': 'folk', 'gender': 'female', 'weekly.total_score': 80},
+      'Hari': {'category': 'hostel_localite', 'gender': 'male', 'weekly.total_score': 70},
+      'Hans': {'category': 'hostel_localite', 'gender': 'male', 'weekly.total_score': 60},
+      'Gopi': {'category': 'hostel_localite', 'gender': 'female', 'weekly.total_score': 50},
+      'Old': {'gender': 'male', 'weekly.total_score': 40}, // not yet stamped with a category
     };
 
 Future<FakeFirebaseFirestore> seeded() async {
   final db = FakeFirebaseFirestore();
-  for (final e in scorecardDocs().entries) {
-    await db.collection('scorecard').doc(e.key).set(e.value);
+  for (final e in competitionDocs().entries) {
+    await db.collection('competition').doc(e.key).set(e.value);
   }
   return db;
 }
@@ -85,23 +83,33 @@ void main() {
     });
   });
 
-  group('scorecard leaderboards: only my own category AND gender are ever queried', () {
-    test('Hostel & Localite boy: Hari and Hans only', () async {
-      GenderDirectory.useForTests(() async => dir('hostel_localite', 'male'));
-      final docs = await readScorecardDocs(firestore: await seeded());
-      expect(docs.keys.toSet(), {'Hari', 'Hans'});
+  group('the Leaderboard reads only my own category AND gender', () {
+    Future<List<String>> shown(WidgetTester tester, GenderDirectory d) async {
+      GenderDirectory.useForTests(() async => d);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(host(LeaderboardPage(username: 'nobody', firestore: await seeded(), changesLoader: (_) async => {})));
+      await tester.pumpAndSettle();
+      final names = <String>[];
+      for (final n in ['Arjun', 'Radha', 'Hari', 'Hans', 'Gopi', 'Old']) {
+        if (find.text(n).evaluate().isNotEmpty) names.add(n);
+      }
+      return names;
+    }
+
+    testWidgets('Hostel & Localite boy: Hari and Hans only', (tester) async {
+      phone(tester, 1.0);
+      expect(await shown(tester, dir('hostel_localite', 'male')), ['Hari', 'Hans']);
     });
 
-    test('Hostel & Localite girl: Gopi only', () async {
-      GenderDirectory.useForTests(() async => dir('hostel_localite', 'female'));
-      expect((await readScorecardDocs(firestore: await seeded())).keys.toSet(), {'Gopi'});
+    testWidgets('Hostel & Localite girl: Gopi only', (tester) async {
+      phone(tester, 1.0);
+      expect(await shown(tester, dir('hostel_localite', 'female')), ['Gopi']);
     });
 
-    test('FOLK boy: Arjun only; FOLK girl: Radha only (H&L never leaks into FOLK)', () async {
-      GenderDirectory.useForTests(() async => dir('folk', 'male'));
-      expect((await readScorecardDocs(firestore: await seeded())).keys.toSet(), {'Arjun'});
-      GenderDirectory.useForTests(() async => dir('folk', 'female'));
-      expect((await readScorecardDocs(firestore: await seeded())).keys.toSet(), {'Radha'});
+    testWidgets('FOLK boy: Arjun only; FOLK girl: Radha only (H&L never leaks into FOLK)', (tester) async {
+      phone(tester, 1.0);
+      expect(await shown(tester, dir('folk', 'male')), ['Arjun']);
+      expect(await shown(tester, dir('folk', 'female')), ['Radha']);
     });
   });
 
@@ -143,58 +151,37 @@ void main() {
     });
   });
 
-  group('Leaderboard page: Daily Services is FOLK only', () {
+  group('Leaderboard page: Best Service is FOLK only', () {
+    final docs = {
+      'Asha': {'category': 'x', 'gender': 'male', 'weekly.total_score': 100, 'weekly.pts_chanting': 50, 'weekly.pts_reading': 50, 'weekly.pts_hearing': 50, 'weekly.pts_service': 50},
+    };
     for (final dark in [false, true]) {
       for (final scale in scales) {
-        testWidgets('${dark ? 'dark' : 'light'}, text $scale: FOLK sees four boards, Hostel & Localite three', (tester) async {
+        testWidgets('${dark ? 'dark' : 'light'}, text $scale: FOLK sees four Best cards, Hostel & Localite three', (tester) async {
           phone(tester, scale);
           for (final category in ['folk', 'hostel_localite']) {
             GenderDirectory.useForTests(() async => dir(category, 'male'));
             await tester.pumpWidget(const SizedBox()); // a fresh page (its State) per category
-            await tester.pumpWidget(host(ScorecardPage(), dark: dark));
+            await tester.pumpWidget(host(
+              LeaderboardPage(username: 'Asha', docsStream: Stream.value(docs), changesLoader: (_) async => {}, initialTab: LeaderboardTab.scores),
+              dark: dark,
+            ));
             await tester.pumpAndSettle();
             expect(tester.takeException(), isNull, reason: '$category');
-            for (final t in ['Chanting', 'Book Reading', 'Bhagavatam Class']) {
-              await tester.scrollUntilVisible(find.text(t), 200, scrollable: find.byType(Scrollable).first);
-              expect(find.text(t), findsOneWidget, reason: '$category $t');
+            final list = find.byType(Scrollable).first;
+            for (final f in ['chanting', 'reading', 'hearing']) {
+              await tester.scrollUntilVisible(find.byKey(ValueKey('best-$f')), 250, scrollable: list);
+              expect(find.byKey(ValueKey('best-$f')), findsOneWidget, reason: '$category $f');
             }
             if (category == 'folk') {
-              await tester.scrollUntilVisible(find.text('Daily Services'), 200, scrollable: find.byType(Scrollable).first);
-              expect(find.text('Daily Services'), findsOneWidget);
+              await tester.scrollUntilVisible(find.byKey(const ValueKey('best-service')), 250, scrollable: list);
+              expect(find.byKey(const ValueKey('best-service')), findsOneWidget);
             } else {
-              await tester.drag(find.byType(Scrollable).first, const Offset(0, -2000));
+              await tester.drag(list, const Offset(0, -3000));
               await tester.pumpAndSettle();
-              expect(find.text('Daily Services'), findsNothing);
+              expect(find.byKey(const ValueKey('best-service')), findsNothing);
             }
             expect(tester.takeException(), isNull, reason: '$category');
-          }
-        });
-      }
-    }
-  });
-
-  group('Hostel & Localite boards draw without overflow, light and dark, text 1.0 / 1.3 / 1.6', () {
-    final hl = <String, Map<String, dynamic>>{
-      'Hari Prasad Das Very Long Name Here': {'weekly.pts_chanting': 70, 'weekly.pts_reading': 30, 'weekly.pts_class': 9},
-      'Hans': {'weekly.pts_chanting': 60, 'weekly.pts_reading': 20, 'weekly.pts_class': 8},
-      'Hira': {'weekly.pts_chanting': 50, 'weekly.pts_reading': 10, 'weekly.pts_class': 7},
-      'Hiren': {'weekly.pts_chanting': 40, 'weekly.pts_reading': 5, 'weekly.pts_class': 6},
-    };
-    Future<Map<String, Map<String, dynamic>>> read() async => hl;
-    for (final dark in [false, true]) {
-      for (final scale in scales) {
-        testWidgets('${dark ? 'dark' : 'light'}, text $scale', (tester) async {
-          phone(tester, scale);
-          GenderDirectory.useForTests(() async => dir('hostel_localite', 'male'));
-          for (final board in <Widget>[
-            Chanting(reader: read),
-            BookReading(reader: read),
-            SBclasses(reader: read),
-          ]) {
-            await tester.pumpWidget(host(board, dark: dark));
-            await tester.pumpAndSettle();
-            expect(tester.takeException(), isNull);
-            expect(find.text('Hans'), findsOneWidget);
           }
         });
       }
@@ -204,14 +191,13 @@ void main() {
   group('the screens read through the category-aware helpers', () {
     String read(String f) => File(f).readAsStringSync();
 
-    test('weekly / monthly competition streams filter by category and gender', () {
-      for (final f in ['lib/scores/WeeklyResults.dart', 'lib/scores/MonthlyResults.dart']) {
+    test('the Leaderboard\'s competition stream filters by category and gender', () {
+      for (final f in ['lib/pages/LeaderboardPage.dart']) {
         final src = read(f);
         expect(src, contains(".where('gender', isEqualTo: directory.mine)"), reason: f);
         expect(src, contains(".where('category', isEqualTo: directory.category)"), reason: f);
         // Hostel / Localite do not see the parts their form does not have
-        expect(src, contains('_hostelLocalite'), reason: f);
-        expect(src, contains('if (!_hostelLocalite)'), reason: f);
+        expect(src, contains('f.folkOnly && hostel'), reason: f);
       }
     });
 
@@ -224,7 +210,7 @@ void main() {
     });
 
     test('Leaderboard page no longer blocks Hostel / Localite', () {
-      final src = read('lib/pages/Scorecard.dart');
+      final src = read('lib/pages/LeaderboardPage.dart');
       expect(src.contains('Stay at Hostel'), isFalse);
       expect(src.contains('Coming soon'), isFalse);
     });

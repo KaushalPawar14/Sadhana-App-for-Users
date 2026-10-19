@@ -142,38 +142,6 @@ class GenderDirectory {
   }
 }
 
-typedef ScorecardReader = Future<Map<String, Map<String, dynamic>>> Function();
-
-// [firestore] is only for tests; the app reads the live instance.
-Future<Map<String, Map<String, dynamic>>> readScorecardDocs({
-  FirebaseFirestore? firestore,
-}) async {
-  // Only my own category's and gender's scorecards: the documents carry a
-  // server-stamped `category` and `gender`, and a query the security rules can
-  // prove is required.
-  final directory = await GenderDirectory.forCurrentUser();
-  final snap = await (firestore ?? FirebaseFirestore.instance)
-      .collection('scorecard')
-      .where('gender', isEqualTo: directory.mine)
-      .where('category', isEqualTo: directory.category)
-      .get();
-  return {for (final d in snap.docs) d.id: d.data()};
-}
-
-// The same students' competition documents (the new point system's per-item points live there:
-// `weekly.pts_chanting`, `monthly.pts_reading`, ...), for the category leaderboards.
-Future<Map<String, Map<String, dynamic>>> readCompetitionDocs({
-  FirebaseFirestore? firestore,
-}) async {
-  final directory = await GenderDirectory.forCurrentUser();
-  final snap = await (firestore ?? FirebaseFirestore.instance)
-      .collection('competition')
-      .where('gender', isEqualTo: directory.mine)
-      .where('category', isEqualTo: directory.category)
-      .get();
-  return {for (final d in snap.docs) d.id: d.data()};
-}
-
 // A student's place among students of their own gender only.
 //
 // [entries] are every competitor (name + score); only those of my gender are

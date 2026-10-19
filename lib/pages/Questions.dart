@@ -9,7 +9,6 @@ import 'package:intl/intl.dart';
 import '../models/SadhanaReports.dart';
 import '../utils/Commitments.dart';
 import 'package:folk_app/widgets/CommitmentDialog.dart';
-import '../services/ScorecardUpdate.dart';
 import '../widgets/FolkScaffold.dart';
 import '../widgets/PrimaryButton.dart';
 import '../widgets/SadhanaFormWidgets.dart';
@@ -80,15 +79,10 @@ class _QuestionsPageState extends State<QuestionsPage> {
     super.dispose();
   }
 
-  // Dates whose score has already been added in this session. A retry after a
-  // failed save must not add the same day's points a second time.
-  final Set<String> _scoringAttempted = <String>{};
-
   Future<void> _saveReport(
           SadhanaReport report, String reportDate, double extraLecture) =>
       (widget.saveReport ??
-          (r, d, e) =>
-              saveSadhanaReport(r, d, e, scoringAttempted: _scoringAttempted))(
+          (r, d, e) => saveSadhanaReport(r, d, e))(
           report, reportDate, extraLecture);
 
   Future<void> submitQuiz() async {
@@ -622,14 +616,12 @@ CollectionReference reports = firestore.collection('sadhana-reports');
 // still logs, then rethrows. A missing user, a missing users document, or a
 // missing name stops BEFORE any write (a report is never filed under a made-up
 // name) and throws. The reads and the single write below are unchanged; the
-// only edit inside is that a retry does not add a day's score twice
-// (`scoringAttempted`).
+// points are no longer counted here: the server scores from the reports.
 Future<void> saveSadhanaReport(
   SadhanaReport report,
   String reportDate,
-  double selectedExtraLecturePoints, {
-  Set<String>? scoringAttempted,
-}) async {
+  double selectedExtraLecturePoints,
+) async {
   try {
     final User? currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) {
@@ -653,26 +645,7 @@ Future<void> saveSadhanaReport(
     final DocumentReference reportRef = dates.doc(reportDate);
     final DocumentSnapshot reportSnapshot = await reportRef.get();
 
-    // Update scorecard ONLY if this is a new report
-    // (and not when an earlier attempt for this date already added the points)
-    if (!reportSnapshot.exists &&
-        !(scoringAttempted?.contains(reportDate) ?? false)) {
-      debugPrint('New report saved for user: $userName');
-
-      ScorecardService().updateScorecard(
-        userName,
-        report.chantRounds,
-        report.bookReading,
-        report.classHearing,
-        report.dailyServices,
-      );
-      scoringAttempted?.add(reportDate);
-    } else {
-      debugPrint(
-        'Report already exists for $userName on $reportDate. '
-        'Scorecard not updated.',
-      );
-    }
+    // The points are worked out by the server from the reports (functions/scoring.js): nothing to count here.
 
     // ⚠️ `SetOptions(merge: true)` added 2026-08-23, matching the hostel path.
     //

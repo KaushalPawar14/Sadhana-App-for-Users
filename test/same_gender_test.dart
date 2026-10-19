@@ -3,10 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:folk_app/models/CompetitionResults.dart';
-import 'package:folk_app/scores/BhagavatamClass.dart';
-import 'package:folk_app/scores/BookReading.dart';
-import 'package:folk_app/scores/Chanting.dart';
-import 'package:folk_app/scores/DailyServices.dart';
+import 'package:folk_app/pages/LeaderboardPage.dart';
 import 'package:folk_app/theme/FolkTheme.dart';
 import 'package:folk_app/utils/ResidenceRule.dart';
 import 'package:folk_app/utils/SameGender.dart';
@@ -24,14 +21,15 @@ GenderDirectory directoryFor(String mine) => GenderDirectory(
       femaleUids: {'uA', 'uB', 'uC'},
     );
 
-final scorecard = <String, Map<String, dynamic>>{
+// the students' competition documents: total points of the week (multipliers applied)
+final competition = <String, Map<String, dynamic>>{
   'flag': {'x': 1},
-  'Arjun': {'weekly.pts_chanting': 90, 'weekly.pts_reading': 10, 'weekly.pts_class': 8, 'weekly.pts_service': 5},
-  'Asha': {'weekly.pts_chanting': 100, 'weekly.pts_reading': 20, 'weekly.pts_class': 9, 'weekly.pts_service': 6},
-  'Bhima': {'weekly.pts_chanting': 80, 'weekly.pts_reading': 30, 'weekly.pts_class': 7, 'weekly.pts_service': 4},
-  'Bhavani': {'weekly.pts_chanting': 70, 'weekly.pts_reading': 5, 'weekly.pts_class': 6, 'weekly.pts_service': 3},
-  'Chaitanya': {'weekly.pts_chanting': 60, 'weekly.pts_reading': 1, 'weekly.pts_class': 5, 'weekly.pts_service': 2},
-  'Charu': {'weekly.pts_chanting': 50, 'weekly.pts_reading': 2, 'weekly.pts_class': 4, 'weekly.pts_service': 1},
+  'Arjun': {'weekly.total_score': 90},
+  'Asha': {'weekly.total_score': 100},
+  'Bhima': {'weekly.total_score': 80},
+  'Bhavani': {'weekly.total_score': 70},
+  'Chaitanya': {'weekly.total_score': 60},
+  'Charu': {'weekly.total_score': 50},
 };
 
 const males = ['Arjun', 'Bhima', 'Chaitanya'];
@@ -54,7 +52,6 @@ Widget host(Widget home, {bool dark = false}) => MaterialApp(
       home: home,
     );
 
-Future<Map<String, Map<String, dynamic>>> reader() async => scorecard;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -103,72 +100,43 @@ void main() {
   });
 
   // ------------------------------------------------------------ leaderboards
-  final boards = <String, (Widget Function() build, String title)>{
-    'Chanting': (() => Chanting(reader: reader), 'Chanting Leaderboard'),
-    'Book Reading': (() => BookReading(reader: reader), 'Book Reading Leaderboard'),
-    'SB class': (() => SBclasses(reader: reader), 'SB Watch Leaderboard'),
-    'Daily services': (() => DailyServices(reader: reader), 'Daily Services Leaderboard'),
-  };
-
-  for (final board in boards.entries) {
-    for (final viewer in [kMale, kFemale]) {
-      testWidgets('${board.key} leaderboard: a $viewer sees only ${viewer == kMale ? 'males' : 'females'}', (tester) async {
-        phone(tester, 1.0);
-        GenderDirectory.useForTests(() async => directoryFor(viewer));
-        await tester.pumpWidget(host(board.value.$1()));
-        await tester.pumpAndSettle();
-        expect(tester.takeException(), isNull);
-        final mine = viewer == kMale ? males : females;
-        final others = viewer == kMale ? females : males;
-        for (final n in mine) {
-          expect(find.text(n), findsOneWidget, reason: '$n should be listed');
-        }
-        for (final n in others) {
-          expect(find.text(n), findsNothing, reason: '$n must not be listed');
-        }
-        expect(find.text('flag'), findsNothing);
-      });
-    }
+  for (final viewer in [kMale, kFemale]) {
+    testWidgets('Leaderboard: a $viewer sees only ${viewer == kMale ? 'males' : 'females'}, ranked among them', (tester) async {
+      phone(tester, 1.0);
+      GenderDirectory.useForTests(() async => directoryFor(viewer));
+      await tester.pumpWidget(host(LeaderboardPage(username: 'nobody', docsStream: Stream.value(competition), changesLoader: (_) async => {})));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      final mine = viewer == kMale ? males : females;
+      final others = viewer == kMale ? females : males;
+      for (final n in mine) {
+        expect(find.text(n), findsOneWidget, reason: '$n should be listed');
+      }
+      for (final n in others) {
+        expect(find.text(n), findsNothing, reason: '$n must not be listed');
+      }
+      expect(find.text('flag'), findsNothing);
+    });
   }
 
-  testWidgets('ranks are recomputed among the same gender: a female who is 2nd overall is 1st; rows start at 1 with no gaps', (tester) async {
+  testWidgets('ranks are recomputed among the same gender: the best girl is 1st even when a boy is 2nd overall', (tester) async {
     phone(tester, 1.0);
-    // SB class has plain rank rows: Asha(9) Arjun(8) Bhima(7) Bhavani(6) Chaitanya(5) Charu(4)
     GenderDirectory.useForTests(() async => directoryFor(kFemale));
-    await tester.pumpWidget(host(SBclasses(reader: reader)));
+    await tester.pumpWidget(host(LeaderboardPage(username: 'Charu', docsStream: Stream.value(competition), changesLoader: (_) async => {})));
     await tester.pumpAndSettle();
-    final texts = tester.widgetList<Text>(find.byType(Text)).map((t) => t.data).whereType<String>().toList();
-    expect(texts.indexOf('Asha'), lessThan(texts.indexOf('Bhavani')));
-    expect(texts.indexOf('Bhavani'), lessThan(texts.indexOf('Charu')));
-    // the rank numbers shown are 1, 2, 3 (not 1, 4, 6 as overall places)
-    expect(find.text('1'), findsWidgets);
-    expect(find.text('4'), findsNothing);
-    expect(find.text('6'), findsNothing);
+    // Asha 100, Bhavani 70, Charu 50: the podium, and the viewer's own place among the three girls
+    expect(find.byKey(const ValueKey('my-place')), findsOneWidget);
+    expect(find.text('Your place: #3 of 3'), findsOneWidget);
+    expect(find.text('Your place: #6 of 6'), findsNothing);
   });
 
   testWidgets('a male reader with a non-gender user (Chaitanya) sees him as male', (tester) async {
     phone(tester, 1.0);
     GenderDirectory.useForTests(() async => directoryFor(kMale));
-    await tester.pumpWidget(host(SBclasses(reader: reader)));
+    await tester.pumpWidget(host(LeaderboardPage(username: 'Chaitanya', docsStream: Stream.value(competition), changesLoader: (_) async => {})));
     await tester.pumpAndSettle();
-    expect(find.text('Chaitanya'), findsOneWidget);
+    expect(find.text('Chaitanya'), findsWidgets);
   });
-
-  for (final dark in [false, true]) {
-    for (final scale in scales) {
-      testWidgets('leaderboards draw without overflow — ${dark ? 'dark' : 'light'}, text $scale', (tester) async {
-        phone(tester, scale);
-        for (final viewer in [kMale, kFemale]) {
-          GenderDirectory.useForTests(() async => directoryFor(viewer));
-          for (final b in boards.values) {
-            await tester.pumpWidget(host(b.$1(), dark: dark));
-            await tester.pumpAndSettle();
-            expect(tester.takeException(), isNull);
-          }
-        }
-      });
-    }
-  }
 
   // ------------------------------------------------------------ ranks
   group('"Your position" among the same gender only', () {
@@ -292,13 +260,10 @@ void main() {
       expect(cc, contains("directory.sameByName(d['studentName']?.toString())"));
     });
 
-    test('Weekly / Monthly results: the position is among the same gender', () {
-      for (final f in ['lib/scores/WeeklyResults.dart', 'lib/scores/MonthlyResults.dart']) {
-        final src = read(f);
-        expect(src, contains('positionAmongSameGender('), reason: f);
-        expect(src, contains('GenderDirectory.forCurrentUser()'), reason: f);
-        expect(src.contains('users.indexWhere'), isFalse, reason: '$f no longer ranks everyone together');
-      }
+    test('Leaderboard: the ranking and the best of each field are among the same gender', () {
+      final src = read('lib/pages/LeaderboardPage.dart');
+      expect(src, contains('include: directory.sameByName'));
+      expect(src, contains('GenderDirectory.forCurrentUser()'));
       for (final f in ['lib/scores/TopWeekResults.dart', 'lib/scores/TopMonthResults.dart']) {
         expect(read(f), contains('readMyGenderList('), reason: f);
         expect(read(f).contains("'byGender'") || read('lib/utils/SameGender.dart').contains("'byGender'"), isTrue, reason: f);
@@ -315,7 +280,7 @@ void main() {
       expect(util.contains('.delete('), isFalse);
       expect(util.contains('.set('), isFalse);
       expect(util.contains('.update('), isFalse);
-      expect(RegExp(r"collection\('([a-zA-Z-]+)'\)").allMatches(util).map((m) => m.group(1)).toSet(), {'scorecard', 'competition', 'byCategory', 'byGender'}, reason: 'the directory comes from the server now; results are read from the byCategory (or, for FOLK, the older byGender) document of the student own category and gender');
+      expect(RegExp(r"collection\('([a-zA-Z-]+)'\)").allMatches(util).map((m) => m.group(1)).toSet(), {'byCategory', 'byGender'}, reason: 'the directory comes from the server now; results are read from the byCategory (or, for FOLK, the older byGender) document of the student own category and gender');
     });
   });
 

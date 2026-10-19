@@ -130,19 +130,23 @@ class LeaderboardRankRow extends StatelessWidget {
     required this.rank,
     required this.name,
     required this.valueLabel,
+    this.highlight = false,
   });
 
   final int rank; // 1-based
   final String name;
   final String valueLabel;
 
+  /// The viewer's own row: outlined and a little stronger.
+  final bool highlight;
+
   @override
   Widget build(BuildContext context) {
     final colors = context.folk;
     final text = context.folkText;
     final medal = FolkMedal.forRank(rank - 1);
-    return FolkCard(
-      margin: const EdgeInsets.only(bottom: FolkSpace.cardGap),
+    final row = FolkCard(
+      margin: EdgeInsets.zero,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       radius: FolkShape.tileRadius,
       child: Row(
@@ -164,11 +168,26 @@ class LeaderboardRankRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          Expanded(child: Text(name, style: text.bodyStrong)),
+          Expanded(child: Text(name, style: text.bodyStrong.copyWith(fontWeight: highlight ? FontWeight.w800 : null))),
           const SizedBox(width: 8),
           Text(valueLabel, style: text.chip),
         ],
       ),
+    );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: FolkSpace.cardGap),
+      child: highlight
+          // the viewer's own row: an outline around the card
+          ? DecoratedBox(
+              key: const ValueKey('my-row'),
+              position: DecorationPosition.foreground,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(FolkShape.tileRadius),
+                border: Border.all(color: colors.text, width: 2),
+              ),
+              child: row,
+            )
+          : row,
     );
   }
 }

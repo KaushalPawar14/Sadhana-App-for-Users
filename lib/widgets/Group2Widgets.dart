@@ -355,52 +355,6 @@ class ChallengeResultCard extends StatelessWidget {
   }
 }
 
-// One tile on the Scorecard (Chanting, Book Reading, ...): the picture and the
-// title on a gradient.
-class ScoreCategoryCard extends StatelessWidget {
-  const ScoreCategoryCard({
-    super.key,
-    required this.title,
-    required this.image,
-    required this.style,
-    required this.onTap,
-  });
-
-  final String title;
-  final String image;
-  final FolkGradientStyle style;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final text = context.folkText;
-    return GradientCard(
-      style: style,
-      semanticLabel: title,
-      onTap: onTap,
-      child: Row(
-        children: [
-          Hero(
-            tag: title,
-            child: CircleAvatar(
-              radius: 36,
-              // Decoded at the size it is drawn (72 dp), not at the picture's
-              // own 800-1400 px. All four pictures are landscape or square.
-              backgroundImage: ResizeImage.resizeIfNeeded(
-                null,
-                (72 * MediaQuery.devicePixelRatioOf(context)).round(),
-                AssetImage(image),
-              ),
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(child: Text(title, style: text.cardTitle)),
-        ],
-      ),
-    );
-  }
-}
-
 // One past conversation in History: the day, a preview, and a chevron.
 class HistorySessionTile extends StatelessWidget {
   const HistorySessionTile({

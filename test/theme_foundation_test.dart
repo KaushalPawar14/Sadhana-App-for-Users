@@ -562,14 +562,12 @@ void main() {
     // The Graphical Analysis tile is gone (its graphs are in the card above).
     const titles = [
       'Leaderboard',
-      'Weekly Performance',
-      'Monthly Performance',
       'Best Performer',
     ];
 
     for (final dark in [false, true]) {
       final theme = dark ? 'dark' : 'light';
-      testWidgets('$theme: all four tiles show at 360 dp without overflow, and nothing keeps animating', (tester) async {
+      testWidgets('$theme: both tiles show at 360 dp without overflow, and nothing keeps animating', (tester) async {
         await pumpInsights(tester, 'Stay at FOLK', dark: dark);
         for (final t in titles) {
           await tester.scrollUntilVisible(find.text(t), 200, scrollable: find.byType(Scrollable).first);
@@ -584,9 +582,9 @@ void main() {
 
     // One tile per test, so a pushed screen is never built (no frame is pumped
     // after a push and the tree is torn down with the screen still unbuilt).
-    // Leaderboard, Weekly and Monthly Performance are open to every residence (each
-    // shows the student's own category and gender), and so is Best Performer.
-    const open = {'Leaderboard', 'Weekly Performance', 'Monthly Performance', 'Best Performer'};
+    // The Leaderboard is open to every residence (it shows the student's own category and gender), and so is
+    // Best Performer.
+    const open = {'Leaderboard', 'Best Performer'};
     final opensFor = <String, Set<String>>{
       'Stay at FOLK': open,
       'Stay at Hostel': open,

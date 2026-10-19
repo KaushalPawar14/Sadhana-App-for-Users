@@ -4,10 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:folk_app/pages/Calendar.dart';
-import 'package:folk_app/scores/BhagavatamClass.dart';
-import 'package:folk_app/scores/BookReading.dart';
-import 'package:folk_app/scores/Chanting.dart';
-import 'package:folk_app/scores/DailyServices.dart';
+import 'package:folk_app/pages/LeaderboardPage.dart';
 import 'package:folk_app/theme/FolkTheme.dart';
 import 'package:folk_app/utils/SameGender.dart';
 import 'package:folk_app/widgets/FolkErrorRetry.dart';
@@ -128,41 +125,32 @@ void main() {
     });
   });
 
-  group('the four score leaderboards', () {
-    final screens = <String, Widget Function(ScorecardReader)>{
-      'Chanting': (r) => Chanting(reader: r),
-      'Bhagavatam class': (r) => SBclasses(reader: r),
-      'Book reading': (r) => BookReading(reader: r),
-      'Daily services': (r) => DailyServices(reader: r),
-    };
-    screens.forEach((name, build) {
-      testWidgets('$name: friendly line + Retry, no raw error; Retry reads again', (tester) async {
-        phone(tester);
-        GenderDirectory.useForTests(() async => const GenderDirectory(mine: 'male', femaleNames: {}, femaleUids: {}));
-        var calls = 0;
-        Future<Map<String, Map<String, dynamic>>> reader() async {
-          calls++;
-          if (calls == 1) throw Exception(rawFirestoreError);
-          return {
-            'Asha': {'weekly.pts_chanting': 10, 'weekly.pts_reading': 5, 'weekly.pts_class': 3, 'weekly.pts_service': 2},
-          };
-        }
+  group('the Leaderboard', () {
+    testWidgets('a failed read: a friendly line + Retry, no raw error; Retry reads again and the board returns', (tester) async {
+      phone(tester);
+      GenderDirectory.useForTests(() async => const GenderDirectory(mine: 'male', femaleNames: {}, femaleUids: {}));
+      final controller = StreamController<Map<String, Map<String, dynamic>>>.broadcast();
+      addTearDown(controller.close);
+      await tester.pumpWidget(host(LeaderboardPage(username: 'Asha', docsStream: controller.stream, changesLoader: (_) async => {})));
+      await tester.pump();
+      await tester.pump();
+      controller.addError(Exception(rawFirestoreError));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text("Couldn't load the leaderboard just now."), findsOneWidget);
+      expect(find.text('Retry'), findsOneWidget);
+      expectNoRawError(tester);
 
-        await tester.pumpWidget(host(build(reader)));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 400));
-        expect(find.text("Couldn't load the leaderboard just now."), findsOneWidget);
-        expect(find.text('Retry'), findsOneWidget);
-        expectNoRawError(tester);
-
-        await tester.tap(find.text('Retry'));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 600));
-        await tester.pumpAndSettle();
-        expect(calls, 2, reason: 'Retry read the scorecards again');
-        expect(find.text('Retry'), findsNothing);
-        expectNoRawError(tester);
-      });
+      await tester.tap(find.text('Retry'));
+      await tester.pump();
+      await tester.pump();
+      controller.add({'Asha': {'weekly.total_score': 12.0}});
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pumpAndSettle();
+      expect(find.text('Retry'), findsNothing);
+      expect(find.text('Asha'), findsWidgets);
+      expectNoRawError(tester);
     });
   });
 

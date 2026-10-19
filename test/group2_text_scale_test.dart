@@ -244,23 +244,6 @@ void main() {
           inside(tester, find.byType(ChallengeResultCard), s);
         });
 
-        testWidgets('scorecard tile with the longest title', (tester) async {
-          phone(tester, scale);
-          await tester.pumpWidget(page(
-            ScoreCategoryCard(
-              title: 'Bhagavatam Class',
-              image: 'assets/images/SBclass.jpg',
-              style: FolkGradientStyle.violet,
-              onTap: () {},
-            ),
-            dark: dark,
-            reduce: true,
-          ));
-          await tester.pump();
-          expect(tester.takeException(), isNull, reason: s);
-          inside(tester, find.byType(ScoreCategoryCard), s);
-        });
-
         testWidgets('history: a session tile with a long preview and a daily message card', (tester) async {
           phone(tester, scale);
           await tester.pumpWidget(page(

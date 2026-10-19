@@ -1,9 +1,7 @@
 import 'package:flutter/foundation.dart' show ValueListenable, visibleForTesting;
 import 'package:flutter/material.dart';
-import 'package:folk_app/pages/Scorecard.dart';
+import 'package:folk_app/pages/LeaderboardPage.dart';
 import 'package:folk_app/scores/BestPerformer.dart';
-import 'package:folk_app/scores/MonthlyResults.dart';
-import 'package:folk_app/scores/WeeklyResults.dart';
 import 'package:folk_app/utils/Snackbar.dart';
 import '../theme/FolkTheme.dart';
 import '../theme/FolkTokens.dart';
@@ -15,7 +13,6 @@ import '../widgets/FolkCard.dart';
 import '../widgets/InsightsGraphCarousel.dart';
 import '../widgets/InsightsPeriodSwitch.dart';
 import '../widgets/InsightTile.dart';
-import '../widgets/JourneyMosaic.dart';
 
 // The Insights tab: a Weekly / Monthly switch, a graph card the student swipes
 // through (their own data only), and four tiles — Leaderboard wide, Weekly and
@@ -126,24 +123,14 @@ class _CompetitionPageState extends State<CompetitionPage> {
         Icons.watch_later_outlined,
       );
 
-  // Leaderboard, Weekly and Monthly Performance are open to everyone: each shows
-  // only the student's own category (FOLK, or Hostel & Localite) and gender.
-  // Best Performer opens its page (the two weekly winners of the student's own group).
+  // The Leaderboard (total points, the student's own scores and the best of each field, weekly or
+  // monthly) is open to everyone and shows only the student's own category (FOLK, or Hostel & Localite)
+  // and gender. Best Performer opens its page (the two weekly winners of the student's own group).
   void _open(String title) {
     if (title == 'Leaderboard') {
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (context) => ScorecardPage()),
-      );
-    } else if (title == 'Weekly Performance') {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => WeeklyResultsPage()),
-      );
-    } else if (title == 'Monthly Performance') {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => MonthlyResultsPage()),
+        MaterialPageRoute(builder: (context) => LeaderboardPage(username: widget.username)),
       );
     } else if (title == 'Best Performer') {
       Navigator.push(
@@ -241,19 +228,9 @@ class _CompetitionPageState extends State<CompetitionPage> {
             ),
           ),
           const SizedBox(height: FolkSpace.cardGap),
-          EntryAnimation(
-            index: 3,
-            child: JourneyPair(
-              left: _tile('Weekly Performance', "This week's results",
-                  FolkFeatureGradients.weeklyPerformance, Icons.weekend_outlined, columnWidth),
-              right: _tile('Monthly Performance', "This month's results",
-                  FolkFeatureGradients.monthlyPerformance, Icons.calendar_month_outlined, columnWidth),
-            ),
-          ),
-          const SizedBox(height: FolkSpace.cardGap),
           // Best Performer: full width like the Leaderboard card, in violet.
           EntryAnimation(
-            index: 4,
+            index: 3,
             child: _tile(
               'Best Performer',
               "This week's winners",

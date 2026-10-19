@@ -14,11 +14,8 @@ import 'package:folk_app/pages/AssistantHistoryScreen.dart';
 import 'package:folk_app/pages/BookReaderPage.dart';
 import 'package:folk_app/pages/BooksHistoryPage.dart';
 import 'package:folk_app/pages/BooksNotesPage.dart';
+import 'package:folk_app/pages/LeaderboardPage.dart';
 import 'package:folk_app/pages/Questions.dart';
-import 'package:folk_app/scores/BhagavatamClass.dart';
-import 'package:folk_app/scores/BookReading.dart';
-import 'package:folk_app/scores/Chanting.dart';
-import 'package:folk_app/scores/DailyServices.dart';
 import 'package:folk_app/theme/FolkColors.dart';
 import 'package:folk_app/theme/FolkTheme.dart';
 import 'package:folk_app/utils/BookHighlights.dart';
@@ -42,8 +39,8 @@ void phone(WidgetTester tester) {
   });
 }
 
-Future<Map<String, Map<String, dynamic>>> docs() async => {
-      'Asha': {'weekly.pts_chanting': 10},
+Map<String, Map<String, dynamic>> docs() => {
+      'Asha': {'weekly.total_score': 10, 'weekly.pts_chanting': 10},
     };
 
 class _Page {
@@ -64,10 +61,8 @@ final pages = <_Page>[
   _Page('Books History', () => BooksHistoryPage(uid: 'u1', firestore: FakeFirebaseFirestore())),
   _Page('Books Notes', () => BooksNotesPage(uid: 'u1', firestore: FakeFirebaseFirestore())),
   _Page('Notes cards', () => NotesCardsPage(category: HighlightCategory.good, book: book())),
-  _Page('Chanting leaderboard', () => Chanting(reader: docs)),
-  _Page('Book Reading leaderboard', () => BookReading(reader: docs)),
-  _Page('SB class leaderboard', () => SBclasses(reader: docs)),
-  _Page('Daily services leaderboard', () => DailyServices(reader: docs)),
+  _Page('Leaderboard', () => LeaderboardPage(username: 'Asha', docsStream: Stream.value(docs()), changesLoader: (_) async => {})),
+  _Page('Leaderboard (Scores tab)', () => LeaderboardPage(username: 'Asha', docsStream: Stream.value(docs()), changesLoader: (_) async => {}, initialTab: LeaderboardTab.scores)),
   _Page('Submit Sadhana (FOLK form)', () => QuestionsPage(loadCommitments: () async => const Commitments(readingMinutes: 0))),
   _Page('Submit Sadhana (Hostel & Localite form)', () => SadhanaPage(loadCommitments: () async => const Commitments(readingMinutes: 0))),
   _Page(
