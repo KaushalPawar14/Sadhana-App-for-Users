@@ -359,7 +359,7 @@ void main() {
     test('everything else in the profile write is as it was', () {
       final src = read('lib/pages/CompleteProfile.dart');
       for (final line in [
-        "if (!nameAlreadySaved) 'name': nameController.text,",
+        "if (!nameAlreadySaved) 'name': normalizeStudentName(nameController.text),",
         "if (!genderAlreadySaved) 'gender': selectedGender,",
         "if (!mobileAlreadySaved) 'mobileNumber': mobileController.text,",
         "'role': roleToWrite,",

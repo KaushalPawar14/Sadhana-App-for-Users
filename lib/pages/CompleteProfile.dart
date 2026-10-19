@@ -240,6 +240,16 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
   /// never re-run through `isStudentNameTaken` or the mobile-match check
   /// again here. See this file's own "Resuming a partially-completed
   /// registration" header note.
+  // Leading and trailing spaces never stay in the name: the field shows the trimmed name as
+  // soon as the student leaves it (the same value that is checked and saved).
+  void _trimNameField() {
+    if (nameAlreadySaved || confirmed) return;
+    final trimmed = normalizeStudentName(nameController.text);
+    if (trimmed != nameController.text) {
+      setState(() => nameController.text = trimmed);
+    }
+  }
+
   Future<bool> _confirmNameAndMobile() async {
     setState(() => nameError = null);
 
@@ -407,7 +417,7 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
           .collection('users')
           .doc(currentUser.uid)
           .set({
-        if (!nameAlreadySaved) 'name': nameController.text,
+        if (!nameAlreadySaved) 'name': normalizeStudentName(nameController.text),
         if (!genderAlreadySaved) 'gender': selectedGender,
         if (!mobileAlreadySaved) 'mobileNumber': mobileController.text,
         if (roleToWrite != null && roleToWrite.isNotEmpty)
@@ -546,6 +556,8 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
                             TextFormField(
                               controller: nameController,
                               enabled: !confirmed && !nameAlreadySaved,
+                              onEditingComplete: _trimNameField,
+                              onTapOutside: (_) => _trimNameField(),
                               style: text.body.copyWith(
                                   color: (!confirmed && !nameAlreadySaved)
                                       ? colors.text
