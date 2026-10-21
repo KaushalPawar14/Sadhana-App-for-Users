@@ -14,7 +14,6 @@ import '../utils/ReadingLanguages.dart';
 import '../utils/SeenMarkers.dart';
 import '../widgets/BookCardActions.dart';
 import '../widgets/BookExtrasRow.dart';
-import '../utils/SadhanaReportSource.dart' show ReportCategory, reportCollectionForRole;
 import '../widgets/BookLevelSection.dart';
 import '../widgets/CommitmentDateDialog.dart';
 import '../widgets/CompletedBookTile.dart';
@@ -95,8 +94,6 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
   /// language with zero content today shows correctly rather than erroring.
   static const Map<String, String> kSupportedLanguages = kReadingLanguages;
 
-  String? _userName;
-  String? _role;
   String _language = 'en';
 
   /// The data behind the list. Both Firestore reads (the book titles and links,
@@ -160,14 +157,12 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
       final prefs = doc.data()?['readingPrefs'];
       final lang = prefs is Map ? prefs['language'] : null;
       setState(() {
-        _userName = (doc.data()?['name'] ?? '').toString();
-        _role = (doc.data()?['role'] ?? '').toString();
         if (lang is String && kSupportedLanguages.containsKey(lang)) {
           _language = lang;
         }
       });
     } catch (_) {
-      // Non-fatal: the library still works, only the sadhana sync is skipped.
+      // Non-fatal: the library still works (the reading language falls back to English).
     }
   }
 
@@ -212,8 +207,8 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
   // Reading session tracking
   // ---------------------------------------------------------------------------
 
-  /// Adds [seconds] to the lifetime total, to today's bucket and to the reading history, and mirrors today's minutes into
-  /// today's sadhana report when one already exists. The writes themselves live in `issueReadingWrites`
+  /// Adds [seconds] to the lifetime total, to today's bucket and to the reading history (Books -> History). It NEVER writes
+  /// to a sadhana report: reports, points and the leaderboards use only what the student types. The writes live in `issueReadingWrites`
   /// (`ReadingSessionStore.dart`), shared with the recovery of a session whose app was killed. They are all ISSUED here
   /// without waiting for the server (a phone without a connection keeps them and sends them later), and only then is the
   /// reader's stored copy of the session settled, so the same seconds can never be written twice.
@@ -231,11 +226,6 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
       return;
     }
 
-    // the student's CURRENT category (live), else the role this screen loaded
-    final collectionName = ReportCategory.instance.role != null
-        ? ReportCategory.instance.collection
-        : reportCollectionForRole(_role);
-
     final ok = await issueReadingWrites(
       db: _firestore,
       uid: uid,
@@ -244,8 +234,6 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
       title: title,
       seconds: seconds,
       when: DateTime.now(),
-      userName: _userName,
-      reportCollection: collectionName,
     );
     await ReadingSessionStore().settleClosing(uid: uid, level: level, bookKey: bookKey);
     if (!ok && mounted) {

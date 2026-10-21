@@ -7,7 +7,6 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'BookReadingLog.dart';
-import 'SadhanaReportSource.dart' show ReportCategory, reportCollectionForRole;
 
 // Reading time that is never lost (Books reader).
 //
@@ -291,12 +290,15 @@ Future<bool> _issued(Future<Object?> write, Duration wait) async {
   }
 }
 
-/// Issues every write one reading session makes, exactly as the book list always did and in one place for both paths (a normal
-/// close and a recovered session):
+/// Issues every write one reading session makes, in one place for both paths (a normal close and a recovered session):
 ///   users/{uid}.totalReadingSeconds            += seconds   (lifetime total)
 ///   users/{uid}/dailyReading/{dd-MM-yyyy}      += seconds   (that day's bucket)
-///   that day's sadhana report `bookReading`    += the whole minutes this session newly completed (only when the report exists)
 ///   readingDays/{uid}_{yyyyMMdd}               += seconds   (the Books -> History row; sessions under 30 s are not a day)
+///
+/// THE TIMER NEVER TOUCHES A SADHANA REPORT (or anything the points, leaderboards, best stats or the AI insights read):
+/// those use only what the student types in the form. It used to add its minutes to the day's report `bookReading` on top of
+/// the typed value (a typed 65 became 88); that write is gone for good, and a test keeps it gone. The reading log above is
+/// only the student's Books -> History.
 ///
 /// The writes are all issued before any is waited for, and none is waited for longer than [wait], so a missing connection can
 /// never hold the rest back. Returns false when any write was refused (not merely slow); never throws.
@@ -308,8 +310,6 @@ Future<bool> issueReadingWrites({
   required String title,
   required int seconds,
   required DateTime when,
-  String? userName,
-  String? reportCollection,
   Duration wait = const Duration(seconds: 6),
 }) async {
   if (uid.isEmpty || seconds <= 0) return true;
@@ -319,15 +319,6 @@ Future<bool> issueReadingWrites({
     final userRef = db.collection('users').doc(uid);
     final dailyRef = userRef.collection('dailyReading').doc(dayKey);
 
-    // Seconds banked before this session: only the whole minutes it newly completes go to the sadhana report, so leftover
-    // seconds are neither double-counted nor discarded. A read that fails or is slow just skips the sadhana step.
-    int? before;
-    try {
-      final snap = await dailyRef.get().timeout(wait);
-      final raw = snap.data()?['secondsToday'];
-      before = raw is num ? raw.toInt() : 0;
-    } catch (_) {}
-
     final writes = <Future<bool>>[
       _issued(userRef.set({'totalReadingSeconds': FieldValue.increment(seconds)}, SetOptions(merge: true)), wait),
       _issued(dailyRef.set({'secondsToday': FieldValue.increment(seconds)}, SetOptions(merge: true)), wait),
@@ -335,25 +326,6 @@ Future<bool> issueReadingWrites({
       recordReadingDay(db: db, uid: uid, level: level, bookKey: bookKey, title: title, seconds: seconds, now: when).then((_) => true),
     ];
 
-    final name = userName?.trim() ?? '';
-    final collection = reportCollection;
-    if (before != null && collection != null && name.isNotEmpty) {
-      final minutes = ((before + seconds) ~/ 60) - (before ~/ 60);
-      if (minutes > 0) {
-        writes.add(() async {
-          try {
-            final ref = db.collection(collection).doc(name).collection('dates').doc(dayKey);
-            final snap = await ref.get().timeout(wait);
-            if (!snap.exists) return true;
-            return await _issued(ref.update({'bookReading': FieldValue.increment(minutes)}), wait);
-          } on TimeoutException {
-            return true;
-          } catch (_) {
-            return false;
-          }
-        }());
-      }
-    }
     for (final r in await Future.wait(writes)) {
       if (!r) ok = false;
     }
@@ -439,34 +411,14 @@ Future<void> recoverLeftoverReading() async {
     final user = await FirebaseAuth.instance.authStateChanges().firstWhere((u) => u != null);
     final uid = user!.uid;
     final db = FirebaseFirestore.instance;
-    // Only the sessions that are waiting need the profile (for the sadhana report's name and category).
     final store = ReadingSessionStore();
-    String? name;
-    String? role;
-    var profileRead = false;
     await recoverReadingSessions(
       uid: uid,
       store: store,
+      // the reading log only (never a sadhana report: see `issueReadingWrites`)
+      // (an `async` body, so the future the recovery waits on is a Future<void>, not the Future<bool> the writes answer with)
       write: (s) async {
-        if (!profileRead) {
-          profileRead = true;
-          try {
-            final doc = await db.collection('users').doc(uid).get().timeout(const Duration(seconds: 6));
-            name = (doc.data()?['name'] ?? '').toString();
-            role = (doc.data()?['role'] ?? '').toString();
-          } catch (_) {}
-        }
-        await issueReadingWrites(
-          db: db,
-          uid: uid,
-          level: s.level,
-          bookKey: s.bookKey,
-          title: s.title,
-          seconds: s.seconds,
-          when: s.when,
-          userName: name,
-          reportCollection: ReportCategory.instance.role != null ? ReportCategory.instance.collection : reportCollectionForRole(role),
-        );
+        await issueReadingWrites(db: db, uid: uid, level: s.level, bookKey: s.bookKey, title: s.title, seconds: s.seconds, when: s.when);
       },
     );
   } catch (_) {}

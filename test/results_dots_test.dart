@@ -151,9 +151,9 @@ void main() {
       expect(find.byType(UnseenDot), findsNothing);
     });
 
-    testWidgets('the dots of the trail (Results button, Monthly tab) are the app dot: green with the thin dark border', (tester) async {
+    testWidgets('the dots of the trail (Results button, Weekly and Monthly tabs) are the app dot: green with the thin dark border', (tester) async {
       await open(tester, week: '2026-W42', month: '2026-10');
-      expect(find.byType(UnseenDot), findsNWidgets(2), reason: 'Results + Monthly');
+      expect(find.byType(UnseenDot), findsNWidgets(3), reason: 'Results + the Weekly tab + the Monthly tab');
       for (final dot in find.byType(UnseenDot).evaluate()) {
         final d = tester.widget<Container>(find.descendant(of: find.byWidget(dot.widget), matching: find.byType(Container)).first).decoration! as BoxDecoration;
         expect(d.color, kUnseenDotFill);
@@ -162,10 +162,15 @@ void main() {
       }
     });
 
-    testWidgets('weekly new, Weekly selected: a dot on "Results" only; opening Results clears it', (tester) async {
+    // is the "new" dot shown on the tab with this label?
+    bool tabDot(WidgetTester tester, String label) => tester.widget<UnseenBadge>(find.ancestor(of: find.text(label).first, matching: find.byType(UnseenBadge)).first).show;
+
+    testWidgets('weekly new, Weekly selected: a dot on the "Weekly" tab AND on "Results"; opening Results clears both', (tester) async {
       await open(tester, week: '2026-W42');
       expect(resultsDot(), findsOneWidget);
-      expect(dotsOnPage(tester), 1, reason: 'not on the Monthly tab');
+      expect(tabDot(tester, 'Weekly'), isTrue, reason: 'the Weekly tab shows it even though Weekly is already selected');
+      expect(tabDot(tester, 'Monthly'), isFalse, reason: 'the monthly results are not new');
+      expect(dotsOnPage(tester), 2, reason: 'the Weekly tab + Results');
       await tester.tap(find.byKey(const ValueKey('results-button')));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
@@ -173,12 +178,43 @@ void main() {
       Navigator.of(tester.element(find.byType(Scaffold).first)).pop();
       await tester.pumpAndSettle();
       expect(resultsDot(), findsNothing);
+      expect(tabDot(tester, 'Weekly'), isFalse, reason: 'opening the weekly Results cleared the Weekly tab dot too');
+      expect(find.byType(UnseenDot), findsNothing);
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the Weekly tab dot clears ONLY when the weekly Results are opened (switching tabs or looking again changes nothing)', (tester) async {
+      await open(tester, week: '2026-W42');
+      expect(tabDot(tester, 'Weekly'), isTrue);
+      await tester.tap(find.text('Monthly').first);
+      await tester.pumpAndSettle();
+      expect(tabDot(tester, 'Weekly'), isTrue, reason: 'still new: only opening the weekly Results clears it');
+      expect(tabDot(tester, 'Monthly'), isFalse);
+      expect(resultsDot(), findsNothing, reason: 'Monthly is selected and its results are not new');
+      await tester.tap(find.text('Weekly').first);
+      await tester.pumpAndSettle();
+      expect(tabDot(tester, 'Weekly'), isTrue);
+      expect(resultsDot(), findsOneWidget);
+    });
+
+    testWidgets('a NEW week after the weekly results were opened shows the Weekly dot again', (tester) async {
+      final dots = await open(tester, week: '2026-W42');
+      await tester.tap(find.byKey(const ValueKey('results-button')));
+      await tester.pumpAndSettle();
+      Navigator.of(tester.element(find.byType(Scaffold).first)).pop();
+      await tester.pumpAndSettle();
+      expect(tabDot(tester, 'Weekly'), isFalse);
+      await dots.db.doc('competition-results/weekly_meta').set({'last_week_finalized': '2026-W43'});
+      await tester.pumpAndSettle();
+      expect(tabDot(tester, 'Weekly'), isTrue, reason: 'a new weekly result id is new again');
+      expect(resultsDot(), findsOneWidget);
     });
 
     testWidgets('monthly new only: a dot on the "Monthly" tab; Weekly selected has none on Results; select Monthly -> a dot on Results; open it -> all gone', (tester) async {
       await open(tester, month: '2026-09');
       expect(resultsDot(), findsNothing, reason: 'the weekly results are not new');
+      expect(tabDot(tester, 'Weekly'), isFalse, reason: 'monthly behaviour unchanged: no Weekly dot');
+      expect(tabDot(tester, 'Monthly'), isTrue);
       expect(dotsOnPage(tester), 1, reason: 'the Monthly tab');
       await tester.tap(find.text('Monthly').first);
       await tester.pumpAndSettle();
@@ -194,12 +230,15 @@ void main() {
     testWidgets('both new: weekly first, then monthly, each period on its own', (tester) async {
       await open(tester, week: '2026-W44', month: '2026-10');
       expect(resultsDot(), findsOneWidget, reason: 'Weekly selected: the weekly results are new');
-      expect(dotsOnPage(tester), 2, reason: 'Results + the Monthly tab');
+      expect(tabDot(tester, 'Weekly'), isTrue);
+      expect(tabDot(tester, 'Monthly'), isTrue, reason: 'both can show at once');
+      expect(dotsOnPage(tester), 3, reason: 'Results + the Weekly tab + the Monthly tab');
       await tester.tap(find.byKey(const ValueKey('results-button')));
       await tester.pumpAndSettle();
       Navigator.of(tester.element(find.byType(Scaffold).first)).pop();
       await tester.pumpAndSettle();
       expect(resultsDot(), findsNothing, reason: 'the weekly dot on Results is gone');
+      expect(tabDot(tester, 'Weekly'), isFalse, reason: 'and the Weekly tab dot with it');
       expect(dotsOnPage(tester), 1, reason: 'the monthly dot on the Monthly tab stays');
       await tester.tap(find.text('Monthly').first);
       await tester.pumpAndSettle();

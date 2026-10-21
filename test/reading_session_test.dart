@@ -509,7 +509,7 @@ void main() {
 
   // ---------------------------------------------------------------------------------------------- the writes
   group('issueReadingWrites (the one write path)', () {
-    test('adds to the lifetime total, the day bucket, the history row and the sadhana minutes', () async {
+    test('adds to the lifetime total, the day bucket and the history row - and to NOTHING else', () async {
       final fs = FakeFirebaseFirestore();
       await fs.collection('users').doc('u1').set({'totalReadingSeconds': 100});
       await fs.collection('users').doc('u1').collection('dailyReading').doc('20-10-2026').set({'secondsToday': 50});
@@ -522,8 +522,6 @@ void main() {
         title: 'Gita',
         seconds: 130,
         when: DateTime(2026, 10, 20, 9),
-        userName: 'Asha',
-        reportCollection: 'sadhana-reports',
       );
       expect(ok, isTrue);
       expect((await fs.doc('users/u1').get()).data()!['totalReadingSeconds'], 230);
@@ -531,18 +529,8 @@ void main() {
       final day = (await fs.doc('readingDays/u1_20261020').get()).data()!;
       expect(day['totalSeconds'], 130);
       expect((day['books'] as Map)['level-1__book_1']['seconds'], 130);
-      // 50 s banked + 130 s = 180 s: the day goes from 0 whole minutes to 3, so 3 minutes are added
-      expect((await fs.doc('sadhana-reports/Asha/dates/20-10-2026').get()).data()!['bookReading'], 5 + 3);
-    });
-
-    test('never creates a sadhana report, and skips it without a name', () async {
-      final fs = FakeFirebaseFirestore();
-      await issueReadingWrites(
-          db: fs, uid: 'u1', level: 'level-1', bookKey: 'book_1', title: 'Gita', seconds: 600, when: DateTime(2026, 10, 20), userName: 'Asha', reportCollection: 'sadhana-reports');
-      expect((await fs.collection('sadhana-reports').get()).docs, isEmpty);
-      await issueReadingWrites(
-          db: fs, uid: 'u1', level: 'level-1', bookKey: 'book_1', title: 'Gita', seconds: 600, when: DateTime(2026, 10, 20), reportCollection: 'sadhana-reports');
-      expect((await fs.doc('users/u1').get()).data()!['totalReadingSeconds'], 1200);
+      // the student's typed report is exactly as it was: the timer's minutes are NOT added (a typed 5 stays 5)
+      expect((await fs.doc('sadhana-reports/Asha/dates/20-10-2026').get()).data(), {'bookReading': 5});
     });
 
     test('a session under 30 s still adds to the totals as before, but makes no history row', () async {

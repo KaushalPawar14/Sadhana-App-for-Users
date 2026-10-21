@@ -13,7 +13,7 @@ import 'package:folk_app/widgets/SectionDivider.dart';
 
 import 'text_scale_test.dart' show scales, loadAppFonts;
 
-// Profile: "My Competitions" and "My Guide". "My Competitions" is the chanting
+// Profile: "My Competitions" (the guide is a line in the name card, see profile_name_card_test). "My Competitions" is the chanting
 // competition, an ACHIEVEMENTS divider, the badges and the rules button in one scroll.
 void phone(WidgetTester tester, double scale) {
   tester.view.devicePixelRatio = 1;
@@ -51,24 +51,14 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(loadAppFonts);
 
-  group('My Guide row', () {
-    test('the guide is the adminUsers id the student\'s guideId names; none -> "Not assigned yet"', () {
-      expect(guideRowSubtitle('SBSD'), 'SBSD');
-      expect(guideRowSubtitle('  AMHD '), 'AMHD');
-      expect(guideRowSubtitle(null), 'Not assigned yet');
-      expect(guideRowSubtitle(''), 'Not assigned yet');
-      expect(guideRowSubtitle('   '), 'Not assigned yet');
-    });
-
-    testWidgets('display only: no chevron, no tap; My Competitions has a chevron and responds', (tester) async {
+  group('My Competitions row; the guide lives in the name card', () {
+    testWidgets('a row with a tap shows a chevron and responds', (tester) async {
       phone(tester, 1.0);
       var taps = 0;
       await tester.pumpWidget(host(Column(children: [
         ProfileMenuRow(title: 'My Competitions', subtitle: 'x', icon: Icons.emoji_events_outlined, onTap: () => taps++),
-        const ProfileMenuRow(title: 'My Guide', subtitle: 'SBSD', icon: CupertinoIcons.person_2),
       ])));
       expect(find.byIcon(Icons.chevron_right), findsOneWidget);
-      expect(find.descendant(of: find.widgetWithText(ProfileMenuRow, 'My Guide'), matching: find.byType(InkWell)), findsNothing);
       await tester.tap(find.text('My Competitions'));
       expect(taps, 1);
       expect(find.byIcon(Icons.emoji_events_outlined), findsOneWidget, reason: 'the trophy');
@@ -76,17 +66,18 @@ void main() {
 
     test('Profile wiring: the rows and their order, the fields they read, the ghost', () {
       final src = File('lib/pages/Profile.dart').readAsStringSync();
-      final order = ['My Competitions', 'My Guide', 'My Notifications', 'My Date of Birth', 'My Commitments', 'My Music'].map((l) => src.indexOf("'$l'")).toList();
+      final order = ['My Competitions', 'My Notifications', 'My Date of Birth', 'My Commitments', 'My Music'].map((l) => src.indexOf("'$l'")).toList();
       expect(order.every((i) => i > 0), isTrue);
       expect(order, [...order]..sort());
+      expect(src.contains("'My Guide'"), isFalse, reason: 'the My Guide row is gone: the guide is a line in the name card');
       for (final gone in ['Book read', 'My Achievements', "'Chanting Competition'", 'BooksSelectionScreen', 'AchievementsPage', 'ChantingCompetitionPage']) {
         expect(src.contains(gone), isFalse, reason: '$gone is gone from the Profile');
       }
       expect(src, contains("guideId = (data['guideId'] ?? '').toString();"), reason: 'read from the user stream already open');
-      expect(src, contains('guideRowSubtitle(guideName)'), reason: 'shows the admin display name');
+      expect(src, contains('ProfileNameCard('), reason: 'the name card shows the guide');
       expect(src, contains('StudentApi.instance.getMyGuide()'), reason: 'from the callable, never adminUsers');
       expect(src, contains('MyCompetitionsPage(username: name ?? "")'));
-      expect(src, contains('height: 6 * 64 + 12'), reason: 'the ghost has six rows now');
+      expect(src, contains('height: 5 * 64 + 12'), reason: 'the ghost has five rows now');
       // the notification deep link opens the same page
       expect(File('lib/utils/NotificationRouter.dart').readAsStringSync(), contains('const MyCompetitionsPage()'));
     });

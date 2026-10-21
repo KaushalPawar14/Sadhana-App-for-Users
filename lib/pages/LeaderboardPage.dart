@@ -154,13 +154,24 @@ class _LeaderboardPageState extends State<LeaderboardPage> {
         padding: const EdgeInsets.fromLTRB(FolkSpace.pagePadding, FolkSpace.md, FolkSpace.pagePadding, FolkSpace.sm),
         child: Column(
           children: [
-            // The dot on "Monthly" shows while the monthly results are new (it leads the student there).
+            // Each tab shows the dot while ITS results are new and not opened (it leads the student there, also when that
+            // tab is already selected); both can show at once. A tab's dot clears only when that period's Results are opened.
             StreamBuilder<bool>(
-              stream: _monthlyNew,
-              builder: (context, snap) => FolkSegmented<BoardPeriod>(
-                segments: [for (final p in BoardPeriod.values) FolkSegment(value: p, label: p.label, dot: p == BoardPeriod.monthly && (snap.data ?? false))],
-                value: _period,
-                onChanged: (v) => setState(() => _period = v),
+              stream: _weeklyNew,
+              builder: (context, weekly) => StreamBuilder<bool>(
+                stream: _monthlyNew,
+                builder: (context, monthly) => FolkSegmented<BoardPeriod>(
+                  segments: [
+                    for (final p in BoardPeriod.values)
+                      FolkSegment(
+                        value: p,
+                        label: p.label,
+                        dot: (p == BoardPeriod.weekly ? weekly.data : monthly.data) ?? false,
+                      ),
+                  ],
+                  value: _period,
+                  onChanged: (v) => setState(() => _period = v),
+                ),
               ),
             ),
             const SizedBox(height: 8),

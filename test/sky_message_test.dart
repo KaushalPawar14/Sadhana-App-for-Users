@@ -110,8 +110,9 @@ void main() {
     final banner = ask.substring(ask.indexOf('if (_preparingDailyMessage)'));
     expect(banner.substring(0, 400), contains('FolkGradients.sky'));
     final profile = File('lib/pages/Profile.dart').readAsStringSync();
-    final card = profile.substring(profile.indexOf('/// Profile header'));
-    expect(card.substring(0, 300), contains('FolkGradientStyle.sky'));
+    expect(profile.substring(profile.indexOf('/// Profile header')).substring(0, 300), contains('ProfileNameCard('));
+    final card = File('lib/widgets/ProfileNameCard.dart').readAsStringSync();
+    expect(card, contains('FolkGradientStyle.sky'), reason: 'the name card is the sky card');
   });
 
   test('the warm token is still used only where it was (nothing else moved)', () {

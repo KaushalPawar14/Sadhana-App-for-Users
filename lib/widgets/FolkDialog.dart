@@ -61,13 +61,17 @@ abstract final class FolkDialog {
   // A themed AlertDialog.
   static AlertDialog alert(
     BuildContext context, {
+    Key? key,
     required String title,
     Widget? content,
     List<Widget> actions = const [],
+    bool scrollable = false,
   }) {
     final colors = context.folk;
     final text = context.folkText;
     return AlertDialog(
+      key: key,
+      scrollable: scrollable,
       backgroundColor: colors.surface,
       surfaceTintColor: Colors.transparent,
       shape: shape(),

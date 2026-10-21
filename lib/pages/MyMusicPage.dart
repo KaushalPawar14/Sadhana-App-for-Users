@@ -11,7 +11,7 @@ import '../widgets/FolkCard.dart';
 import '../widgets/FolkDialog.dart';
 import '../widgets/FolkErrorRetry.dart';
 import '../widgets/FolkScaffold.dart';
-import '../widgets/FolkSegmented.dart';
+import '../widgets/FolkChip.dart';
 import '../widgets/GhostPlaceholder.dart';
 
 /// Profile -> My Music: the curriculum the HODs and Guides set (live), with the student's progress.
@@ -95,10 +95,10 @@ class _MyMusicPageState extends State<MyMusicPage> {
       builder: (ctx) {
         final colors = ctx.folk;
         final text = ctx.folkText;
-        return AlertDialog(
+        return FolkDialog.alert(
+          ctx,
           key: const ValueKey('music-remove-dialog'),
-          shape: FolkDialog.shape(),
-          title: Text('Remove ${o.name}?', style: text.topBarTitle),
+          title: 'Remove ${o.name}?',
           content: Text('It will be removed from your music list.', style: text.body),
           actions: [
             TextButton(style: FolkDialog.quietButton(colors, text), onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
@@ -520,11 +520,13 @@ class _OtherDialogState extends State<_OtherDialog> {
   Widget build(BuildContext context) {
     final colors = context.folk;
     final text = context.folkText;
-    return AlertDialog(
+    // The app's standard dialog (FolkDialog.alert): the themed surface (never the white scrim colour, which is white in dark
+    // mode), radius 28, a filled field, the level as theme chips, the main button style and a quiet Cancel.
+    return FolkDialog.alert(
+      context,
       key: const ValueKey('music-other-dialog'),
-      shape: FolkDialog.shape(),
       scrollable: true,
-      title: Text(widget.existing == null ? 'Add an instrument' : 'Edit instrument', style: text.topBarTitle),
+      title: widget.existing == null ? 'Add an instrument' : 'Edit instrument',
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -534,19 +536,33 @@ class _OtherDialogState extends State<_OtherDialog> {
             controller: _name,
             textCapitalization: TextCapitalization.words,
             maxLength: 60,
+            style: text.body,
+            cursorColor: colors.text,
             onChanged: (_) {
               if (_error != null) setState(() => _error = null);
             },
-            decoration: FolkDialog.field(context, label: 'Instrument', hint: 'e.g. Flute').copyWith(errorText: _error, counterText: ''),
+            decoration: FolkDialog.field(context, label: 'Instrument', hint: 'e.g. Flute').copyWith(
+              errorText: _error,
+              errorStyle: text.small.copyWith(color: colors.calendarMissedText),
+              counterText: '',
+            ),
           ),
           const SizedBox(height: FolkSpace.lg),
           Text('Your level', style: text.caption),
           const SizedBox(height: FolkSpace.sm),
-          FolkSegmented<MusicLevel>(
+          Wrap(
             key: const ValueKey('music-other-level'),
-            segments: [for (final l in MusicLevel.values) FolkSegment(value: l, label: l.label)],
-            value: _level,
-            onChanged: (l) => setState(() => _level = l),
+            spacing: FolkSpace.sm,
+            runSpacing: FolkSpace.sm,
+            children: [
+              for (final l in MusicLevel.values)
+                FolkChip(
+                  key: ValueKey('music-level-${l.key}'),
+                  label: l.label,
+                  selected: _level == l,
+                  onTap: () => setState(() => _level = l),
+                ),
+            ],
           ),
         ],
       ),

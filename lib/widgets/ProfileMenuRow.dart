@@ -61,9 +61,3 @@ class ProfileMenuRow extends StatelessWidget {
   }
 }
 
-// What "My Guide" says under its title: the guide's name (the adminUsers
-// document id the student's `guideId` points at), or that none is assigned.
-String guideRowSubtitle(Object? guideId) {
-  final id = (guideId ?? '').toString().trim();
-  return id.isEmpty ? 'Not assigned yet' : id;
-}

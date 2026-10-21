@@ -25,9 +25,9 @@ import '../widgets/EntryAnimation.dart';
 import '../widgets/FloatingPillNavBar.dart';
 import '../widgets/FolkSegmented.dart';
 import '../widgets/GhostPlaceholder.dart';
-import '../widgets/GradientCard.dart';
 import '../widgets/LogoutButton.dart';
 import '../widgets/ProfileMenuRow.dart';
+import '../widgets/ProfileNameCard.dart';
 import '../utils/GuideNameCache.dart';
 import '../widgets/ProfileStatTiles.dart';
 import '../services/StudentApi.dart';
@@ -124,7 +124,7 @@ class _ProfilePageState extends State<ProfilePage>
     uid = FirebaseAuth.instance.currentUser!.uid;
     _userStream =
         FirebaseFirestore.instance.collection('users').doc(uid).snapshots();
-    // The last guide name seen on this phone, so "My Guide" has its answer before anything arrives.
+    // The last guide name seen on this phone, so the name card's guide line has its answer before anything arrives.
     GuideNameCache.read(uid).then((cached) {
       if (cached != null && mounted && guideName.isEmpty && !_guideFromDoc) setState(() => guideName = cached);
     });
@@ -335,7 +335,7 @@ class _ProfilePageState extends State<ProfilePage>
             ProfileStatTilesGhost(),
             SizedBox(height: FolkSpace.cardGap),
             GhostPlaceholder(
-                width: double.infinity, height: 6 * 64 + 12, showBars: false),
+                width: double.infinity, height: 5 * 64 + 12, showBars: false),
             SizedBox(height: FolkSpace.cardGap),
             GhostPlaceholder(
                 width: double.infinity, height: 72, showBars: false),
@@ -356,11 +356,9 @@ class _ProfilePageState extends State<ProfilePage>
     final text = context.folkText;
     final themeController = context.watch<ThemeModeController>();
 
-    // Name card: the student's name and residence, display only — there is no
-    // way to edit either from here.
+    // Name card: the student's name, residence and guide ("Guide: <name>", from the user stream and the phone's copy),
+    // display only — there is no way to edit any of them from here.
     final displayName = name ?? "";
-    final initial =
-        displayName.trim().isEmpty ? null : displayName.trim()[0].toUpperCase();
 
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
@@ -377,47 +375,7 @@ class _ProfilePageState extends State<ProfilePage>
             /// Profile header
             EntryAnimation(
               index: 0,
-              child: GradientCard(
-                style: FolkGradientStyle.sky,
-                decorate: false,
-                padding: const EdgeInsets.all(FolkSpace.lg),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 56,
-                      height: 56,
-                      alignment: Alignment.center,
-                      decoration: const BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: FolkColors.gradientPlayButton,
-                      ),
-                      child: initial == null
-                          ? const Icon(CupertinoIcons.person_alt, size: 28)
-                          : Text(
-                              initial,
-                              style: text.cardTitle.copyWith(fontSize: 24),
-                            ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            displayName,
-                            style: text.cardTitle.copyWith(fontSize: 22),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            role ?? "", // <-- Show role instead of email
-                            style: text.onGradientSmall,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              child: ProfileNameCard(name: displayName, role: role ?? '', guideName: guideName),
             ),
 
             const SizedBox(height: FolkSpace.cardGap),
@@ -452,18 +410,6 @@ class _ProfilePageState extends State<ProfilePage>
                             builder: (context) =>
                                 MyCompetitionsPage(username: name ?? "")));
                   },
-                ),
-
-                /// MY GUIDE — display only: the display name of the admin
-                /// (Guide or Enabler) the student is assigned to, from the
-                /// student's own user document (`guideName`, kept by the
-                /// server; the `getMyGuide` callable only backs up a document
-                /// not stamped yet), or "Not assigned yet".
-                _menuRow(
-                  'My Guide',
-                  guideRowSubtitle(guideName),
-                  CupertinoIcons.person_2,
-                  null,
                 ),
 
                 /// NOTIFICATIONS — what this student wants to be told
