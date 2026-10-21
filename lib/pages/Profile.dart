@@ -8,6 +8,7 @@ import '../utils/SadhanaReportSource.dart' show ReportCategory;
 import '../widgets/CommitmentDialog.dart';
 import '../utils/SameGender.dart';
 import 'package:folk_app/pages/MyCompetitions.dart';
+import 'package:folk_app/pages/MyMusicPage.dart';
 import 'package:folk_app/pages/NotificationPreferences.dart';
 import 'package:folk_app/pages/Welcome.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -318,7 +319,7 @@ class _ProfilePageState extends State<ProfilePage>
             ProfileStatTilesGhost(),
             SizedBox(height: FolkSpace.cardGap),
             GhostPlaceholder(
-                width: double.infinity, height: 5 * 64 + 12, showBars: false),
+                width: double.infinity, height: 6 * 64 + 12, showBars: false),
             SizedBox(height: FolkSpace.cardGap),
             GhostPlaceholder(
                 width: double.infinity, height: 72, showBars: false),
@@ -456,7 +457,7 @@ class _ProfilePageState extends State<ProfilePage>
                 /// about. Every type defaults to on, so this row only
                 /// ever removes noise the student chose to remove.
                 _menuRow(
-                  'Notifications',
+                  'My Notifications',
                   "Choose what you are notified about",
                   CupertinoIcons.bell,
                   () {
@@ -474,7 +475,7 @@ class _ProfilePageState extends State<ProfilePage>
                 /// registered before this field existed see an
                 /// invitation to add it rather than a blank or a crash.
                 _menuRow(
-                  'Date of Birth',
+                  'My Date of Birth',
                   dob == null
                       ? "Tap to add your date of birth"
                       : DateFormat('dd MMM yyyy').format(dob!),
@@ -488,7 +489,7 @@ class _ProfilePageState extends State<ProfilePage>
                 /// change). This is the number the guide's compound
                 /// target evaluation checks against.
                 _menuRow(
-                  'Commitment',
+                  'My Commitments',
                   commitmentRounds == null && readingCommitmentMinutes == null
                       ? "Tap to set your daily commitment"
                       : commitmentLine(Commitments(
@@ -496,6 +497,14 @@ class _ProfilePageState extends State<ProfilePage>
                           readingMinutes: readingCommitmentMinutes)),
                   CupertinoIcons.flame_fill,
                   _editCommitment,
+                ),
+
+                /// MY MUSIC - a "Coming soon" page for now (its contents will be specified later).
+                _menuRow(
+                  'My Music',
+                  "Coming soon",
+                  CupertinoIcons.music_note_2,
+                  () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MyMusicPage())),
                 ),
               ]),
             ),

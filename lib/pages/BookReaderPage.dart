@@ -18,6 +18,9 @@ import '../utils/BookHighlightStore.dart';
 import '../utils/BookHighlights.dart';
 import '../utils/BookLoader.dart';
 import '../utils/ReaderContrast.dart';
+import '../utils/BookDoubts.dart';
+import '../widgets/DoubtDialogs.dart';
+import 'AssistantScreen.dart' show AssistantDoubt, AssistantScreen, kAssistantRouteName;
 import '../widgets/FolkDialog.dart';
 import '../widgets/PrimaryButton.dart';
 import '../widgets/ReaderChrome.dart';
@@ -169,6 +172,15 @@ class BookReaderPage extends StatefulWidget {
   @visibleForTesting
   final DateTime Function()? clock;
 
+  /// Where doubts are kept, the student's name for them, and the assistant screen a doubt opens (tests hand in their
+  /// own; the app uses `bookDoubts`, the profile name and the real assistant).
+  @visibleForTesting
+  final DoubtStore? doubtStore;
+  @visibleForTesting
+  final String? studentName;
+  @visibleForTesting
+  final Widget Function(AssistantDoubt doubt)? assistantBuilder;
+
   const BookReaderPage({
     super.key,
     required this.dropboxUrl,
@@ -181,6 +193,9 @@ class BookReaderPage extends StatefulWidget {
     this.extras,
     this.highlightStore,
     this.clock,
+    this.doubtStore,
+    this.studentName,
+    this.assistantBuilder,
   });
 
   @override
@@ -1293,6 +1308,10 @@ class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProvid
       _closeRange();
       return;
     }
+    if (choice.category == HighlightCategory.doubt) {
+      await _askDoubtFlow(r);
+      return;
+    }
     final draft = BookHighlight.create(
       id: '',
       chapter: _currentChapter,
@@ -1328,6 +1347,171 @@ class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProvid
     }
   }
 
+  // --- doubts -----------------------------------------------------------------------------------------------------
+
+  DoubtStore get _doubtStore => widget.doubtStore ?? (_defaultDoubtStore ??= FirestoreDoubtStore(_firestore));
+  DoubtStore? _defaultDoubtStore;
+
+  Future<String> _studentName() async {
+    final given = widget.studentName;
+    if (given != null) return given;
+    try {
+      final d = await _firestore.collection('users').doc(widget.uid).get();
+      final n = d.data()?['name'];
+      if (n is String && n.trim().isNotEmpty) return n.trim();
+    } catch (_) {}
+    return 'A student';
+  }
+
+  void _say(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// The assistant, opened for a doubt: its question (with the passage as context) is the first question of the visit.
+  Future<void> _openAssistantForDoubt(String doubtId, String question, String passage) async {
+    if (!mounted) return;
+    final doubt = AssistantDoubt(doubtId: doubtId, message: doubtMessageForAi(bookTitle: widget.bookTitle, passage: passage, question: question));
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        settings: const RouteSettings(name: kAssistantRouteName),
+        builder: (_) => widget.assistantBuilder?.call(doubt) ?? AssistantScreen(uid: widget.uid, doubt: doubt),
+      ),
+    );
+  }
+
+  /// Doubt chosen for a new selection: the question dialog; Ask AI / Ask guide save the highlight AND the doubt.
+  /// Cancelling saves nothing.
+  Future<void> _askDoubtFlow(ReaderRange r) async {
+    final draft = BookHighlight.create(
+      id: '',
+      chapter: _currentChapter,
+      range: r,
+      paragraphs: _chapterTexts,
+      category: HighlightCategory.doubt,
+      note: '',
+    );
+    final ask = await showAskDoubtDialog(
+      context,
+      passage: draft.text,
+      chrome: _palette.chrome,
+      onChrome: _palette.onChrome,
+      secondary: _palette.secondaryText,
+    );
+    if (!mounted) return;
+    if (ask == null) {
+      _closeRange();
+      return;
+    }
+    final paragraph = r.startPara < _chapterTexts.length ? _chapterTexts[r.startPara] : '';
+    BookHighlight? saved;
+    try {
+      saved = await _store.add(uid: widget.uid, bookKey: widget.bookKey, level: widget.level, bookTitle: widget.bookTitle, highlight: draft);
+      await _doubtStore.create(
+        id: saved.id,
+        uid: widget.uid,
+        studentName: await _studentName(),
+        bookKey: widget.bookKey,
+        level: widget.level,
+        bookTitle: widget.bookTitle,
+        chapterIndex: _currentChapter,
+        text: draft.text,
+        paragraph: paragraph,
+        question: ask.question,
+        mode: ask.mode,
+      );
+    } catch (_) {
+      // Nothing half-saved: a highlight without its doubt is taken back, and the selection stays so it can be tried again.
+      if (saved != null) {
+        try {
+          await _store.delete(saved.id);
+        } catch (_) {}
+      }
+      if (!mounted) return;
+      _setFocusAnimation();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text("Could not send your doubt. Check your connection and try again."),
+        behavior: SnackBarBehavior.floating,
+        margin: EdgeInsets.fromLTRB(16, 0, 16, 84),
+      ));
+      return;
+    }
+    if (!mounted) return;
+    final savedHighlight = saved;
+    setState(() {
+      _highlights = [..._highlights, savedHighlight];
+      _placeHighlights();
+    });
+    _closeRange();
+    if (ask.mode == 'ai') {
+      await _openAssistantForDoubt(savedHighlight.id, ask.question, draft.text);
+    } else {
+      _say('Your doubt was sent to your guide');
+    }
+  }
+
+  /// A tap on a doubt highlight: the question, the answer and who gave it, then the actions.
+  Future<void> _doubtTap(BookHighlight h) async {
+    final action = await showDoubtDetails(
+      context,
+      highlight: h,
+      store: _doubtStore,
+      chrome: _palette.chrome,
+      onChrome: _palette.onChrome,
+      secondary: _palette.secondaryText,
+    );
+    if (!mounted || action == null) return;
+    Doubt? doubt;
+    try {
+      doubt = await _doubtStore.watch(h.id).first.timeout(const Duration(seconds: 8));
+    } catch (_) {}
+    if (!mounted) return;
+    if (action == DoubtAction.editNote) {
+      final choice = await showHighlightSheet(
+        context,
+        chrome: _palette.chrome,
+        onChrome: _palette.onChrome,
+        secondary: _palette.secondaryText,
+        initialCategory: h.category,
+        initialNote: h.note,
+        title: 'Edit note',
+        submitLabel: 'Save',
+        showCategory: false,
+        showNote: true,
+        allowDoubt: false,
+      );
+      if (!mounted || choice == null) return;
+      await _updateHighlight(h, {'category': h.category.key, 'note': choice.note}, h.copyWith(note: choice.note));
+      return;
+    }
+    if (doubt == null) {
+      _say("Could not load your doubt. Check your connection and try again.");
+      return;
+    }
+    try {
+      switch (action) {
+        case DoubtAction.editQuestion:
+          final q = await showEditQuestionDialog(context, current: doubt.question, chrome: _palette.chrome, onChrome: _palette.onChrome, secondary: _palette.secondaryText);
+          if (q == null || !mounted) return;
+          await _doubtStore.editQuestion(h.id, q);
+          _say('Question saved');
+        case DoubtAction.askAi:
+          await _doubtStore.askAgain(h.id, 'ai');
+          await _openAssistantForDoubt(h.id, doubt.question, doubt.text.isNotEmpty ? doubt.text : h.text);
+        case DoubtAction.askGuide:
+          await _doubtStore.askAgain(h.id, 'guide');
+          _say('Your doubt was sent to your guide');
+        case DoubtAction.editNote:
+          break;
+      }
+    } catch (_) {
+      _say("Could not save the change. Nothing was changed.");
+    }
+  }
+
   // --- an existing highlight --------------------------------------------------------------------------------
 
   PlacedHighlight? _placedAt(int paragraph, Offset local) {
@@ -1343,6 +1527,10 @@ class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProvid
     if (!_highlightsOn || _selectionMode || _focus) return;
     final hit = _placedAt(paragraph, local);
     if (hit == null) return;
+    if (hit.highlight.category == HighlightCategory.doubt) {
+      await _doubtTap(hit.highlight);
+      return;
+    }
     final action = await showHighlightInfo(
       context,
       highlight: hit.highlight,
@@ -1364,6 +1552,7 @@ class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProvid
       submitLabel: 'Save',
       showCategory: !editNote,
       showNote: editNote,
+      allowDoubt: false,
     );
     if (!mounted || choice == null) return;
     await _updateHighlight(h, {'category': choice.category.key, 'note': choice.note}, h.copyWith(category: choice.category, note: choice.note));
@@ -1450,7 +1639,14 @@ class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProvid
     );
     if (confirm != true || !mounted) return;
     try {
+      final wasDoubt = _highlights.any((h) => h.id == id && h.category == HighlightCategory.doubt);
       await _store.delete(id);
+      if (wasDoubt) {
+        // the doubt is deleted with its highlight (best effort: the highlight is already gone)
+        try {
+          await _doubtStore.delete(id);
+        } catch (_) {}
+      }
       if (!mounted) return;
       setState(() {
         _highlights = [for (final h in _highlights) if (h.id != id) h];

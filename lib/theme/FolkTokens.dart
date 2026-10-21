@@ -67,7 +67,7 @@ abstract final class FolkMotion {
       reduced(context) ? Duration.zero : base;
 }
 
-enum FolkGradientStyle { green, violet, saffron, coral, warm, sky }
+enum FolkGradientStyle { green, violet, saffron, coral, warm, sky, slate }
 
 // Which feature wears which gradient (the approved table, second review
 // 2026-10-09):
@@ -108,6 +108,11 @@ abstract final class FolkGradients {
   static const LinearGradient warm = LinearGradient(
     begin: _from, end: _to, colors: [Color(0xFFFFE9B8), Color(0xFFFFC978)]);
 
+  // The book reader's DOUBT category (Notes -> Doubts): a balanced cool gray, the same in light and dark. The text on it
+  // is `FolkColors.onGradient`.
+  static const LinearGradient slate = LinearGradient(
+    begin: _from, end: _to, colors: [Color(0xFFE6E9EE), Color(0xFFB4BBC6)]);
+
   // Today's message and the Profile name card: sky blue, the same in light and
   // dark (#CDE8FF -> #8EC5F5, 135 degrees). The text on it is `FolkColors.onGradient`.
   static const LinearGradient sky = LinearGradient(
@@ -135,6 +140,7 @@ abstract final class FolkGradients {
         FolkGradientStyle.coral => coral,
         FolkGradientStyle.warm => warm,
         FolkGradientStyle.sky => sky,
+        FolkGradientStyle.slate => slate,
       };
 
   // Sadhana calendar: a submitted day.

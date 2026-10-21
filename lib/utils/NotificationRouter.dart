@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../main.dart';
 import '../pages/BookPageList.dart';
+import '../pages/BooksNotesPage.dart';
 import '../pages/Calendar.dart';
 import '../pages/ExpeditionScreen.dart';
 import '../pages/MyCompetitions.dart';
@@ -139,6 +140,18 @@ Future<void> _dispatch(Map<String, dynamic> data) async {
       // A new trip for this student's gender: opens Expeditions.
       case 'student_expeditions':
         await _openExpeditions(navState);
+        break;
+
+      // The guide answered a doubt: Notes -> Doubts, on that doubt's card.
+      case 'student_doubt':
+        navState.push(
+          MaterialPageRoute(
+            builder: (_) => BooksNotesPage(
+              uid: FirebaseAuth.instance.currentUser?.uid ?? '',
+              openDoubtId: (data['doubtId'] ?? '').toString().isEmpty ? null : data['doubtId'].toString(),
+            ),
+          ),
+        );
         break;
 
       case 'student_chanting':

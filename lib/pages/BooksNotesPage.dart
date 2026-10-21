@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../theme/FolkColors.dart';
 import '../theme/FolkTheme.dart';
 import '../theme/FolkTokens.dart';
+import '../utils/BookDoubts.dart';
 import '../utils/BookHighlights.dart';
 import '../utils/BookNotes.dart';
 import '../widgets/EntryAnimation.dart';
@@ -33,21 +34,28 @@ LinearGradient categoryGradient(HighlightCategory c) => switch (c) {
       HighlightCategory.good => FolkGradients.saffron,
       HighlightCategory.excellent => FolkGradients.green,
       HighlightCategory.rare => FolkGradients.violet,
+      HighlightCategory.doubt => FolkGradients.slate,
     };
 
 /// "12 highlights in 3 books" / "1 highlight in 1 book" / "No highlights yet".
-String notesCountLine(int highlights, int books) {
-  if (highlights == 0) return 'No highlights yet';
-  return '${highlights == 1 ? '1 highlight' : '$highlights highlights'} in ${books == 1 ? '1 book' : '$books books'}';
+String notesCountLine(int highlights, int books, {String noun = 'highlight'}) {
+  if (highlights == 0) return 'No ${noun}s yet';
+  return '${highlights == 1 ? '1 $noun' : '$highlights ${noun}s'} in ${books == 1 ? '1 book' : '$books books'}';
 }
 
 class BooksNotesPage extends StatefulWidget {
-  const BooksNotesPage({super.key, required this.uid, this.firestore});
+  const BooksNotesPage({super.key, required this.uid, this.firestore, this.doubtStore, this.openDoubtId});
 
   final String uid;
 
   /// Test seam: the app never sets this.
   final FirebaseFirestore? firestore;
+
+  /// Test seam: where doubts are read (the app reads `bookDoubts`).
+  final DoubtStore? doubtStore;
+
+  /// Open this doubt's card straight away (the "your guide answered your doubt" notification).
+  final String? openDoubtId;
 
   @override
   State<BooksNotesPage> createState() => _BooksNotesPageState();
@@ -55,6 +63,10 @@ class BooksNotesPage extends StatefulWidget {
 
 class _BooksNotesPageState extends State<BooksNotesPage> {
   FirebaseFirestore get _db => widget.firestore ?? FirebaseFirestore.instance;
+  DoubtStore get _doubtStore => widget.doubtStore ?? FirestoreDoubtStore(_db);
+
+  /// The student's doubts (highlight id -> doubt). A failed read only leaves the Doubts without answers.
+  Map<String, Doubt> _doubts = const {};
 
   bool _loading = true;
   bool _failed = false;
@@ -74,11 +86,18 @@ class _BooksNotesPageState extends State<BooksNotesPage> {
     try {
       final snap = await _db.collection('bookHighlights').where('uid', isEqualTo: widget.uid).get();
       final entries = parseNotes(snap.docs.map((d) => (id: d.id, data: d.data())));
+      Map<String, Doubt> doubts = const {};
+      try {
+        doubts = await _doubtStore.loadMine(widget.uid);
+      } catch (_) {}
       if (!mounted) return;
       setState(() {
         _entries = entries;
+        _doubts = doubts;
         _loading = false;
       });
+      final open = widget.openDoubtId;
+      if (open != null) WidgetsBinding.instance.addPostFrameCallback((_) => _openDoubt(open));
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -91,31 +110,49 @@ class _BooksNotesPageState extends State<BooksNotesPage> {
   void _open(HighlightCategory c) {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => NotesBooksPage(category: c, books: booksIn(c, _entries))),
+      MaterialPageRoute(builder: (_) => NotesBooksPage(category: c, books: booksIn(c, _entries), doubts: _doubts, doubtStore: _doubtStore)),
     );
+  }
+
+  /// A notification about one doubt: its book's cards, on that doubt.
+  void _openDoubt(String id) {
+    if (!mounted) return;
+    final books = booksIn(HighlightCategory.doubt, _entries);
+    for (final b in books) {
+      final i = b.entries.indexWhere((e) => e.id == id);
+      if (i >= 0) {
+        Navigator.push(context, MaterialPageRoute(builder: (_) => NotesBooksPage(category: HighlightCategory.doubt, books: books, doubts: _doubts, doubtStore: _doubtStore)));
+        Navigator.push(context, MaterialPageRoute(builder: (_) => NotesCardsPage(category: HighlightCategory.doubt, book: b, doubts: _doubts, doubtStore: _doubtStore, initialIndex: i)));
+        return;
+      }
+    }
+    _open(HighlightCategory.doubt);
   }
 
   static IconData _icon(HighlightCategory c) => switch (c) {
         HighlightCategory.good => Icons.star_outline_rounded,
         HighlightCategory.excellent => Icons.workspace_premium_outlined,
         HighlightCategory.rare => Icons.auto_awesome_outlined,
+        HighlightCategory.doubt => Icons.help_outline_rounded,
       };
 
   static FolkGradientStyle _style(HighlightCategory c) => switch (c) {
         HighlightCategory.good => FolkGradientStyle.saffron,
         HighlightCategory.excellent => FolkGradientStyle.green,
         HighlightCategory.rare => FolkGradientStyle.violet,
+        HighlightCategory.doubt => FolkGradientStyle.slate,
       };
 
   Widget _tile(HighlightCategory c, {required double minHeight, required Key key, required int index}) {
     final n = countIn(c, _entries);
-    final line = notesCountLine(n, booksIn(c, _entries).length);
+    final isDoubt = c == HighlightCategory.doubt;
+    final line = notesCountLine(n, booksIn(c, _entries).length, noun: isDoubt ? 'doubt' : 'highlight');
     return EntryAnimation(
       index: index,
       child: InsightTile(
         key: key,
         style: _style(c),
-        title: c.label,
+        title: c.tileTitle,
         subtitle: line,
         icon: _icon(c),
         minHeight: minHeight,
@@ -161,7 +198,11 @@ class _BooksNotesPageState extends State<BooksNotesPage> {
                           GhostPlaceholder(width: side, height: side, showBars: false),
                         ]),
                         SizedBox(height: gap),
-                        GhostPlaceholder(width: inner, height: side * .9, showBars: false),
+                        Row(children: [
+                          GhostPlaceholder(width: side, height: side, showBars: false),
+                          SizedBox(width: gap),
+                          GhostPlaceholder(width: side, height: side, showBars: false),
+                        ]),
                       ],
                     ),
                   );
@@ -182,7 +223,17 @@ class _BooksNotesPageState extends State<BooksNotesPage> {
                         ),
                       ),
                       SizedBox(height: gap),
-                      _tile(HighlightCategory.rare, minHeight: side * .9, key: const ValueKey('notes-rare'), index: 2),
+                      // Rare and Doubts: the second row of the 2 x 2.
+                      IntrinsicHeight(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(child: _tile(HighlightCategory.rare, minHeight: side, key: const ValueKey('notes-rare'), index: 2)),
+                            SizedBox(width: gap),
+                            Expanded(child: _tile(HighlightCategory.doubt, minHeight: side, key: const ValueKey('notes-doubt'), index: 3)),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 );
@@ -194,17 +245,19 @@ class _BooksNotesPageState extends State<BooksNotesPage> {
 
 /// The books that have highlights in one category: their NAMES, and nothing else.
 class NotesBooksPage extends StatelessWidget {
-  const NotesBooksPage({super.key, required this.category, required this.books});
+  const NotesBooksPage({super.key, required this.category, required this.books, this.doubts = const {}, this.doubtStore});
 
   final HighlightCategory category;
   final List<NoteBook> books;
+  final Map<String, Doubt> doubts;
+  final DoubtStore? doubtStore;
 
   @override
   Widget build(BuildContext context) {
     final text = context.folkText;
     final colors = context.folk;
     return FolkScaffold(
-      title: category.label,
+      title: category.tileTitle,
       onBack: () => Navigator.pop(context),
       body: books.isEmpty
           ? Center(
@@ -215,9 +268,15 @@ class NotesBooksPage extends StatelessWidget {
                   children: [
                     Icon(Icons.sticky_note_2_outlined, size: 52, color: colors.disabledText),
                     const SizedBox(height: FolkSpace.lg),
-                    Text('No ${category.label.toUpperCase()} highlights yet', key: const ValueKey('notes-empty-category'), style: text.topBarTitle, textAlign: TextAlign.center),
+                    Text(category == HighlightCategory.doubt ? 'No doubts yet' : 'No ${category.label.toUpperCase()} highlights yet',
+                        key: const ValueKey('notes-empty-category'), style: text.topBarTitle, textAlign: TextAlign.center),
                     const SizedBox(height: FolkSpace.sm),
-                    Text('Highlight a passage while you read and it will appear here.', style: text.small, textAlign: TextAlign.center),
+                    Text(
+                        category == HighlightCategory.doubt
+                            ? 'Select a passage while you read, choose Doubt, and ask the AI or your guide.'
+                            : 'Highlight a passage while you read and it will appear here.',
+                        style: text.small,
+                        textAlign: TextAlign.center),
                   ],
                 ),
               ),
@@ -235,7 +294,7 @@ class NotesBooksPage extends StatelessWidget {
                       borderRadius: BorderRadius.circular(FolkShape.tileRadius),
                       onTap: () => Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (_) => NotesCardsPage(category: category, book: b)),
+                        MaterialPageRoute(builder: (_) => NotesCardsPage(category: category, book: b, doubts: doubts, doubtStore: doubtStore)),
                       ),
                       child: ConstrainedBox(
                         constraints: const BoxConstraints(minHeight: 64),
@@ -265,18 +324,23 @@ class NotesBooksPage extends StatelessWidget {
 
 /// One book's highlights in one category, as horizontally swipeable cards numbered in reading order.
 class NotesCardsPage extends StatefulWidget {
-  const NotesCardsPage({super.key, required this.category, required this.book});
+  const NotesCardsPage({super.key, required this.category, required this.book, this.doubts = const {}, this.doubtStore, this.initialIndex = 0});
 
   final HighlightCategory category;
   final NoteBook book;
+
+  /// The student's doubts (for the Doubts category: each card shows its question and "View answer").
+  final Map<String, Doubt> doubts;
+  final DoubtStore? doubtStore;
+  final int initialIndex;
 
   @override
   State<NotesCardsPage> createState() => _NotesCardsPageState();
 }
 
 class _NotesCardsPageState extends State<NotesCardsPage> {
-  final PageController _pages = PageController();
-  int _index = 0;
+  late final PageController _pages = PageController(initialPage: widget.initialIndex);
+  late int _index = widget.initialIndex;
 
   @override
   void dispose() {
@@ -318,7 +382,129 @@ class _NotesCardsPageState extends State<NotesCardsPage> {
     );
   }
 
+  /// A doubt's answer, live: "Not answered yet" until it comes, then the answer and who gave it.
+  Future<void> _showAnswer(NoteEntry e) {
+    final known = widget.doubts[e.id];
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        final colors = dialogContext.folk;
+        final text = dialogContext.folkText;
+        final maxH = MediaQuery.of(dialogContext).size.height * .5;
+        Widget body(Doubt? d) {
+          if (d == null || !d.answered) {
+            final who = d == null ? '' : (d.toGuide ? 'Your guide has your doubt.' : 'The AI has your doubt.');
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Not answered yet', key: const ValueKey('answer-pending'), style: text.bodyStrong),
+                if (who.isNotEmpty) ...[const SizedBox(height: 6), Text(who, style: text.small)],
+              ],
+            );
+          }
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Answered by ${d.answeredByLabel}', key: const ValueKey('answer-by'), style: text.caption.copyWith(color: colors.mutedText)),
+              const SizedBox(height: 8),
+              ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: maxH),
+                child: SingleChildScrollView(child: Text(d.answer!, key: const ValueKey('answer-text'), style: text.body.copyWith(height: 1.45))),
+              ),
+            ],
+          );
+        }
+
+        final store = widget.doubtStore;
+        return Dialog(
+          backgroundColor: colors.surface,
+          surfaceTintColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(FolkShape.cardRadius)),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Answer', style: text.topBarTitle),
+                const SizedBox(height: 12),
+                if (store == null)
+                  body(known)
+                else
+                  StreamBuilder<Doubt?>(stream: store.watch(e.id), initialData: known, builder: (context, snap) => body(snap.data ?? known)),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _doubtCard(int i, NoteEntry e) {
+    final colors = context.folk;
+    final text = context.folkText;
+    final color = Color(widget.category.argb);
+    final doubt = widget.doubts[e.id];
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(FolkSpace.pagePadding, FolkSpace.sm, FolkSpace.pagePadding, FolkSpace.lg),
+      child: Container(
+        key: ValueKey('note-card-${i + 1}'),
+        decoration: BoxDecoration(
+          color: colors.surface,
+          borderRadius: BorderRadius.circular(FolkShape.cardRadius),
+          border: Border.all(color: color, width: 1.6),
+          boxShadow: colors.cardShadows,
+        ),
+        padding: const EdgeInsets.all(FolkSpace.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+                  child: Text('${i + 1}', key: ValueKey('note-number-${i + 1}'), style: text.bodyStrong.copyWith(color: Colors.white, fontWeight: FontWeight.w800)),
+                ),
+              ],
+            ),
+            const SizedBox(height: FolkSpace.md),
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(e.truncated ? '${e.text}…' : e.text, key: ValueKey('note-text-${i + 1}'), style: text.body.copyWith(height: 1.5)),
+                    const SizedBox(height: FolkSpace.lg),
+                    Text('Your doubt', style: text.caption.copyWith(color: colors.mutedText)),
+                    const SizedBox(height: 4),
+                    Text(doubt?.question ?? 'Your question could not be loaded.', key: ValueKey('doubt-question-${i + 1}'), style: text.bodyStrong.copyWith(height: 1.4)),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: FolkSpace.md),
+            OutlinedButton(
+              key: ValueKey('view-answer-${i + 1}'),
+              onPressed: () => _showAnswer(e),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(FolkShape.buttonHeight),
+                foregroundColor: colors.text,
+                side: BorderSide(color: color, width: 1.6),
+              ),
+              child: const Text('View answer'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _card(int i, NoteEntry e) {
+    if (widget.category == HighlightCategory.doubt) return _doubtCard(i, e);
     final colors = context.folk;
     final text = context.folkText;
     final color = Color(widget.category.argb);

@@ -103,6 +103,8 @@ class _DecorationPainter extends CustomPainter {
         _dots(canvas, size);
       case FolkGradientStyle.coral:
         _circles(canvas, size);
+      case FolkGradientStyle.slate:
+        _ripples(canvas, size);
       case FolkGradientStyle.warm:
       case FolkGradientStyle.sky:
         break;
@@ -166,6 +168,19 @@ class _DecorationPainter extends CustomPainter {
         canvas.drawCircle(Offset(x, y), 2, paint);
       }
     }
+  }
+
+  // Soft concentric rings, bottom right (a question rippling out).
+  void _ripples(Canvas canvas, Size size) {
+    final centre = Offset(size.width - 14, size.height - 10);
+    final ring = Paint()
+      ..color = const Color.fromRGBO(255, 255, 255, .5)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+    for (final r in [30.0, 52.0, 74.0]) {
+      canvas.drawCircle(centre, r, ring);
+    }
+    canvas.drawCircle(centre, 14, _white(.45));
   }
 
   // Circles and one ring, positioned by percentage of the card.

@@ -1,4 +1,6 @@
 import 'dart:math';
+import '../utils/LeaderboardData.dart' show BoardPeriod;
+import '../utils/ResultsDots.dart';
 import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
 import '../widgets/FolkErrorRetry.dart';
@@ -37,7 +39,8 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage> with Tick
     super.initState();
 
     _confettiController = ConfettiController(duration: const Duration(seconds: 4));
-
+    // Opening these results clears the period's orange dots everywhere (also when opened from a notification).
+    ResultsDots.opened(BoardPeriod.weekly);
   }
 
   bool _celebrated = false;

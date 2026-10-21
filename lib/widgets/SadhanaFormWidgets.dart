@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../theme/FolkTheme.dart';
 import '../theme/FolkTokens.dart';
+import '../utils/FormPoints.dart';
 import 'FolkCard.dart';
+import 'PointsChip.dart';
+import 'PointsHelpSheet.dart';
 import 'PressScale.dart';
 
 // Look of the two Sadhana report forms (FOLK and hostel/localite). Only the
@@ -63,10 +66,18 @@ class FormQuestionCard extends StatelessWidget {
     super.key,
     required this.question,
     required this.child,
+    this.trailing,
+    this.onInfo,
   });
 
   final String question;
   final Widget child;
+
+  /// The points chip of a scoring question ("+50 pts", "×1.5"), shown beside the title.
+  final Widget? trailing;
+
+  /// The "i" of a scoring question: opens its help sheet.
+  final VoidCallback? onInfo;
 
   @override
   Widget build(BuildContext context) {
@@ -79,7 +90,17 @@ class FormQuestionCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(question, style: text.bodyStrong),
+            if (onInfo == null && trailing == null)
+              Text(question, style: text.bodyStrong)
+            else
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(child: Text(question, style: text.bodyStrong)),
+                  if (trailing != null) Padding(padding: const EdgeInsets.only(left: 8), child: trailing),
+                  if (onInfo != null) Transform.translate(offset: const Offset(8, 0), child: PointsInfoButton(label: 'How $question is scored', onPressed: onInfo!)),
+                ],
+              ),
             const SizedBox(height: 12),
             child,
           ],
@@ -185,3 +206,12 @@ class FormOptionRow extends StatelessWidget {
 // Page padding the two forms share.
 const EdgeInsets kSadhanaFormPadding = EdgeInsets.fromLTRB(
     FolkSpace.pagePadding, FolkSpace.lg, FolkSpace.pagePadding, 32);
+
+/// The live chip of a scoring question: repaints on its own when an answer changes, nothing while unanswered.
+Widget pointsTrailing(LiveFormPoints points, PointsTopic topic) => ValueListenableBuilder<int>(
+      valueListenable: points.tick,
+      builder: (_, __, ___) {
+        final chip = points.chipFor(topic);
+        return chip == null ? const SizedBox.shrink() : PointsChip(key: ValueKey('chip-${topic.name}'), text: chip, multiplier: LiveFormPoints.isMultiplier(topic));
+      },
+    );

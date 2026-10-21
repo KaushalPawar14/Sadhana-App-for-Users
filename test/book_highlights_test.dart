@@ -257,8 +257,9 @@ void main() {
       expect(HighlightCategory.good.argb, 0xFFC38400);
       expect(HighlightCategory.excellent.argb, 0xFF2FA55A);
       expect(HighlightCategory.rare.argb, 0xFFAE7DF3);
-      expect([for (final c in HighlightCategory.values) c.glows], [false, false, true]);
-      expect([for (final c in HighlightCategory.values) c.label], ['Good', 'Excellent', 'Rare']);
+      expect([for (final c in HighlightCategory.values) c.glows], [false, false, true, false]);
+      expect([for (final c in HighlightCategory.values) c.label], ['Good', 'Excellent', 'Rare', 'Doubt']);
+      expect(HighlightCategory.doubt.argb, 0xFF6F7886, reason: 'a balanced mid gray');
       // Rare is a touch lighter than the others (it used to look dark and harsh), still clearly purple
       expect(luminance(HighlightCategory.rare.argb), greaterThan(luminance(0xFF9C4DFF)));
       expect((HighlightCategory.rare.argb >> 16) & 0xFF, lessThan(HighlightCategory.rare.argb & 0xFF), reason: 'more blue than red: purple');

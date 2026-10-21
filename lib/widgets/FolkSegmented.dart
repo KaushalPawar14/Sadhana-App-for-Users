@@ -2,13 +2,17 @@ import 'package:flutter/material.dart';
 
 import '../theme/FolkTheme.dart';
 import '../theme/FolkTokens.dart';
+import '../utils/UnseenDot.dart';
 import 'PressScale.dart';
 
 class FolkSegment<T> {
-  const FolkSegment({required this.value, required this.label});
+  const FolkSegment({required this.value, required this.label, this.dot = false});
 
   final T value;
   final String label;
+
+  /// The orange "new" dot beside the label.
+  final bool dot;
 }
 
 // A small segmented control: a soft track with one ink pill on the selected
@@ -97,10 +101,16 @@ class FolkSegmented<T> extends StatelessWidget {
                                     ? colors.primaryFg
                                     : colors.mutedText,
                               ),
-                              child: Text(
-                                segment.label,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                              child: UnseenBadge(
+                                show: segment.dot,
+                                offset: const Offset(-9, -3),
+                                dotSize: 8,
+                                ringColor: segment.value == value ? colors.primaryBg : colors.surfaceSecondary,
+                                child: Text(
+                                  segment.label,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
                             ),
                           ),

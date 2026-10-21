@@ -27,9 +27,10 @@ void phone(WidgetTester tester, double scale) {
 const rows = [
   ('My Competitions', 'Chanting competition and your badges', Icons.emoji_events_outlined, true),
   ('My Guide', 'SBSD', CupertinoIcons.person_2, false),
-  ('Notifications', 'Choose what you are notified about', CupertinoIcons.bell, true),
-  ('Date of Birth', 'Tap to add your date of birth', CupertinoIcons.gift, true),
-  ('Commitment', 'Tap to set your daily commitment', CupertinoIcons.flame_fill, true),
+  ('My Notifications', 'Choose what you are notified about', CupertinoIcons.bell, true),
+  ('My Date of Birth', 'Tap to add your date of birth', CupertinoIcons.gift, true),
+  ('My Commitments', 'Tap to set your daily commitment', CupertinoIcons.flame_fill, true),
+  ('My Music', 'Coming soon', CupertinoIcons.music_note_2, true),
 ];
 
 // The real row the Profile uses (My Guide has no tap: display only).
@@ -59,12 +60,12 @@ void main() {
     expect(FolkGradients.profileMenuIcon, FolkGradients.saffron);
   });
 
-  test('Profile uses the tile for all five rows and hardcodes nothing', () {
+  test('Profile uses the tile for all six rows and hardcodes nothing', () {
     final src = File('lib/pages/Profile.dart').readAsStringSync();
     final row = File('lib/widgets/ProfileMenuRow.dart').readAsStringSync();
     expect(RegExp(r'ProfileMenuIconTile\(').allMatches(row).length, 1, reason: 'one shared row widget');
     expect(src.contains('ProfileMenuIconTile('), isFalse);
-    for (final label in ['My Competitions', 'My Guide', 'Notifications', 'Date of Birth', 'Commitment']) {
+    for (final label in ['My Competitions', 'My Guide', 'My Notifications', 'My Date of Birth', 'My Commitments', 'My Music']) {
       expect(src, contains("'$label'"));
     }
     for (final gone in ['Book read', 'My Achievements', "'Chanting Competition'"]) {
@@ -76,12 +77,12 @@ void main() {
 
   for (final dark in [false, true]) {
     for (final scale in scales) {
-      testWidgets('${dark ? 'dark' : 'light'}, text scale $scale, 360 dp: five rows, dark tiles, golden icons, no overflow', (tester) async {
+      testWidgets('${dark ? 'dark' : 'light'}, text scale $scale, 360 dp: six rows, dark tiles, golden icons, no overflow', (tester) async {
         phone(tester, scale);
         await tester.pumpWidget(menu(dark));
         await tester.pump();
         expect(tester.takeException(), isNull, reason: 'dark=$dark scale=$scale');
-        expect(find.byType(ProfileMenuIconTile), findsNWidgets(5));
+        expect(find.byType(ProfileMenuIconTile), findsNWidgets(6));
         for (final e in tester.widgetList<ProfileMenuIconTile>(find.byType(ProfileMenuIconTile))) {
           final f = find.byWidget(e);
           final box = tester.widget<Container>(find.descendant(of: f, matching: find.byType(Container)).first);

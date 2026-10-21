@@ -10,6 +10,7 @@ import '../theme/FolkColors.dart';
 import '../theme/FolkTheme.dart';
 import '../theme/FolkTokens.dart';
 import '../utils/AssistantGreeting.dart';
+import '../utils/BookDoubts.dart';
 import '../utils/CallableMessage.dart';
 import '../utils/SeenMarkers.dart';
 import '../services/DailyMessageService.dart';
@@ -71,12 +72,26 @@ String todaySessionKey() => DateFormat('dd-MM-yyyy').format(DateTime.now());
 /// The "Prabhupada content feed" from the handoff is folded in here as
 /// starter questions rather than built as a separate browse screen: it is the
 /// same retrieval, and the handoff defines no content structure to browse by.
+/// A DOUBT from the book reader, asked of the assistant: the message (the question with its passage as context) is sent as
+/// the first question of this visit, and the server saves the AI's answer onto the doubt [doubtId] (see
+/// `functions/doubts.js`). It counts toward the daily limit like any question.
+class AssistantDoubt {
+  const AssistantDoubt({required this.doubtId, required this.message});
+
+  final String doubtId;
+  final String message;
+}
+
 class AssistantScreen extends StatefulWidget {
   final String uid;
+
+  /// Set when the reader opens the assistant for a doubt.
+  final AssistantDoubt? doubt;
 
   // Test seams: the app never sets these.
   final FirebaseFirestore? firestore;
   final Future<Map<String, dynamic>> Function(String message, String replyDocId)? chatCall;
+  final Future<Map<String, dynamic>> Function(String message, String replyDocId, String doubtId)? doubtChatCall;
   final DailyMessageService? dailyMessage;
 
   const AssistantScreen({
@@ -84,7 +99,9 @@ class AssistantScreen extends StatefulWidget {
     required this.uid,
     this.firestore,
     this.chatCall,
+    this.doubtChatCall,
     this.dailyMessage,
+    this.doubt,
   });
 
   @override
@@ -263,6 +280,24 @@ class _AssistantScreenState extends State<AssistantScreen> {
     super.dispose();
   }
 
+  /// Sends the reader's doubt as this visit's first question, unless today's questions are used up: then the student is
+  /// told so (the doubt stays saved, unanswered, and can be asked again tomorrow or sent to the guide).
+  Future<void> _startDoubt() async {
+    final d = widget.doubt!;
+    var used = _questionsUsed;
+    try {
+      final snap = await _firestore.collection('studentChats').doc(widget.uid).collection('sessions').doc(todaySessionKey()).get();
+      final n = snap.data()?['questionCount'];
+      used = n is num ? n.toInt() : 0;
+    } catch (_) {}
+    if (!mounted) return;
+    if (kDailyQuestionLimit - used <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text(kDoubtNoQuestionsLeft)));
+      return;
+    }
+    await _send(d.message, d.doubtId);
+  }
+
   /// Loads any earlier conversation, then shows the disclosure if this student
   /// has never acknowledged it.
   ///
@@ -322,6 +357,9 @@ class _AssistantScreenState extends State<AssistantScreen> {
               "you open this."
           : null;
     });
+
+    // A doubt from the book reader: its question goes first (when a question is left today).
+    if (widget.doubt != null) unawaited(_startDoubt());
 
     if (result.failed) {
       // Transient — auto-clears; never blocks ordinary use of the
@@ -549,7 +587,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
   // Sending
   // ---------------------------------------------------------------------------
 
-  Future<void> _send([String? preset]) async {
+  Future<void> _send([String? preset, String? doubtId]) async {
     final text = (preset ?? _input.text).trim();
     if (text.isEmpty || _sending) return;
 
@@ -582,7 +620,11 @@ class _AssistantScreenState extends State<AssistantScreen> {
     _listenForStreamedReply(replyRef);
 
     try {
-      await (widget.chatCall ?? _callChat)(text, replyRef.id);
+      if (doubtId != null) {
+        await (widget.doubtChatCall ?? ((m, r, d) => _callChat(m, r, doubtId: d)))(text, replyRef.id, doubtId);
+      } else {
+        await (widget.chatCall ?? _callChat)(text, replyRef.id);
+      }
 
       // `flagged`, `acuteRisk` and the final `reply` text all come back in
       // the payload but are intentionally not read here — see the class
@@ -632,12 +674,13 @@ class _AssistantScreenState extends State<AssistantScreen> {
   }
 
   /// The `studentChat` callable (the function lives in asia-south1, not the default region).
-  static Future<Map<String, dynamic>> _callChat(String message, String replyDocId) async {
+  static Future<Map<String, dynamic>> _callChat(String message, String replyDocId, {String? doubtId}) async {
     final callable = FirebaseFunctions.instanceFor(region: 'asia-south1')
         .httpsCallable('studentChat');
     final result = await callable.call<Map<String, dynamic>>({
       'message': message,
       'replyDocId': replyDocId,
+      if (doubtId != null) 'doubtId': doubtId,
     });
     return Map<String, dynamic>.from(result.data);
   }

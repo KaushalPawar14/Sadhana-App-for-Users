@@ -23,7 +23,7 @@ const String kImageChar = '￼';
 String renderedParagraphText(List<InlineItem> runs) =>
     runs.map((r) => r is TextRun ? r.text : kImageChar).join();
 
-enum HighlightCategory { good, excellent, rare }
+enum HighlightCategory { good, excellent, rare, doubt }
 
 extension HighlightCategoryX on HighlightCategory {
   String get key => name;
@@ -36,8 +36,13 @@ extension HighlightCategoryX on HighlightCategory {
         return 'Excellent';
       case HighlightCategory.rare:
         return 'Rare';
+      case HighlightCategory.doubt:
+        return 'Doubt';
     }
   }
+
+  /// The name on the Notes tile ("Doubts"); the others are the same as [label].
+  String get tileTitle => this == HighlightCategory.doubt ? 'Doubts' : label;
 
   /// The app's own category colours: a warm gold (Good), a green (Excellent) and a soft purple that glows a little
   /// (Rare). The same in Light, Dark and Sepia. Rare is deliberately a touch lighter than the other two, so its
@@ -50,6 +55,9 @@ extension HighlightCategoryX on HighlightCategory {
         return 0xFF2FA55A;
       case HighlightCategory.rare:
         return 0xFFAE7DF3;
+      case HighlightCategory.doubt:
+        // a balanced mid gray (a touch cool): clearly visible on the white, the dark and the sepia page
+        return 0xFF6F7886;
     }
   }
 

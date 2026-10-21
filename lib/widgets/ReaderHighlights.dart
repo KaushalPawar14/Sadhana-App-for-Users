@@ -420,6 +420,7 @@ Future<HighlightChoice?> showHighlightSheet(
   String submitLabel = 'Submit',
   bool showCategory = true,
   bool showNote = true,
+  bool allowDoubt = true,
 }) {
   return showModalBottomSheet<HighlightChoice>(
     context: context,
@@ -436,6 +437,7 @@ Future<HighlightChoice?> showHighlightSheet(
       submitLabel: submitLabel,
       showCategory: showCategory,
       showNote: showNote,
+      allowDoubt: allowDoubt,
     ),
   );
 }
@@ -451,6 +453,7 @@ class _HighlightSheet extends StatefulWidget {
     required this.submitLabel,
     required this.showCategory,
     required this.showNote,
+    required this.allowDoubt,
   });
 
   final Color chrome;
@@ -462,6 +465,9 @@ class _HighlightSheet extends StatefulWidget {
   final String submitLabel;
   final bool showCategory;
   final bool showNote;
+
+  /// Whether Doubt is offered (a new highlight: yes; changing an existing highlight's category: no).
+  final bool allowDoubt;
 
   @override
   State<_HighlightSheet> createState() => _HighlightSheetState();
@@ -490,7 +496,8 @@ class _HighlightSheetState extends State<_HighlightSheet> {
         child: GestureDetector(
           key: ValueKey('highlight-category-${c.key}'),
           behavior: HitTestBehavior.opaque,
-          onTap: () => setState(() => _category = c),
+          // Doubt does not wait for Submit: it goes straight to the doubt dialog (question + Ask AI / Ask guide).
+          onTap: () => c == HighlightCategory.doubt ? Navigator.pop<HighlightChoice>(context, (category: c, note: '')) : setState(() => _category = c),
           child: Container(
             constraints: const BoxConstraints(minHeight: 64),
             margin: const EdgeInsets.symmetric(horizontal: 4),
@@ -530,7 +537,23 @@ class _HighlightSheetState extends State<_HighlightSheet> {
               const SizedBox(height: 16),
               Text('Category', style: text.caption.copyWith(color: widget.secondary)),
               const SizedBox(height: 8),
-              Row(children: [for (final c in HighlightCategory.values) _tile(c)]),
+              // A 2 x 2 grid (four names do not fit in one row at large text sizes).
+              Builder(builder: (context) {
+                final cats = [for (final c in HighlightCategory.values) if (widget.allowDoubt || c != HighlightCategory.doubt) c];
+                if (cats.length <= 3) return Row(children: [for (final c in cats) _tile(c)]);
+                return Column(
+                  children: [
+                    for (var i = 0; i < cats.length; i += 2)
+                      Padding(
+                        padding: EdgeInsets.only(bottom: i + 2 < cats.length ? 8 : 0),
+                        child: Row(children: [
+                          _tile(cats[i]),
+                          if (i + 1 < cats.length) _tile(cats[i + 1]) else const Expanded(child: SizedBox()),
+                        ]),
+                      ),
+                  ],
+                );
+              }),
             ],
             if (widget.showNote) ...[
               const SizedBox(height: 16),

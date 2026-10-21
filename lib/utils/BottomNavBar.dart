@@ -10,6 +10,7 @@ import 'package:folk_app/theme/FolkTheme.dart';
 import 'package:folk_app/theme/FolkTokens.dart';
 import 'package:folk_app/utils/MainAppReached.dart';
 import 'package:folk_app/utils/SameGender.dart';
+import 'package:folk_app/utils/ResultsDots.dart';
 import 'package:folk_app/utils/SeenMarkers.dart';
 import 'package:folk_app/utils/UnseenDot.dart';
 import 'package:folk_app/widgets/EntryAnimation.dart';
@@ -71,12 +72,25 @@ Widget hostHeader(BuildContext context, int idx) {
 /// The pill's four items. [journeyUnseen] feeds the one unseen-content dot (on
 /// Journey); the launch ghost passes none.
 List<FolkNavItem> hostNavItems(BuildContext context,
-    {Stream<bool>? journeyUnseen}) {
+    {Stream<bool>? journeyUnseen, Stream<bool>? insightsUnseen}) {
   final colors = context.folk;
   final titles = kHostTabTitles;
   return [
+    // The Insights tab carries the orange dot while there are published results (weekly or monthly) the student has not
+    // opened yet (`ResultsDots`).
     FolkNavItem(
       label: titles[0],
+      decorate: insightsUnseen == null
+          ? null
+          : (context, icon) => StreamBuilder<bool>(
+                stream: insightsUnseen,
+                builder: (context, snap) => UnseenBadge(
+                  show: snap.data ?? false,
+                  offset: const Offset(0, -2),
+                  ringColor: colors.surface,
+                  child: icon,
+                ),
+              ),
       iconBuilder: (context, selected, color) => Icon(
         Icons.bar_chart_rounded,
         size: 22,
@@ -134,6 +148,7 @@ class CurvedNavBar extends StatefulWidget {
     this.loadUser,
     this.buildScreens,
     this.journeyUnseen,
+    this.insightsUnseen,
     this.dailyMessage,
   });
   final String role;
@@ -146,6 +161,10 @@ class CurvedNavBar extends StatefulWidget {
   final List<Widget> Function(String userName, String role)? buildScreens;
   @visibleForTesting
   final Stream<bool>? journeyUnseen;
+
+  /// Tests hand in the Insights dot; the app builds it from the results (`ResultsDots`).
+  @visibleForTesting
+  final Stream<bool>? insightsUnseen;
   @visibleForTesting
   final DailyMessageService? dailyMessage;
 
@@ -244,6 +263,7 @@ class _CurvedNavBarState extends State<CurvedNavBar>
   /// from this task's inventory, so they stay plain, undotted icons. Built
   /// once here, never in `build()`.
   late final Stream<bool> _journeyUnseen;
+  late final Stream<bool> _insightsUnseen = widget.insightsUnseen ?? ResultsDots.forCurrentUser()?.anyUnseen ?? Stream.value(false);
 
   @override
   void initState() {
@@ -534,7 +554,7 @@ class _CurvedNavBarState extends State<CurvedNavBar>
         // open.
         bottomNavigationBar: FloatingPillNavBar(
           currentIndex: currentIdx, // initial selection is index 2
-          items: hostNavItems(context, journeyUnseen: _journeyUnseen),
+          items: hostNavItems(context, journeyUnseen: _journeyUnseen, insightsUnseen: _insightsUnseen),
           onTap: (index) {
             setState(() {
               currentIdx = index;

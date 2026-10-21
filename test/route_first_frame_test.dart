@@ -22,6 +22,7 @@ import 'package:folk_app/utils/BookHighlights.dart';
 import 'package:folk_app/utils/BookLoader.dart';
 import 'package:folk_app/utils/BookNotes.dart';
 import 'package:folk_app/utils/Commitments.dart';
+import 'package:folk_app/utils/ResultsDots.dart';
 import 'package:folk_app/utils/SameGender.dart';
 
 import 'text_scale_test.dart' show loadAppFonts;
@@ -61,8 +62,8 @@ final pages = <_Page>[
   _Page('Books History', () => BooksHistoryPage(uid: 'u1', firestore: FakeFirebaseFirestore())),
   _Page('Books Notes', () => BooksNotesPage(uid: 'u1', firestore: FakeFirebaseFirestore())),
   _Page('Notes cards', () => NotesCardsPage(category: HighlightCategory.good, book: book())),
-  _Page('Leaderboard', () => LeaderboardPage(username: 'Asha', docsStream: Stream.value(docs()), changesLoader: (_) async => {})),
-  _Page('Leaderboard (Scores tab)', () => LeaderboardPage(username: 'Asha', docsStream: Stream.value(docs()), changesLoader: (_) async => {}, initialTab: LeaderboardTab.scores)),
+  _Page('Leaderboard', () => LeaderboardPage(username: 'Asha', docsStream: Stream.value(docs()), changesLoader: (_) async => {}, resultsDots: ResultsDots(FakeFirebaseFirestore(), 'u1'))),
+  _Page('Leaderboard (Scores tab)', () => LeaderboardPage(username: 'Asha', docsStream: Stream.value(docs()), changesLoader: (_) async => {}, initialTab: LeaderboardTab.scores, resultsDots: ResultsDots(FakeFirebaseFirestore(), 'u1'))),
   _Page('Submit Sadhana (FOLK form)', () => QuestionsPage(loadCommitments: () async => const Commitments(readingMinutes: 0))),
   _Page('Submit Sadhana (Hostel & Localite form)', () => SadhanaPage(loadCommitments: () async => const Commitments(readingMinutes: 0))),
   _Page(

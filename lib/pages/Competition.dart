@@ -5,7 +5,10 @@ import 'package:folk_app/scores/BestPerformer.dart';
 import 'package:folk_app/utils/Snackbar.dart';
 import '../theme/FolkTheme.dart';
 import '../theme/FolkTokens.dart';
+import '../theme/FolkColors.dart';
 import '../utils/InsightsData.dart';
+import '../utils/ResultsDots.dart';
+import '../utils/UnseenDot.dart';
 import '../utils/SadhanaReportSource.dart';
 import '../widgets/EntryAnimation.dart';
 import '../widgets/FloatingPillNavBar.dart';
@@ -26,6 +29,10 @@ class CompetitionPage extends StatefulWidget {
   // Tests hand in their own reports and clock; the app never sets these.
   @visibleForTesting
   final Future<Reports> Function(String username)? loadReports;
+
+  /// Tests hand in the results dot; the app reads it from `ResultsDots`.
+  @visibleForTesting
+  final Stream<bool>? resultsUnseen;
   @visibleForTesting
   final DateTime Function()? clock;
 
@@ -34,6 +41,7 @@ class CompetitionPage extends StatefulWidget {
     required this.role,
     this.username = '',
     this.loadReports,
+    this.resultsUnseen,
     this.clock,
   });
 
@@ -219,12 +227,23 @@ class _CompetitionPageState extends State<CompetitionPage> {
           // Leaderboard: full width, as tall as the squares below it.
           EntryAnimation(
             index: 2,
-            child: _tile(
-              'Leaderboard',
-              'Your group ranking',
-              FolkGradientStyle.saffron,
-              Icons.emoji_events,
-              columnWidth,
+            child: StreamBuilder<bool>(
+              // The orange dot while weekly / monthly results are published and not opened yet.
+              stream: widget.resultsUnseen ?? ResultsDots.forCurrentUser()?.anyUnseen,
+              builder: (context, snap) => UnseenBadge(
+                key: const ValueKey('leaderboard-dot'),
+                show: snap.data ?? false,
+                offset: const Offset(7, 7),
+                dotSize: 10,
+                ringColor: FolkColors.onGradientIconTile,
+                child: _tile(
+                  'Leaderboard',
+                  'Your group ranking',
+                  FolkGradientStyle.saffron,
+                  Icons.emoji_events,
+                  columnWidth,
+                ),
+              ),
             ),
           ),
           const SizedBox(height: FolkSpace.cardGap),

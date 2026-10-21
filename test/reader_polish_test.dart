@@ -258,7 +258,7 @@ void main() {
       expect(c(HighlightCategory.excellent).g, greaterThan(c(HighlightCategory.excellent).r));
       expect(c(HighlightCategory.rare).b, greaterThan(c(HighlightCategory.rare).g), reason: 'purple');
       expect(c(HighlightCategory.rare).r, greaterThan(c(HighlightCategory.rare).g));
-      expect([for (final k in HighlightCategory.values) k.glows], [false, false, true]);
+      expect([for (final k in HighlightCategory.values) k.glows], [false, false, true, false]);
     });
 
     test('Rare is balanced with the other two: its tint is not heavier, its border not darker than theirs by much', () {

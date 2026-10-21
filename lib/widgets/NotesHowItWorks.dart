@@ -10,8 +10,9 @@ import 'PrimaryButton.dart';
 const List<String> kNotesHowSteps = [
   'While reading, long-press any text to select it (use Sentence or Paragraph to select quickly).',
   'Choose Good, Excellent or Rare, add a note if you like, and tap Highlight.',
+  'Have a doubt about a passage? Choose Doubt, write your question, and ask the AI or your guide. The answer comes back to you under Doubts.',
   'Tap a highlight to read or edit its note; long-press it to resize or delete.',
-  'Find all your highlights here: choose a category → a book → swipe through the numbered notes, or type a number to jump.',
+  'Find all your highlights and doubts here: choose a category → a book → swipe through the numbered notes, or type a number to jump.',
   'Your highlights and notes are private — only you can see them.',
 ];
 
@@ -134,6 +135,7 @@ class _CategoryChip extends StatelessWidget {
         HighlightCategory.good => FolkGradients.saffron,
         HighlightCategory.excellent => FolkGradients.green,
         HighlightCategory.rare => FolkGradients.violet,
+        HighlightCategory.doubt => FolkGradients.slate,
       };
 
   @override

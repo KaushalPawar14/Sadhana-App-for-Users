@@ -63,19 +63,20 @@ void main() {
     expect(find.byKey(const ValueKey('notes-how-sheet')), findsNothing, reason: 'closed until tapped');
   });
 
-  testWidgets('tapping it opens the sheet: the title, the five numbered steps, the three category chips, a Close button', (tester) async {
+  testWidgets('tapping it opens the sheet: the title, the six numbered steps, the four category chips, a Close button', (tester) async {
     await openNotes(tester);
     await openSheet(tester);
     expect(find.byKey(const ValueKey('notes-how-sheet')), findsOneWidget);
     expect(find.text('How notes work'), findsOneWidget);
-    expect(kNotesHowSteps.length, 5);
-    for (var i = 0; i < 5; i++) {
+    expect(kNotesHowSteps.length, 6);
+    for (var i = 0; i < 6; i++) {
       expect(find.text('${i + 1}'), findsOneWidget, reason: 'step number ${i + 1}');
     }
     // the wording of the steps (short, as specified)
     expect(find.textContaining('long-press any text to select it'), findsOneWidget);
     expect(find.textContaining('Choose Good, Excellent or Rare'), findsOneWidget);
     expect(find.textContaining('tap Highlight'), findsOneWidget);
+    expect(find.textContaining('Have a doubt about a passage? Choose Doubt'), findsOneWidget, reason: 'the doubts step');
     expect(find.textContaining('Tap a highlight to read or edit its note'), findsOneWidget);
     expect(find.textContaining('long-press it to resize or delete'), findsOneWidget);
     expect(find.textContaining('choose a category → a book → swipe through the numbered notes, or type a number to jump'), findsOneWidget);
@@ -89,6 +90,7 @@ void main() {
         HighlightCategory.good => FolkGradients.saffron,
         HighlightCategory.excellent => FolkGradients.green,
         HighlightCategory.rare => FolkGradients.violet,
+        HighlightCategory.doubt => FolkGradients.slate,
       });
       expect(tester.widget<Text>(find.descendant(of: chip, matching: find.text(c.label))).style!.color, FolkColors.onGradient);
     }
@@ -110,7 +112,8 @@ void main() {
     expect(find.byKey(const ValueKey('notes-how-sheet')), findsNothing);
     // drag down
     await openSheet(tester);
-    await tester.drag(find.text('How notes work'), const Offset(0, 500));
+    final top = tester.getTopLeft(find.byKey(const ValueKey('notes-how-sheet'))).dy;
+    await tester.flingFrom(Offset(180, top + 14), const Offset(0, 600), 2500); // by the handle (the steps scroll inside the sheet)
     await settle(tester);
     expect(find.byKey(const ValueKey('notes-how-sheet')), findsNothing);
     // and it opens again afterwards

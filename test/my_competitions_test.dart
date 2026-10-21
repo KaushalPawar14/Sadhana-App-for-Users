@@ -76,7 +76,7 @@ void main() {
 
     test('Profile wiring: the rows and their order, the fields they read, the ghost', () {
       final src = File('lib/pages/Profile.dart').readAsStringSync();
-      final order = ['My Competitions', 'My Guide', 'Notifications', 'Date of Birth', 'Commitment'].map((l) => src.indexOf("'$l'")).toList();
+      final order = ['My Competitions', 'My Guide', 'My Notifications', 'My Date of Birth', 'My Commitments', 'My Music'].map((l) => src.indexOf("'$l'")).toList();
       expect(order.every((i) => i > 0), isTrue);
       expect(order, [...order]..sort());
       for (final gone in ['Book read', 'My Achievements', "'Chanting Competition'", 'BooksSelectionScreen', 'AchievementsPage', 'ChantingCompetitionPage']) {
@@ -86,7 +86,7 @@ void main() {
       expect(src, contains('guideRowSubtitle(guideName)'), reason: 'shows the admin display name');
       expect(src, contains('StudentApi.instance.getMyGuide()'), reason: 'from the callable, never adminUsers');
       expect(src, contains('MyCompetitionsPage(username: name ?? "")'));
-      expect(src, contains('height: 5 * 64 + 12'), reason: 'the ghost has five rows now');
+      expect(src, contains('height: 6 * 64 + 12'), reason: 'the ghost has six rows now');
       // the notification deep link opens the same page
       expect(File('lib/utils/NotificationRouter.dart').readAsStringSync(), contains('const MyCompetitionsPage()'));
     });

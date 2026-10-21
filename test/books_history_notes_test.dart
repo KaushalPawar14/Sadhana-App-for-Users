@@ -312,7 +312,7 @@ void main() {
   }
 
   group('Books -> Notes', () {
-    testWidgets('a 2 x 2 area: GOOD and EXCELLENT squares on top, RARE a wide rectangle under them, in the highlight colours', (tester) async {
+    testWidgets('a 2 x 2 area of squares: GOOD and EXCELLENT on top, RARE and DOUBTS under them', (tester) async {
       phone(tester, 1.0);
       await tester.pumpWidget(host(BooksNotesPage(uid: 'u1', firestore: await notesDb())));
       await settle(tester);
@@ -324,11 +324,15 @@ void main() {
       expect((good.width - excellent.width).abs(), lessThan(1));
       expect(good.left, lessThan(excellent.left), reason: 'GOOD top-left, EXCELLENT top-right');
       expect((good.top - excellent.top).abs(), lessThan(1));
-      expect(rare.top, greaterThan(good.bottom), reason: 'RARE across the bottom');
-      expect(rare.width, closeTo(good.width + excellent.width + 12, 14), reason: 'as wide as both squares together');
-      expect(rare.height, lessThan(rare.width / 2), reason: 'a wide rectangle');
+      final doubt = tester.getRect(find.byKey(const ValueKey('notes-doubt')));
+      expect(rare.top, greaterThan(good.bottom), reason: 'RARE under GOOD');
+      expect(doubt.top, greaterThan(excellent.bottom), reason: 'DOUBTS under EXCELLENT');
+      expect((rare.top - doubt.top).abs(), lessThan(1), reason: 'the second row');
+      expect(rare.left, lessThan(doubt.left), reason: 'RARE bottom-left, DOUBTS bottom-right');
+      expect((rare.left - good.left).abs(), lessThan(1), reason: 'the columns line up');
+      expect((rare.width - good.width).abs(), lessThan(1), reason: 'four equal squares');
+      expect((doubt.width - doubt.height).abs(), lessThan(1), reason: 'DOUBTS is a square');
       expect(good.height, closeTo(good.width, 1), reason: 'a square at the normal text size');
-      expect(rare.height, lessThan(rare.width / 2));
     });
 
     testWidgets('the app\'s tile style: gradient + pattern, frosted icon circle, arrow, title, count line, ink text', (tester) async {
@@ -339,6 +343,7 @@ void main() {
         'notes-good': (FolkGradientStyle.saffron, 'Good', '4 highlights in 2 books', Icons.star_outline_rounded),
         'notes-excellent': (FolkGradientStyle.green, 'Excellent', '1 highlight in 1 book', Icons.workspace_premium_outlined),
         'notes-rare': (FolkGradientStyle.violet, 'Rare', 'No highlights yet', Icons.auto_awesome_outlined),
+        'notes-doubt': (FolkGradientStyle.slate, 'Doubts', 'No doubts yet', Icons.help_outline_rounded),
       };
       for (final e in expected.entries) {
         final tile = find.byKey(ValueKey(e.key));
@@ -364,11 +369,14 @@ void main() {
         expect(count.style!.color, isNotNull);
         expect(FolkColors.onGradient, const Color(0xFF1E1B2E));
       }
-      expect(find.byType(EntryAnimation), findsNWidgets(3), reason: 'the tiles come in like the other tiles');
+      expect(find.byType(EntryAnimation), findsNWidgets(4), reason: 'the tiles come in like the other tiles');
       expect(notesCountLine(12, 3), '12 highlights in 3 books');
       expect(notesCountLine(1, 1), '1 highlight in 1 book');
       expect(notesCountLine(2, 1), '2 highlights in 1 book');
       expect(notesCountLine(0, 0), 'No highlights yet');
+      expect(notesCountLine(3, 2, noun: 'doubt'), '3 doubts in 2 books');
+      expect(notesCountLine(1, 1, noun: 'doubt'), '1 doubt in 1 book');
+      expect(notesCountLine(0, 0, noun: 'doubt'), 'No doubts yet');
     });
 
     for (final scale in scales) {
@@ -380,14 +388,16 @@ void main() {
           final good = tester.getRect(find.byKey(const ValueKey('notes-good')));
           final excellent = tester.getRect(find.byKey(const ValueKey('notes-excellent')));
           final rare = tester.getRect(find.byKey(const ValueKey('notes-rare')));
+          final doubt = tester.getRect(find.byKey(const ValueKey('notes-doubt')));
           expect(good.height, closeTo(excellent.height, .5), reason: 'the pair is as tall as the taller one');
+          expect(rare.height, closeTo(doubt.height, .5), reason: 'the second pair too');
           expect(good.height, greaterThanOrEqualTo(good.width - 1), reason: 'at least a square');
           expect(rare.top, greaterThan(good.bottom));
-          for (final r in [good, excellent, rare]) {
+          for (final r in [good, excellent, rare, doubt]) {
             expect(r.left, greaterThanOrEqualTo(0));
             expect(r.right, lessThanOrEqualTo(360));
           }
-          for (final t in ['Good', 'Excellent', 'Rare', '4 highlights in 2 books', '1 highlight in 1 book', 'No highlights yet']) {
+          for (final t in ['Good', 'Excellent', 'Rare', 'Doubts', '4 highlights in 2 books', '1 highlight in 1 book', 'No highlights yet', 'No doubts yet']) {
             expect(find.text(t), findsOneWidget, reason: t);
           }
           expect(tester.takeException(), isNull);
@@ -405,18 +415,17 @@ void main() {
       expect(find.byKey(const ValueKey('notes-empty-category')), findsOneWidget);
     });
 
-    testWidgets('while loading: a ghost with the tiles\' own shape (two squares and a wide one), then the tiles', (tester) async {
+    testWidgets('while loading: a ghost with the tiles\' own shape (four squares), then the tiles', (tester) async {
       phone(tester, 1.0);
       await tester.pumpWidget(host(BooksNotesPage(uid: 'u1', firestore: await notesDb())));
-      expect(find.byType(GhostPlaceholder), findsNWidgets(3));
-      final ghosts = tester.widgetList<GhostPlaceholder>(find.byType(GhostPlaceholder)).toList();
-      expect(ghosts[0].width, ghosts[0].height, reason: 'a square ghost');
-      expect(ghosts[1].width, ghosts[1].height);
-      expect(ghosts[2].width, greaterThan(ghosts[0].width! * 1.9), reason: 'the wide one');
+      expect(find.byType(GhostPlaceholder), findsNWidgets(4));
+      for (final g in tester.widgetList<GhostPlaceholder>(find.byType(GhostPlaceholder))) {
+        expect(g.width, g.height, reason: 'a square ghost');
+      }
       expect(find.byType(InsightTile), findsNothing);
       await settle(tester);
       expect(find.byType(GhostPlaceholder), findsNothing);
-      expect(find.byType(InsightTile), findsNWidgets(3));
+      expect(find.byType(InsightTile), findsNWidgets(4));
     });
 
     testWidgets('tap a category: only the NAMES of the books that have highlights in it, alphabetical', (tester) async {

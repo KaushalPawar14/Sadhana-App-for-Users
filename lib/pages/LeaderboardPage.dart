@@ -8,6 +8,8 @@ import '../theme/FolkColors.dart';
 import '../theme/FolkTheme.dart';
 import '../theme/FolkTokens.dart';
 import '../utils/LeaderboardData.dart';
+import '../utils/UnseenDot.dart';
+import '../utils/ResultsDots.dart';
 import '../utils/SameGender.dart';
 import '../widgets/EntryAnimation.dart';
 import '../widgets/FolkCard.dart';
@@ -44,6 +46,7 @@ class LeaderboardPage extends StatefulWidget {
     this.firestore,
     this.initialPeriod = BoardPeriod.weekly,
     this.initialTab = LeaderboardTab.leaderboard,
+    this.resultsDots,
   });
 
   /// The student's own name (their `competition` document).
@@ -63,6 +66,10 @@ class LeaderboardPage extends StatefulWidget {
 
   final BoardPeriod initialPeriod;
   final LeaderboardTab initialTab;
+
+  /// Tests hand in the results dots; the app reads them from `ResultsDots`.
+  @visibleForTesting
+  final ResultsDots? resultsDots;
 
   @override
   State<LeaderboardPage> createState() => _LeaderboardPageState();
@@ -108,7 +115,15 @@ class _LeaderboardPageState extends State<LeaderboardPage> {
         _docs = _openDocs();
       });
 
+  ResultsDots? get _dots => widget.resultsDots ?? ResultsDots.forCurrentUser();
+
+  /// The orange dots of the published results: one stream per period.
+  late final Stream<bool>? _weeklyNew = _dots?.unseen(BoardPeriod.weekly);
+  late final Stream<bool>? _monthlyNew = _dots?.unseen(BoardPeriod.monthly);
+
+  /// The Results of the SELECTED period are opened: that period's dots go everywhere (nothing else clears them).
   void _openResults() {
+    _dots?.markSeen(_period);
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -123,15 +138,30 @@ class _LeaderboardPageState extends State<LeaderboardPage> {
   Widget build(BuildContext context) {
     return FolkScaffold(
       title: 'Leaderboard',
-      actions: [_ResultsButton(onPressed: _openResults)],
+      actions: [
+        // The dot on "Results" belongs to the SELECTED period's results.
+        StreamBuilder<bool>(
+          stream: _period == BoardPeriod.weekly ? _weeklyNew : _monthlyNew,
+          builder: (context, snap) => UnseenBadge(
+            key: const ValueKey('results-dot'),
+            show: snap.data ?? false,
+            offset: const Offset(2, 2),
+            child: _ResultsButton(onPressed: _openResults),
+          ),
+        ),
+      ],
       bottom: Padding(
         padding: const EdgeInsets.fromLTRB(FolkSpace.pagePadding, FolkSpace.md, FolkSpace.pagePadding, FolkSpace.sm),
         child: Column(
           children: [
-            FolkSegmented<BoardPeriod>(
-              segments: [for (final p in BoardPeriod.values) FolkSegment(value: p, label: p.label)],
-              value: _period,
-              onChanged: (v) => setState(() => _period = v),
+            // The dot on "Monthly" shows while the monthly results are new (it leads the student there).
+            StreamBuilder<bool>(
+              stream: _monthlyNew,
+              builder: (context, snap) => FolkSegmented<BoardPeriod>(
+                segments: [for (final p in BoardPeriod.values) FolkSegment(value: p, label: p.label, dot: p == BoardPeriod.monthly && (snap.data ?? false))],
+                value: _period,
+                onChanged: (v) => setState(() => _period = v),
+              ),
             ),
             const SizedBox(height: 8),
             FolkSegmented<LeaderboardTab>(

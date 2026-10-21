@@ -13,6 +13,8 @@ import 'package:folk_app/widgets/FolkScaffold.dart';
 import 'package:folk_app/widgets/PrimaryButton.dart';
 import 'package:folk_app/widgets/SadhanaFormWidgets.dart';
 import 'package:folk_app/utils/DayScore.dart';
+import 'package:folk_app/utils/FormPoints.dart';
+import 'package:folk_app/widgets/PointsHelpSheet.dart';
 
 class SadhanaPage extends StatefulWidget {
   const SadhanaPage({
@@ -61,6 +63,42 @@ class SadhanaPageState extends State<SadhanaPage> {
   Map<int, int?> selectedOptions = {};
   Map<int, String> answers = {};
 
+  // LIVE POINTS: each scoring question shows what its answer earns; the total sits above Submit. All of it comes from
+  // `utils/DayScore.dart` (the same rules as the server).
+  late final LiveFormPoints _points = LiveFormPoints(form: ReportForm.hostel, read: _readValues);
+
+  Map<String, Object?> _readValues() => {
+        'chantRounds': parseWholeNumber(roundsController.text),
+        'bookReading': parseWholeNumber(bookController.text),
+        'classHearing': int.tryParse(answers[2] ?? ''),
+        'wakeUpTime': wakeUpTimeController.text,
+        'sleepTiming': sleepTime.text,
+        'finishTiming': japaFinish.text,
+      };
+
+  PointsTopic? _topicOf(String question) => switch (question) {
+        'Sleep time of yesterday' => PointsTopic.sleep,
+        'Waking Up Time for today?' => PointsTopic.wakeup,
+        'Total rounds chanted yesterday' => PointsTopic.chanting,
+        'Heard Bhagavatam Class today ?' => PointsTopic.sbClass,
+        'Total book reading (in mins) yesterday' => PointsTopic.reading,
+        'Japa finish time of yesterday' => PointsTopic.japa,
+        _ => null,
+      };
+
+  /// A question's card, with its live chip and its "i" when it is a scoring question.
+  FormQuestionCard _questionCard({required String question, required Widget child}) {
+    final topic = _topicOf(question);
+    return FormQuestionCard(
+      question: question,
+      trailing: topic == null ? null : pointsTrailing(_points, topic),
+      onInfo: topic == null
+          ? null
+          : () => showPointsHelp(context, topic: topic, form: ReportForm.hostel, commitments: _points.commitments),
+      child: child,
+    );
+  }
+
   // LOGIC CHANGES (save path): the button is busy while a save runs, and a field
   // the last Submit rejected shows its message until it is edited.
   bool _saving = false;
@@ -71,10 +109,20 @@ class SadhanaPageState extends State<SadhanaPage> {
     super.initState();
     final d = widget.initialDate;
     if (d != null) dateController.text = d.toString().split(' ')[0];
+    for (final c in [roundsController, bookController, wakeUpTimeController, sleepTime, japaFinish]) {
+      c.addListener(_points.bump);
+    }
+    (widget.loadCommitments ?? loadMyCommitments)().then((c) {
+      if (mounted) _points.setCommitments(c);
+    }, onError: (_) {});
   }
 
   @override
   void dispose() {
+    for (final c in [roundsController, bookController, wakeUpTimeController, sleepTime, japaFinish]) {
+      c.removeListener(_points.bump);
+    }
+    _points.dispose();
     _errors.dispose();
     super.dispose();
   }
@@ -140,6 +188,7 @@ class SadhanaPageState extends State<SadhanaPage> {
     if (!commitments.complete) {
       commitments = await ensureCommitments(context, commitments, save: widget.saveCommitment);
       if (!mounted) return;
+      _points.setCommitments(commitments);
     }
     if (looksLikeTypo(roundsValue!, commitments.rounds) &&
         !await confirmUnusualAmount(context,
@@ -352,6 +401,8 @@ class SadhanaPageState extends State<SadhanaPage> {
                   labelText: "HH : MM",
                   context: context),
               const SizedBox(height: 20),
+              TodayTotal(points: _points),
+              const SizedBox(height: 12),
               PrimaryButton(
                 label: "Submit",
                 loading: _saving,
@@ -380,7 +431,7 @@ class SadhanaPageState extends State<SadhanaPage> {
     }
 
     final style = context.folkText;
-    return FormQuestionCard(
+    return _questionCard(
       question: question,
       // Choosing an option rebuilds this card only, not the whole form.
       child: StatefulBuilder(
@@ -415,7 +466,7 @@ class SadhanaPageState extends State<SadhanaPage> {
   }) {
     final colors = context.folk;
     final style = context.folkText;
-    return FormQuestionCard(
+    return _questionCard(
       question: question,
       // Choosing an answer rebuilds this card only, not the whole form.
       child: StatefulBuilder(
@@ -433,6 +484,7 @@ class SadhanaPageState extends State<SadhanaPage> {
           onChanged: (value) {
             answers[questionId] = value!;
             selectedOptions[questionId] = int.parse(value);
+            _points.bump();
             setCard(() {});
           },
         ),
@@ -449,7 +501,7 @@ class SadhanaPageState extends State<SadhanaPage> {
     String? errorKey,
   }) {
     final style = context.folkText;
-    return FormQuestionCard(
+    return _questionCard(
       question: question,
       child: sadhanaErrorBuilder(
         _errors,
@@ -516,7 +568,7 @@ class SadhanaPageState extends State<SadhanaPage> {
         ),
       ),
     );
-    return FormQuestionCard(
+    return _questionCard(
       question: question,
       child: !sleepRule
           ? field

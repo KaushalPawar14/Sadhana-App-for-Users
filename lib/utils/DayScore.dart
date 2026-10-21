@@ -24,6 +24,33 @@ const List<List<num>> _temple = [[5 * 60 + 35, 1.5], [5 * 60 + 45, 1.25], [6 * 6
 const List<List<num>> _wakeup = [[5 * 60 + 30, 1.5], [6 * 60, 1.25], [6 * 60 + 30, 1.15]];
 const List<List<num>> _sleepHostel = [[22 * 60 + 30, 1.5], [23 * 60, 1.25], [23 * 60 + 30, 1.15]];
 
+/// Which multiplier's tier table.
+enum ScoreTier { japa, sleepFolk, temple, wakeup, sleepHostel }
+
+/// The tiers of a multiplier (the very numbers [scoreDayTotal] uses): "by [limit] minutes after midnight" earns
+/// [multiplier]; anything later (or a missing time) is 1.0.
+List<({int limit, double multiplier})> tierRows(ScoreTier tier) {
+  final rows = switch (tier) {
+    ScoreTier.japa => _japa,
+    ScoreTier.sleepFolk => _sleepFolk,
+    ScoreTier.temple => _temple,
+    ScoreTier.wakeup => _wakeup,
+    ScoreTier.sleepHostel => _sleepHostel,
+  };
+  return [for (final r in rows) (limit: r[0].toInt(), multiplier: r[1].toDouble())];
+}
+
+/// Minutes since midnight as a clock time: 335 -> "5:35 AM", 1320 -> "10:00 PM".
+String clockText(int minutes) {
+  final h24 = minutes ~/ 60;
+  final m = minutes % 60;
+  final h12 = h24 % 12 == 0 ? 12 : h24 % 12;
+  return '$h12:${m.toString().padLeft(2, '0')} ${h24 < 12 ? 'AM' : 'PM'}';
+}
+
+/// A multiplier as shown: "×1.5", "×1.25", "×1.0".
+String multiplierText(double m) => '×${m == m.roundToDouble() ? m.toStringAsFixed(1) : m.toString()}';
+
 /// "HH:mm", "H:mm" or "h:mm a" -> minutes since midnight, or null.
 int? minutesOf(Object? value) {
   final s = (value ?? '').toString().trim();
