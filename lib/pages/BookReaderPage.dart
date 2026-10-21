@@ -18,6 +18,7 @@ import '../utils/BookHighlightStore.dart';
 import '../utils/BookHighlights.dart';
 import '../utils/BookLoader.dart';
 import '../utils/ReaderContrast.dart';
+import '../utils/ReadingSessionStore.dart';
 import '../utils/BookDoubts.dart';
 import '../widgets/DoubtDialogs.dart';
 import 'AssistantScreen.dart' show AssistantDoubt, AssistantScreen, kAssistantRouteName;
@@ -172,6 +173,10 @@ class BookReaderPage extends StatefulWidget {
   @visibleForTesting
   final DateTime Function()? clock;
 
+  /// Where the running reading session is kept on the phone (tests hand in their own; the app uses the device's).
+  @visibleForTesting
+  final ReadingSessionStore? readingStore;
+
   /// Where doubts are kept, the student's name for them, and the assistant screen a doubt opens (tests hand in their
   /// own; the app uses `bookDoubts`, the profile name and the real assistant).
   @visibleForTesting
@@ -193,6 +198,7 @@ class BookReaderPage extends StatefulWidget {
     this.extras,
     this.highlightStore,
     this.clock,
+    this.readingStore,
     this.doubtStore,
     this.studentName,
     this.assistantBuilder,
@@ -202,7 +208,7 @@ class BookReaderPage extends StatefulWidget {
   State<BookReaderPage> createState() => _BookReaderPageState();
 }
 
-class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProviderStateMixin {
+class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final ScrollController _scrollController = ScrollController();
 
@@ -231,8 +237,36 @@ class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProvid
   /// bookmarked paragraph into view. Rebuilt whenever the chapter changes.
   List<GlobalKey> _paragraphKeys = [];
 
-  /// Set once parsing finishes and content becomes visible.
-  DateTime? _readingStartedAt;
+  // --- reading time (see ReadingSessionStore.dart) ----------------------------------------------------------
+
+  /// Counts only while the student is really reading: the app is in front AND this page is the one on screen. It is
+  /// paused in the background (minimised, screen locked, another app on top), under another page (the assistant, say), and
+  /// from the moment the book is handed back. Dialogs and sheets over the reader are part of reading and do not pause it.
+  late final ReadingTimer _timer = ReadingTimer(_monotonic);
+  final Stopwatch _stopwatch = Stopwatch()..start();
+  DateTime? _clockStart;
+
+  /// A monotonic reading: the stopwatch in the app; in tests, the hand-moved clock they hand in.
+  Duration _monotonic() {
+    final c = widget.clock;
+    if (c == null) return _stopwatch.elapsed;
+    final now = c();
+    return now.difference(_clockStart ??= now);
+  }
+
+  /// Set once parsing finishes and content becomes visible (the timer starts only then).
+  bool _readingBegun = false;
+  bool _appActive = true;
+  bool _coveredByPage = false;
+  bool _handedOff = false;
+  ReadingSession? _session;
+  Timer? _saveTimer;
+
+  ReadingSessionStore? _defaultReadingStore;
+  ReadingSessionStore get _readingStore => widget.readingStore ?? (_defaultReadingStore ??= ReadingSessionStore());
+
+  /// RDUA chapter time is not counted anywhere (see the RDUA screen), so it is not kept either.
+  bool get _keepsSession => !widget.isRdua;
 
   /// Reading preferences (Part 3/4 of the Book Reader redesign). Device
   /// setting, but the source of truth is `users/{uid}.readingPrefs` — the
@@ -248,6 +282,11 @@ class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProvid
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final covered = _isCovered();
+    if (covered != _coveredByPage) {
+      _coveredByPage = covered;
+      _syncReading();
+    }
     if (_themeStarted) return;
     _themeStarted = true;
     // Before the first frame: the mode used last in this session, else the app's own (a dark app opens
@@ -359,11 +398,19 @@ class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProvid
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    final life = WidgetsBinding.instance.lifecycleState;
+    _appActive = life == null || life == AppLifecycleState.resumed;
     _load();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    // Closed without handing the time over (the page was removed another way): keep what was counted for the next start.
+    _timer.pause();
+    _saveTimer?.cancel();
+    _persistSession();
     _extrasTimer?.cancel();
     _edgeScrollTimer?.cancel();
     _focusController.dispose();
@@ -501,9 +548,9 @@ class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProvid
           ReaderLook.remember(newTheme: _theme, newFontScale: _fontScale);
           _finished = finished;
           _loading = false;
-          // Timer starts only now that readable content is on screen.
-          _readingStartedAt = _now();
         });
+        // Timer starts only now that readable content is on screen.
+        _beginReading();
         if (_highlightsOn) _loadHighlights();
 
         // Once the chapter has laid out, bring the bookmarked paragraph on
@@ -1683,10 +1730,88 @@ class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProvid
   // Exit handling
   // ---------------------------------------------------------------------------
 
-  /// The reading time never pauses: selecting, the panel, edit mode and dialogs are all part of reading.
-  int get _elapsedSeconds => _readingStartedAt == null
-      ? 0
-      : _now().difference(_readingStartedAt!).inSeconds;
+  // --- the reading timer ------------------------------------------------------------------------------------
+
+  /// Selecting, the panel, edit mode and dialogs are all part of reading (the timer keeps running); only leaving the app or
+  /// the page pauses it.
+  int get _elapsedSeconds => _timer.seconds;
+
+  /// Is another PAGE on top of the reader? A dialog or sheet is not one. A page that has finished its transition is opaque,
+  /// which turns the reader's tickers off; a page that has only just been pushed is seen as the top route.
+  bool _isCovered() {
+    final route = ModalRoute.of(context);
+    if (route == null || route.isCurrent) return false;
+    if (!TickerMode.valuesOf(context).enabled) return true;
+    Route<dynamic>? top;
+    try {
+      // Pops nothing: the predicate answers true for the first (top) route.
+      Navigator.of(context).popUntil((r) {
+        top = r;
+        return true;
+      });
+    } catch (_) {}
+    return top is PageRoute;
+  }
+
+  void _beginReading() {
+    if (_readingBegun) return;
+    _readingBegun = true;
+    final start = _now();
+    _session = ReadingSession(
+      id: readingSessionId(uid: widget.uid, level: widget.level, bookKey: widget.bookKey, start: start),
+      uid: widget.uid,
+      level: widget.level,
+      bookKey: widget.bookKey,
+      title: widget.bookTitle,
+      seconds: 0,
+      when: start,
+      run: ReadingSessionStore.currentRun,
+    );
+    _syncReading();
+  }
+
+  /// Runs the timer exactly when the student is reading; pausing also keeps the session on the phone.
+  void _syncReading() {
+    final reading = _readingBegun && _appActive && !_coveredByPage && !_handedOff && mounted;
+    if (reading) {
+      if (_timer.running) return;
+      _timer.start();
+      _saveTimer ??= Timer.periodic(kReadingSaveEvery, (_) => _persistSession());
+    } else if (_timer.running) {
+      _timer.pause();
+      _saveTimer?.cancel();
+      _saveTimer = null;
+      _persistSession();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _appActive = state == AppLifecycleState.resumed;
+    _syncReading();
+  }
+
+  /// Keeps the running session on the phone (about every 12 s, on every pause), so an app that is killed loses nothing.
+  void _persistSession() {
+    final s = _session;
+    if (s == null || !_keepsSession || _handedOff) return;
+    unawaited(_readingStore.save(s.copyWith(seconds: _timer.seconds, when: _now())));
+  }
+
+  /// Leaves the book: the seconds go back to the book list (which writes them), and the stored session is marked as handed
+  /// over until the book list has issued the writes (then it settles it).
+  void _leave() {
+    final seconds = _elapsedSeconds;
+    _timer.pause();
+    _saveTimer?.cancel();
+    _saveTimer = null;
+    final s = _session;
+    if (s != null && _keepsSession && !_handedOff) {
+      unawaited(_readingStore.markClosing(s.copyWith(seconds: seconds, when: _now())));
+    }
+    _handedOff = true;
+    Navigator.pop(context, seconds);
+  }
 
   Future<void> _handleExit() async {
     // Back while selecting or editing a highlight closes that first; it never leaves the book.
@@ -1696,7 +1821,7 @@ class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProvid
     }
     // A bookmark already exists — leave without asking.
     if (_hasBookmark || _loading || _error != null) {
-      if (mounted) Navigator.pop(context, _elapsedSeconds);
+      if (mounted) _leave();
       return;
     }
 
@@ -1736,7 +1861,7 @@ class _BookReaderPageState extends State<BookReaderPage> with SingleTickerProvid
       return;
     }
 
-    if (mounted) Navigator.pop(context, _elapsedSeconds);
+    if (mounted) _leave();
   }
 
   // ---------------------------------------------------------------------------

@@ -1,3 +1,5 @@
+import 'dart:async' show unawaited;
+
 import 'package:firebase_core/firebase_core.dart';
  import 'package:flutter/material.dart';
  import 'package:flutter/services.dart';
@@ -17,6 +19,7 @@ import 'package:folk_app/services/QuestionsSeed.dart';
  import 'package:folk_app/utils/FloatingAssistantOverlay.dart';
  import 'package:folk_app/utils/VoiceRoomOverlay.dart';
 import 'package:folk_app/utils/NotificationRouter.dart';
+import 'package:folk_app/utils/ReadingSessionStore.dart';
 import 'package:folk_app/widgets/StartupWaiting.dart';
  import 'package:provider/provider.dart';
  import 'package:sizer/sizer.dart';
@@ -78,6 +81,8 @@ import 'package:folk_app/widgets/StartupWaiting.dart';
 
    // 🔥 Run everything else in background (non-blocking)
    Future.microtask(() async {
+     // Reading time of a book that was open when the app was killed is added to its day now (waits for a sign-in itself; never blocks).
+     unawaited(recoverLeftoverReading());
      await FirebaseCM().initNotifications();
      await updateFCMToken();
      watchFCMToken(); // follow sign-ins, token rotation and sign-out from here on

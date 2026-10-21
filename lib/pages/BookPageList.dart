@@ -3,13 +3,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:folk_app/utils/Snackbar.dart';
-import 'package:intl/intl.dart';
 import '../theme/FolkColors.dart';
 import '../theme/FolkTheme.dart';
 import '../theme/FolkTokens.dart';
 import '../utils/BookCurrentBook.dart';
 import '../utils/BookLibrary.dart';
-import '../utils/BookReadingLog.dart';
+import '../utils/ReadingSessionStore.dart';
 import '../utils/BookSections.dart';
 import '../utils/ReadingLanguages.dart';
 import '../utils/SeenMarkers.dart';
@@ -209,56 +208,47 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
     return entries;
   }
 
-  String _todayKey() => DateFormat('dd-MM-yyyy').format(DateTime.now());
-
   // ---------------------------------------------------------------------------
   // Reading session tracking
   // ---------------------------------------------------------------------------
 
-  /// Adds [seconds] to the lifetime total, to today's bucket, and mirrors
-  /// today's minutes into today's sadhana report when one already exists.
-  Future<void> _recordReadingSession(int seconds) async {
+  /// Adds [seconds] to the lifetime total, to today's bucket and to the reading history, and mirrors today's minutes into
+  /// today's sadhana report when one already exists. The writes themselves live in `issueReadingWrites`
+  /// (`ReadingSessionStore.dart`), shared with the recovery of a session whose app was killed. They are all ISSUED here
+  /// without waiting for the server (a phone without a connection keeps them and sends them later), and only then is the
+  /// reader's stored copy of the session settled, so the same seconds can never be written twice.
+  Future<void> _recordReadingSession(
+    int seconds, {
+    required String level,
+    required String bookKey,
+    required String title,
+  }) async {
     final user = _auth.currentUser;
-    if (user == null || seconds <= 0) return;
-
+    if (user == null) return;
     final uid = user.uid;
-    final today = _todayKey();
+    if (seconds <= 0) {
+      await ReadingSessionStore().settleClosing(uid: uid, level: level, bookKey: bookKey);
+      return;
+    }
 
-    try {
-      // 1. Lifetime total on the user document.
-      await _firestore.collection('users').doc(uid).set(
-        {'totalReadingSeconds': FieldValue.increment(seconds)},
-        SetOptions(merge: true),
-      );
+    // the student's CURRENT category (live), else the role this screen loaded
+    final collectionName = ReportCategory.instance.role != null
+        ? ReportCategory.instance.collection
+        : reportCollectionForRole(_role);
 
-      final dailyRef = _firestore
-          .collection('users')
-          .doc(uid)
-          .collection('dailyReading')
-          .doc(today);
-
-      // 2. Seconds banked before this session. Reading the bucket first lets
-      //    us credit only the whole minutes this session newly completed, so
-      //    leftover seconds are neither double-counted nor discarded.
-      final beforeSnap = await dailyRef.get();
-      final beforeRaw = beforeSnap.data()?['secondsToday'];
-      final beforeSeconds = beforeRaw is num ? beforeRaw.toInt() : 0;
-
-      // 3. Today's bucket.
-      await dailyRef.set(
-        {'secondsToday': FieldValue.increment(seconds)},
-        SetOptions(merge: true),
-      );
-
-      // 4. Add the newly completed minutes to today's sadhana report.
-      final minutesDelta =
-          ((beforeSeconds + seconds) ~/ 60) - (beforeSeconds ~/ 60);
-
-      if (minutesDelta > 0) {
-        await _syncSadhanaReading(minutesDelta);
-      }
-    } catch (_) {
-      if (!mounted) return;
+    final ok = await issueReadingWrites(
+      db: _firestore,
+      uid: uid,
+      level: level,
+      bookKey: bookKey,
+      title: title,
+      seconds: seconds,
+      when: DateTime.now(),
+      userName: _userName,
+      reportCollection: collectionName,
+    );
+    await ReadingSessionStore().settleClosing(uid: uid, level: level, bookKey: bookKey);
+    if (!ok && mounted) {
       showSnackbar(
         context,
         "Could not save reading time",
@@ -266,31 +256,6 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
         Icons.error,
       );
     }
-  }
-
-  /// ADDS [minutesRead] to the reading field of today's existing sadhana
-  /// report. Never overwrites a manually entered value, and never creates a
-  /// report — if the student has not submitted today, nothing is written.
-  Future<void> _syncSadhanaReading(int minutesRead) async {
-    final name = _userName;
-    if (name == null || name.isEmpty) return;
-
-    // Localites (Master Task, 2026-09-03) behave exactly like Hostel here.
-    // the student's CURRENT category (live), else the role this screen loaded
-    final collectionName = ReportCategory.instance.role != null
-        ? ReportCategory.instance.collection
-        : reportCollectionForRole(_role);
-
-    final docRef = _firestore
-        .collection(collectionName)
-        .doc(name)
-        .collection('dates')
-        .doc(_todayKey());
-
-    final snap = await docRef.get();
-    if (!snap.exists) return;
-
-    await docRef.update({'bookReading': FieldValue.increment(minutesRead)});
   }
 
   // ---------------------------------------------------------------------------
@@ -454,17 +419,8 @@ class _BooksSelectionScreenState extends State<BooksSelectionScreen> {
 
     final seconds = elapsed is int ? elapsed : 0;
 
-    await _recordReadingSession(seconds);
-    // The reading history (Books -> History): the same seconds, by day and by book. Separate from the totals above, which
-    // are untouched; a failure here is silent.
-    await recordReadingDay(
-      db: _firestore,
-      uid: uid,
-      level: level,
-      bookKey: bookKey,
-      title: title,
-      seconds: seconds,
-    );
+    // The totals, today's bucket, the sadhana minutes and the reading history (Books -> History): see `issueReadingWrites`.
+    await _recordReadingSession(seconds, level: level, bookKey: bookKey, title: title);
 
     if (!mounted || seconds <= 0) return;
 

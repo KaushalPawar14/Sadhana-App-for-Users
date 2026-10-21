@@ -512,10 +512,10 @@ class _ProfilePageState extends State<ProfilePage>
                   _editCommitment,
                 ),
 
-                /// MY MUSIC - a "Coming soon" page for now (its contents will be specified later).
+                /// MY MUSIC - the curriculum the HODs and Guides set, with the student's own progress.
                 _menuRow(
                   'My Music',
-                  "Coming soon",
+                  "Instruments and your progress",
                   CupertinoIcons.music_note_2,
                   () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MyMusicPage())),
                 ),
