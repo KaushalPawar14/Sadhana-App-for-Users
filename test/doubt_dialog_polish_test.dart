@@ -81,7 +81,11 @@ void main() {
         expect(g.height, closeTo(a.height, .5));
         expect(g.right, lessThan(a.left), reason: 'Ask guide, then Ask AI');
         expect(a.left - g.right, closeTo(10, .5));
-        expect(g.height, closeTo(30, .5), reason: 'compact: 30 dp tall at normal text');
+        // a little narrower than the dialog's content: 8 dp of air on each side of the pair (dialog inset 20 + padding 20 + 8)
+        final box = tester.getRect(find.byKey(const ValueKey('ask-doubt-dialog')));
+        expect(g.left - box.left, closeTo(20 + 20 + 8, .5));
+        expect(box.right - a.right, closeTo(20 + 20 + 8, .5));
+        expect(g.height, closeTo(34, .5), reason: 'compact: 34 dp tall at normal text');
         expect((inkDecoration(tester, 'doubt-ask-guide').gradient! as LinearGradient).colors, FolkGradients.green.colors);
         expect((inkDecoration(tester, 'doubt-ask-ai').gradient! as LinearGradient).colors, FolkGradients.violet.colors);
         expect(tester.takeException(), isNull);
@@ -132,7 +136,7 @@ void main() {
 
   for (final scale in scales) {
     for (final mode in modes.keys) {
-      testWidgets('text $scale, $mode: fits, nothing overflows; side by side whenever the labels fit, stacked (full width) only when they cannot; 30 dp buttons', (tester) async {
+      testWidgets('text $scale, $mode: fits, nothing overflows; side by side whenever the labels fit, stacked (full width) only when they cannot; 34 dp buttons', (tester) async {
         await open(tester, mode: mode, scale: scale, reduce: true);
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
@@ -144,7 +148,7 @@ void main() {
         final box = tester.getRect(find.byKey(const ValueKey('ask-doubt-dialog')));
         expect(box.right, lessThanOrEqualTo(360));
         for (final r in [g, a]) {
-          expect(r.height, greaterThanOrEqualTo(30 - .5), reason: '30 dp, growing only with the text');
+          expect(r.height, greaterThanOrEqualTo(34 - .5), reason: '34 dp, growing only with the text');
           expect(r.left, greaterThanOrEqualTo(box.left));
           expect(r.right, lessThanOrEqualTo(box.right));
         }

@@ -305,7 +305,7 @@ void main() {
         expect(box.left, greaterThanOrEqualTo(0));
         expect(box.right, lessThanOrEqualTo(360));
         for (final k in ['doubt-ask-ai', 'doubt-ask-guide']) {
-          expect(tester.getRect(find.byKey(ValueKey(k))).height, greaterThanOrEqualTo(30 - .5), reason: '$k: the compact 30 dp buttons');
+          expect(tester.getRect(find.byKey(ValueKey(k))).height, greaterThanOrEqualTo(34 - .5), reason: '$k: the compact 34 dp buttons');
         }
         expect(tester.getRect(find.byKey(const ValueKey('doubt-cancel'))).height, greaterThanOrEqualTo(48 - .5), reason: 'Cancel keeps its 48 dp target');
       });

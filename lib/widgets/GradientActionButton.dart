@@ -27,7 +27,7 @@ class GradientActionButton extends StatelessWidget {
   final double verticalPadding;
 
   /// The horizontal padding inside the button (the label has the rest of the width).
-  static const double horizontalPadding = 16;
+  static const double horizontalPadding = 12;
 
   @override
   Widget build(BuildContext context) {

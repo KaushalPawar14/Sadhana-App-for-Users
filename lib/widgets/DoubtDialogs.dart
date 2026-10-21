@@ -209,14 +209,17 @@ class _AskButtons extends StatelessWidget {
   static const String aiLabel = 'Ask AI';
   static const double gap = 10;
 
-  /// The two buttons are 30 dp tall (a compact pair); they grow only when the text size makes the label taller.
-  static const double height = 30;
-  static const double verticalPadding = 3.5;
+  /// The two buttons are 34 dp tall (a compact pair); they grow only when the text size makes the label taller.
+  static const double height = 34;
+  static const double verticalPadding = 5.5;
+
+  /// The pair is a little narrower than the dialog's content: this much is left empty on each side of the row.
+  static const double sideInset = 8;
 
   /// The dialog's content width (screen - the dialog's 20 dp insets - its 20 dp padding), then half of it, minus the
   /// button's own padding: that is what one label may take. (The width comes from the screen, not from the layout pass.)
   static bool fitsSideBySide(BuildContext context) {
-    final inner = MediaQuery.sizeOf(context).width - 2 * 20 - 2 * 20;
+    final inner = MediaQuery.sizeOf(context).width - 2 * 20 - 2 * 20 - 2 * sideInset;
     final room = (inner - gap) / 2 - 2 * GradientActionButton.horizontalPadding;
     final style = context.folkText.button;
     final scaler = MediaQuery.textScalerOf(context);
@@ -233,16 +236,22 @@ class _AskButtons extends StatelessWidget {
     final guide = GradientActionButton(key: const ValueKey('doubt-ask-guide'), label: guideLabel, gradient: FolkGradients.green, minHeight: height, verticalPadding: verticalPadding, onPressed: onAskGuide);
     final ai = GradientActionButton(key: const ValueKey('doubt-ask-ai'), label: aiLabel, gradient: FolkGradients.violet, minHeight: height, verticalPadding: verticalPadding, onPressed: onAskAi);
     if (fitsSideBySide(context)) {
-      return Row(
-        key: const ValueKey('doubt-ask-row'),
-        // (both labels fit on one line here, so the two buttons are the same height; no `stretch` inside a scroll view)
-        children: [Expanded(child: guide), const SizedBox(width: gap), Expanded(child: ai)],
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: sideInset),
+        child: Row(
+          key: const ValueKey('doubt-ask-row'),
+          // (both labels fit on one line here, so the two buttons are the same height; no `stretch` inside a scroll view)
+          children: [Expanded(child: guide), const SizedBox(width: gap), Expanded(child: ai)],
+        ),
       );
     }
-    return Column(
-      key: const ValueKey('doubt-ask-stack'),
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [guide, const SizedBox(height: gap), ai],
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: sideInset),
+      child: Column(
+        key: const ValueKey('doubt-ask-stack'),
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [guide, const SizedBox(height: gap), ai],
+      ),
     );
   }
 }
