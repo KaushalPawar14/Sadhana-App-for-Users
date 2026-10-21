@@ -28,6 +28,7 @@ import '../widgets/GhostPlaceholder.dart';
 import '../widgets/GradientCard.dart';
 import '../widgets/LogoutButton.dart';
 import '../widgets/ProfileMenuRow.dart';
+import '../utils/GuideNameCache.dart';
 import '../widgets/ProfileStatTiles.dart';
 import '../services/StudentApi.dart';
 import '../widgets/FolkErrorRetry.dart';
@@ -68,6 +69,27 @@ class _ProfilePageState extends State<ProfilePage>
   String guideName = '';
   String _guideNameFor = '\u0000';
 
+  /// True once the user document has carried `guideName` (the server stamps it): from then on the name comes from the
+  /// user stream, as fast as the date of birth; the callable below is only the fallback for a document not stamped yet.
+  bool _guideFromDoc = false;
+
+  /// The most points the student earned in one day (multipliers included), from the user document (kept by the scoring
+  /// trigger). 0 until set.
+  int bestDayPoints = 0;
+
+  void _readGuideName(Map<String, dynamic> data) {
+    final stamped = stampedGuideName(data);
+    if (stamped != null) {
+      _guideFromDoc = true;
+      final changed = guideName != stamped;
+      guideName = stamped;
+      _guideNameFor = guideId;
+      if (changed && stamped.isNotEmpty) GuideNameCache.write(uid, stamped);
+      return;
+    }
+    _refreshGuideName(guideId);
+  }
+
   void _refreshGuideName(String forGuideId) {
     if (_guideNameFor == forGuideId) return;
     _guideNameFor = forGuideId;
@@ -96,20 +118,16 @@ class _ProfilePageState extends State<ProfilePage>
   /// fixed for this tab's whole life.
   late Stream<DocumentSnapshot<Map<String, dynamic>>> _userStream;
 
-  /// This student's books (the same `booksRead` query the Journey tab already
-  /// uses), for the "books completed" tile. Built once, like [_userStream].
-  late Stream<QuerySnapshot<Map<String, dynamic>>> _booksStream;
-
   @override
   void initState() {
     super.initState();
     uid = FirebaseAuth.instance.currentUser!.uid;
     _userStream =
         FirebaseFirestore.instance.collection('users').doc(uid).snapshots();
-    _booksStream = FirebaseFirestore.instance
-        .collection('booksRead')
-        .where('uid', isEqualTo: uid)
-        .snapshots();
+    // The last guide name seen on this phone, so "My Guide" has its answer before anything arrives.
+    GuideNameCache.read(uid).then((cached) {
+      if (cached != null && mounted && guideName.isEmpty && !_guideFromDoc) setState(() => guideName = cached);
+    });
   }
 
   /// Back-button fix (2026-09-03) — same bug and same fix as
@@ -164,10 +182,6 @@ class _ProfilePageState extends State<ProfilePage>
                           .collection('users')
                           .doc(uid)
                           .snapshots();
-                      _booksStream = FirebaseFirestore.instance
-                          .collection('booksRead')
-                          .where('uid', isEqualTo: uid)
-                          .snapshots();
                     }),
                   ));
             }
@@ -194,7 +208,9 @@ class _ProfilePageState extends State<ProfilePage>
             readingCommitmentMinutes =
                 rawReading is num && rawReading >= 0 ? rawReading.toInt() : null;
             guideId = (data['guideId'] ?? '').toString();
-            _refreshGuideName(guideId);
+            _readGuideName(data);
+            final rawBestDay = data['bestDayPoints'];
+            bestDayPoints = rawBestDay is num ? rawBestDay.round() : 0;
             final rawBestChant = data['bestChantRounds'];
             bestChantRounds = rawBestChant is num ? rawBestChant.toInt() : 0;
             final rawBestReading = data['bestReadingMinutes'];
@@ -406,19 +422,14 @@ class _ProfilePageState extends State<ProfilePage>
 
             const SizedBox(height: FolkSpace.cardGap),
 
-            /// Three stat tiles: best day of chanting, best day of reading, books
-            /// completed (counted from the books stream above, not stored).
+            /// Three stat tiles: best day of chanting, best day of reading, best
+            /// day points (all stored on the user document by the server).
             EntryAnimation(
               index: 1,
-              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: _booksStream,
-                builder: (context, books) => ProfileStatTiles(
-                  bestChantRounds: bestChantRounds,
-                  bestReadingMinutes: bestReadingMinutes,
-                  booksCompleted: books.hasData
-                      ? completedBooksOf(books.data!.docs.map((d) => d.data()))
-                      : null,
-                ),
+              child: ProfileStatTiles(
+                bestChantRounds: bestChantRounds,
+                bestReadingMinutes: bestReadingMinutes,
+                bestDayPoints: bestDayPoints,
               ),
             ),
 
@@ -445,7 +456,9 @@ class _ProfilePageState extends State<ProfilePage>
 
                 /// MY GUIDE — display only: the display name of the admin
                 /// (Guide or Enabler) the student is assigned to, from the
-                /// `getMyGuide` callable, or "Not assigned yet".
+                /// student's own user document (`guideName`, kept by the
+                /// server; the `getMyGuide` callable only backs up a document
+                /// not stamped yet), or "Not assigned yet".
                 _menuRow(
                   'My Guide',
                   guideRowSubtitle(guideName),

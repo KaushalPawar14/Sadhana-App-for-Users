@@ -5,7 +5,6 @@ import 'package:folk_app/scores/BestPerformer.dart';
 import 'package:folk_app/utils/Snackbar.dart';
 import '../theme/FolkTheme.dart';
 import '../theme/FolkTokens.dart';
-import '../theme/FolkColors.dart';
 import '../utils/InsightsData.dart';
 import '../utils/ResultsDots.dart';
 import '../utils/UnseenDot.dart';
@@ -228,14 +227,13 @@ class _CompetitionPageState extends State<CompetitionPage> {
           EntryAnimation(
             index: 2,
             child: StreamBuilder<bool>(
-              // The orange dot while weekly / monthly results are published and not opened yet.
+              // The dot while weekly / monthly results are published and not opened yet.
               stream: widget.resultsUnseen ?? ResultsDots.forCurrentUser()?.anyUnseen,
               builder: (context, snap) => UnseenBadge(
                 key: const ValueKey('leaderboard-dot'),
                 show: snap.data ?? false,
                 offset: const Offset(7, 7),
                 dotSize: 10,
-                ringColor: FolkColors.onGradientIconTile,
                 child: _tile(
                   'Leaderboard',
                   'Your group ranking',

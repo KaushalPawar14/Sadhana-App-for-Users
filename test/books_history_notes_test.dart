@@ -343,7 +343,7 @@ void main() {
         'notes-good': (FolkGradientStyle.saffron, 'Good', '4 highlights in 2 books', Icons.star_outline_rounded),
         'notes-excellent': (FolkGradientStyle.green, 'Excellent', '1 highlight in 1 book', Icons.workspace_premium_outlined),
         'notes-rare': (FolkGradientStyle.violet, 'Rare', 'No highlights yet', Icons.auto_awesome_outlined),
-        'notes-doubt': (FolkGradientStyle.slate, 'Doubts', 'No doubts yet', Icons.help_outline_rounded),
+        'notes-doubt': (FolkGradientStyle.pink, 'Doubts', 'No doubts yet', Icons.help_outline_rounded),
       };
       for (final e in expected.entries) {
         final tile = find.byKey(ValueKey(e.key));

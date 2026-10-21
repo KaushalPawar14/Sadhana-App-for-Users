@@ -135,7 +135,7 @@ class _CategoryChip extends StatelessWidget {
         HighlightCategory.good => FolkGradients.saffron,
         HighlightCategory.excellent => FolkGradients.green,
         HighlightCategory.rare => FolkGradients.violet,
-        HighlightCategory.doubt => FolkGradients.slate,
+        HighlightCategory.doubt => FolkGradients.pink,
       };
 
   @override

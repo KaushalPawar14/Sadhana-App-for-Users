@@ -76,7 +76,7 @@ List<FolkNavItem> hostNavItems(BuildContext context,
   final colors = context.folk;
   final titles = kHostTabTitles;
   return [
-    // The Insights tab carries the orange dot while there are published results (weekly or monthly) the student has not
+    // The Insights tab carries the dot while there are published results (weekly or monthly) the student has not
     // opened yet (`ResultsDots`).
     FolkNavItem(
       label: titles[0],
@@ -87,7 +87,6 @@ List<FolkNavItem> hostNavItems(BuildContext context,
                 builder: (context, snap) => UnseenBadge(
                   show: snap.data ?? false,
                   offset: const Offset(0, -2),
-                  ringColor: colors.surface,
                   child: icon,
                 ),
               ),
@@ -111,7 +110,6 @@ List<FolkNavItem> hostNavItems(BuildContext context,
                 builder: (context, snap) => UnseenBadge(
                   show: snap.data ?? false,
                   offset: const Offset(0, -2),
-                  ringColor: colors.surface,
                   child: icon,
                 ),
               ),

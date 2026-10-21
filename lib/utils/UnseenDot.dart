@@ -1,30 +1,25 @@
 import 'package:flutter/material.dart';
 
-/// A small, restrained "new content" indicator — Master Task 2026-09-10,
-/// Part 6 item 7. Mirrors the Guide app's own `utils/UnseenDot.dart`
-/// exactly (same colour, same size, same shape) so the indicator reads as
-/// one consistent design language across both apps, not two different
-/// ones a viewer would need to learn separately.
+/// THE dot of the app: every "new content" indicator (Journey tab and cards, Insights, Leaderboard, Results, Monthly,
+/// RDUA Friends, the AI button, Expeditions, Books ...) is green with a thin, crisp dark border (the app's ink,
+/// `FolkColors.onGradient`), so it stands out on light and dark surfaces alike. One shared style, no other colour.
+/// (The Guide app keeps its own orange dot.)
+const Color kUnseenDotFill = Color(0xFF2FBF71);
+const Color kUnseenDotBorder = Color(0xFF1E1B2E);
+
 class UnseenDot extends StatelessWidget {
   final double size;
-
-  /// The ring that separates the dot from what it sits on. Defaults to the
-  /// scaffold colour; pass the colour of the surface the dot is drawn on when
-  /// that differs (the dark pill navigation).
-  final Color? ringColor;
-  const UnseenDot({super.key, this.size = 9, this.ringColor});
+  const UnseenDot({super.key, this.size = 9});
 
   @override
   Widget build(BuildContext context) {
-    final ringColor =
-        this.ringColor ?? Theme.of(context).scaffoldBackgroundColor;
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: Colors.orange.shade600,
+        color: kUnseenDotFill,
         shape: BoxShape.circle,
-        border: Border.all(color: ringColor, width: 1.2),
+        border: Border.all(color: kUnseenDotBorder, width: 1.2),
       ),
     );
   }
@@ -70,9 +65,6 @@ class UnseenBadge extends StatelessWidget {
   final double dotSize;
   final Offset offset;
 
-  /// Passed to [UnseenDot.ringColor]; null keeps the default.
-  final Color? ringColor;
-
   /// `true` only when the parent gives TIGHT, bounded constraints and
   /// [child] has no explicit size of its own to fall back on (a grid
   /// cell) — not used anywhere in this app today, kept for parity with
@@ -85,7 +77,6 @@ class UnseenBadge extends StatelessWidget {
     required this.show,
     this.dotSize = 9,
     this.offset = const Offset(2, -2),
-    this.ringColor,
     this.fillParent = false,
   });
 
@@ -99,7 +90,7 @@ class UnseenBadge extends StatelessWidget {
         Positioned(
           top: offset.dy,
           right: offset.dx,
-          child: UnseenDot(size: dotSize, ringColor: ringColor),
+          child: UnseenDot(size: dotSize),
         ),
       ],
     );

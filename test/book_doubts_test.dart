@@ -11,7 +11,9 @@ import 'package:folk_app/pages/AssistantScreen.dart';
 import 'package:folk_app/pages/BookReaderPage.dart';
 import 'package:folk_app/pages/BooksNotesPage.dart';
 import 'package:folk_app/services/DailyMessageService.dart';
+import 'package:folk_app/theme/FolkColors.dart';
 import 'package:folk_app/theme/FolkTheme.dart';
+import 'package:folk_app/theme/FolkTokens.dart';
 import 'package:folk_app/utils/BookDoubts.dart';
 import 'package:folk_app/utils/BookHighlights.dart';
 import 'package:folk_app/utils/BookLoader.dart';
@@ -229,6 +231,56 @@ void main() {
     }
   });
 
+  // ------------------------------------------------------------------------------------------------ the pink tile
+  group('the Notes Doubts tile is pink; the doubt highlight in the reader stays gray', () {
+    test('the pink gradient: a pink hue, distinct from the coral and saffron tiles, ink text readable (>= 4.5:1) on both stops', () {
+      final colors = FolkGradients.pink.colors;
+      expect(colors, hasLength(2));
+      for (final c in colors) {
+        expect(c.r, greaterThan(c.g + .12), reason: 'a pink: red clearly above green');
+        expect(c.b, greaterThan(c.g), reason: 'and blue above green (pink, not coral or orange)');
+        expect(contrastRatio(FolkColors.onGradient.toARGB32(), c.toARGB32()), greaterThanOrEqualTo(4.5), reason: 'ink on $c');
+      }
+      expect(FolkGradients.pink.colors, isNot(FolkGradients.coral.colors));
+      expect(FolkGradients.pink.colors, isNot(FolkGradients.saffron.colors));
+      expect(FolkGradients.of(FolkGradientStyle.pink), FolkGradients.pink);
+      expect(categoryGradient(HighlightCategory.doubt), FolkGradients.pink);
+      // the other three tiles are unchanged
+      expect(categoryGradient(HighlightCategory.good), FolkGradients.saffron);
+      expect(categoryGradient(HighlightCategory.excellent), FolkGradients.green);
+      expect(categoryGradient(HighlightCategory.rare), FolkGradients.violet);
+    });
+
+    test('the highlight colour of a doubt in the reader is still the gray (not the pink)', () {
+      final c = HighlightCategory.doubt;
+      final r = (c.argb >> 16) & 0xFF, g = (c.argb >> 8) & 0xFF, b = c.argb & 0xFF;
+      expect((r - g).abs(), lessThan(24));
+      expect((g - b).abs(), lessThan(24));
+      expect(c.argb, 0xFF6F7886);
+    });
+
+    for (final dark in [false, true]) {
+      testWidgets('Notes: the Doubts tile wears the pink gradient (${dark ? 'dark' : 'light'}), the others their own', (tester) async {
+        phone(tester, 1.0);
+        await tester.pumpWidget(MaterialApp(
+          theme: dark ? FolkTheme.dark : FolkTheme.light,
+          builder: (c, w) => MediaQuery(data: MediaQuery.of(c).copyWith(disableAnimations: true), child: w!),
+          home: BooksNotesPage(uid: uid, firestore: FakeFirebaseFirestore(), doubtStore: FakeDoubts()),
+        ));
+        await hl.settle(tester);
+        BoxDecoration deco(String key) => tester
+            .widgetList<Container>(find.descendant(of: find.byKey(ValueKey(key)), matching: find.byType(Container)))
+            .map((c) => c.decoration)
+            .whereType<BoxDecoration>()
+            .firstWhere((d) => d.gradient != null);
+        expect((deco('notes-doubt').gradient! as LinearGradient).colors, FolkGradients.pink.colors);
+        expect((deco('notes-good').gradient! as LinearGradient).colors, FolkGradients.saffron.colors);
+        expect((deco('notes-excellent').gradient! as LinearGradient).colors, FolkGradients.green.colors);
+        expect((deco('notes-rare').gradient! as LinearGradient).colors, FolkGradients.violet.colors);
+      });
+    }
+  });
+
   // ------------------------------------------------------------------------------------------------ the panel and the dialog
   group('the reader: the category panel and the doubt dialog', () {
     testWidgets('the panel is a 2 x 2: Good, Excellent / Rare, Doubt', (tester) async {
@@ -252,9 +304,10 @@ void main() {
         final box = tester.getRect(find.byKey(const ValueKey('ask-doubt-dialog')));
         expect(box.left, greaterThanOrEqualTo(0));
         expect(box.right, lessThanOrEqualTo(360));
-        for (final k in ['doubt-ask-ai', 'doubt-ask-guide', 'doubt-cancel']) {
-          expect(tester.getRect(find.byKey(ValueKey(k))).height, greaterThanOrEqualTo(48 - .5), reason: k);
+        for (final k in ['doubt-ask-ai', 'doubt-ask-guide']) {
+          expect(tester.getRect(find.byKey(ValueKey(k))).height, greaterThanOrEqualTo(30 - .5), reason: '$k: the compact 30 dp buttons');
         }
+        expect(tester.getRect(find.byKey(const ValueKey('doubt-cancel'))).height, greaterThanOrEqualTo(48 - .5), reason: 'Cancel keeps its 48 dp target');
       });
     }
 

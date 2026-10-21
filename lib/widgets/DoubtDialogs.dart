@@ -1,9 +1,12 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../theme/FolkTheme.dart';
 import '../theme/FolkTokens.dart';
 import '../utils/BookDoubts.dart';
 import '../utils/BookHighlights.dart';
+import 'GradientActionButton.dart';
 
 // The reader's DOUBT dialogs, drawn in the reading mode's own colours (chrome / onChrome / secondary).
 
@@ -12,7 +15,35 @@ typedef DoubtAsk = ({String question, String mode});
 
 const String kDoubtQuestionLabel = 'What is your doubt about this passage?';
 
-/// "Your doubt": the passage, a required question, and Ask AI / Ask guide. Cancel (or tapping outside) saves nothing.
+/// How long the ask dialog takes to open (a gentle fade with a slight scale and rise); instant with "reduce animations".
+const Duration kDoubtDialogOpen = Duration(milliseconds: 200);
+
+/// Opens [builder] as a dialog that fades in with a slight scale and rise over [kDoubtDialogOpen] (instant when the
+/// student reduces animations). Same barrier and dismiss behaviour as `showDialog`; the page's theme is carried over.
+Future<T?> _showSmoothDialog<T>(BuildContext context, WidgetBuilder builder) {
+  final theme = Theme.of(context);
+  return showGeneralDialog<T>(
+    context: context,
+    barrierDismissible: true,
+    barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+    barrierColor: Colors.black54,
+    transitionDuration: FolkMotion.of(context, kDoubtDialogOpen),
+    pageBuilder: (ctx, _, __) => Theme(data: theme, child: SafeArea(child: Builder(builder: builder))),
+    transitionBuilder: (ctx, animation, _, child) {
+      final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic, reverseCurve: Curves.easeIn);
+      return FadeTransition(
+        opacity: curved,
+        child: SlideTransition(
+          position: Tween<Offset>(begin: const Offset(0, .03), end: Offset.zero).animate(curved),
+          child: ScaleTransition(scale: Tween<double>(begin: .96, end: 1).animate(curved), child: child),
+        ),
+      );
+    },
+  );
+}
+
+/// "Your doubt": the passage, a required question, and Ask guide / Ask AI side by side. Cancel (or tapping outside) saves
+/// nothing.
 Future<DoubtAsk?> showAskDoubtDialog(
   BuildContext context, {
   required String passage,
@@ -22,9 +53,9 @@ Future<DoubtAsk?> showAskDoubtDialog(
   String title = 'Your doubt',
   String initialQuestion = '',
 }) {
-  return showDialog<DoubtAsk>(
-    context: context,
-    builder: (_) => _AskDoubtDialog(passage: passage, chrome: chrome, onChrome: onChrome, secondary: secondary, title: title, initialQuestion: initialQuestion),
+  return _showSmoothDialog<DoubtAsk>(
+    context,
+    (_) => _AskDoubtDialog(passage: passage, chrome: chrome, onChrome: onChrome, secondary: secondary, title: title, initialQuestion: initialQuestion),
   );
 }
 
@@ -44,10 +75,38 @@ class _AskDoubtDialog extends StatefulWidget {
 
 class _AskDoubtDialogState extends State<_AskDoubtDialog> {
   late final TextEditingController _question = TextEditingController(text: widget.initialQuestion);
+  final FocusNode _focus = FocusNode();
   String? _error;
+  Animation<double>? _opening;
+  bool _focusScheduled = false;
+
+  /// The keyboard opens only once the dialog has finished opening: asking for it during the transition made the dialog
+  /// resize while it was still moving (a visible hitch). With "reduce animations" there is no transition to wait for.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_focusScheduled) return;
+    _focusScheduled = true;
+    final animation = ModalRoute.of(context)?.animation;
+    if (animation == null || animation.status == AnimationStatus.completed) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _focus.requestFocus();
+      });
+      return;
+    }
+    _opening = animation..addStatusListener(_focusWhenOpen);
+  }
+
+  void _focusWhenOpen(AnimationStatus status) {
+    if (status != AnimationStatus.completed) return;
+    _opening?.removeStatusListener(_focusWhenOpen);
+    if (mounted) _focus.requestFocus();
+  }
 
   @override
   void dispose() {
+    _opening?.removeStatusListener(_focusWhenOpen);
+    _focus.dispose();
     _question.dispose();
     super.dispose();
   }
@@ -73,7 +132,9 @@ class _AskDoubtDialogState extends State<_AskDoubtDialog> {
       insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(FolkShape.cardRadius)),
       child: SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(20, 20, 20, 14 + MediaQuery.of(context).viewInsets.bottom * 0),
+        // (No `MediaQuery.of(context)` here: reading the insets would rebuild the whole dialog on every frame of the
+        // keyboard's animation. `Dialog` makes room for the keyboard by itself.)
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 14),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -96,7 +157,7 @@ class _AskDoubtDialogState extends State<_AskDoubtDialog> {
             TextField(
               key: const ValueKey('doubt-question'),
               controller: _question,
-              autofocus: true,
+              focusNode: _focus,
               minLines: 3,
               maxLines: 6,
               maxLength: 1000,
@@ -118,25 +179,8 @@ class _AskDoubtDialogState extends State<_AskDoubtDialog> {
               ),
             ),
             const SizedBox(height: 14),
-            SizedBox(
-              height: FolkShape.buttonHeight,
-              child: ElevatedButton(
-                key: const ValueKey('doubt-ask-ai'),
-                onPressed: () => _send('ai'),
-                style: ElevatedButton.styleFrom(backgroundColor: widget.onChrome, foregroundColor: widget.chrome, shape: const StadiumBorder()),
-                child: const Text('Ask AI'),
-              ),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              height: FolkShape.buttonHeight,
-              child: OutlinedButton(
-                key: const ValueKey('doubt-ask-guide'),
-                onPressed: () => _send('guide'),
-                style: OutlinedButton.styleFrom(foregroundColor: widget.onChrome, side: BorderSide(color: widget.onChrome.withValues(alpha: .5)), shape: const StadiumBorder()),
-                child: const Text('Ask guide'),
-              ),
-            ),
+            _AskButtons(onAskGuide: () => _send('guide'), onAskAi: () => _send('ai')),
+            const SizedBox(height: 4),
             Align(
               alignment: Alignment.centerRight,
               child: TextButton(
@@ -149,6 +193,56 @@ class _AskDoubtDialogState extends State<_AskDoubtDialog> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// "Ask guide" (green) and "Ask AI" (violet, like the AI button) SIDE BY SIDE in one row, equal width. Only when the
+/// labels truly cannot fit in half a row at the student's text size do they stack, one under the other (full width).
+class _AskButtons extends StatelessWidget {
+  const _AskButtons({required this.onAskGuide, required this.onAskAi});
+
+  final VoidCallback onAskGuide;
+  final VoidCallback onAskAi;
+
+  static const String guideLabel = 'Ask guide';
+  static const String aiLabel = 'Ask AI';
+  static const double gap = 10;
+
+  /// The two buttons are 30 dp tall (a compact pair); they grow only when the text size makes the label taller.
+  static const double height = 30;
+  static const double verticalPadding = 3.5;
+
+  /// The dialog's content width (screen - the dialog's 20 dp insets - its 20 dp padding), then half of it, minus the
+  /// button's own padding: that is what one label may take. (The width comes from the screen, not from the layout pass.)
+  static bool fitsSideBySide(BuildContext context) {
+    final inner = MediaQuery.sizeOf(context).width - 2 * 20 - 2 * 20;
+    final room = (inner - gap) / 2 - 2 * GradientActionButton.horizontalPadding;
+    final style = context.folkText.button;
+    final scaler = MediaQuery.textScalerOf(context);
+    var widest = 0.0;
+    for (final label in [guideLabel, aiLabel]) {
+      final tp = TextPainter(text: TextSpan(text: label, style: style), textDirection: TextDirection.ltr, textScaler: scaler, maxLines: 1)..layout();
+      widest = math.max(widest, tp.width);
+    }
+    return widest <= room;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final guide = GradientActionButton(key: const ValueKey('doubt-ask-guide'), label: guideLabel, gradient: FolkGradients.green, minHeight: height, verticalPadding: verticalPadding, onPressed: onAskGuide);
+    final ai = GradientActionButton(key: const ValueKey('doubt-ask-ai'), label: aiLabel, gradient: FolkGradients.violet, minHeight: height, verticalPadding: verticalPadding, onPressed: onAskAi);
+    if (fitsSideBySide(context)) {
+      return Row(
+        key: const ValueKey('doubt-ask-row'),
+        // (both labels fit on one line here, so the two buttons are the same height; no `stretch` inside a scroll view)
+        children: [Expanded(child: guide), const SizedBox(width: gap), Expanded(child: ai)],
+      );
+    }
+    return Column(
+      key: const ValueKey('doubt-ask-stack'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [guide, const SizedBox(height: gap), ai],
     );
   }
 }

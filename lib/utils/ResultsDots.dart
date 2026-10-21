@@ -6,7 +6,7 @@ import 'package:flutter/foundation.dart';
 
 import 'LeaderboardData.dart';
 
-/// The orange-dot trail of the published RESULTS (weekly results every Monday, monthly results on the 1st).
+/// The dot trail of the published RESULTS (weekly results every Monday, monthly results on the 1st).
 ///
 /// "New results" = the server has finalised a period (`competition-results/weekly_meta.last_week_finalized`, e.g.
 /// "2026-W42"; `monthly_meta.last_month_finalized`, e.g. "2026-09") and THIS student has not opened that period's

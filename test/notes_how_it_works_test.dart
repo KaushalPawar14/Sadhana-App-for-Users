@@ -90,7 +90,7 @@ void main() {
         HighlightCategory.good => FolkGradients.saffron,
         HighlightCategory.excellent => FolkGradients.green,
         HighlightCategory.rare => FolkGradients.violet,
-        HighlightCategory.doubt => FolkGradients.slate,
+        HighlightCategory.doubt => FolkGradients.pink,
       });
       expect(tester.widget<Text>(find.descendant(of: chip, matching: find.text(c.label))).style!.color, FolkColors.onGradient);
     }

@@ -48,23 +48,6 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(loadAppFonts);
 
-  group('books completed is counted, not stored', () {
-    test('completed = isBookCompleted: an end date, the finish button, or endedBy', () {
-      expect(completedBooksOf([]), 0);
-      expect(
-        completedBooksOf([
-          {'endDate': '2026-10-01'}, // finished
-          {'finishedViaButton': true}, // finished in the reader
-          {'endedBy': 'guide'}, // marked by the guide
-          {'isCurrentBook': true, 'startDate': '2026-10-01'}, // in progress
-          {'endDate': '  '}, // blank end date is not finished
-          {'madeNotes': true},
-        ]),
-        3,
-      );
-    });
-  });
-
   for (final dark in [false, true]) {
     for (final scale in scales) {
       final s = '${dark ? 'dark' : 'light'}, text $scale';
@@ -72,12 +55,12 @@ void main() {
       testWidgets('three tiles in a row, in order green / coral / violet, values and captions — $s', (tester) async {
         phone(tester, scale);
         await tester.pumpWidget(host(
-            const ProfileStatTiles(bestChantRounds: 16, bestReadingMinutes: 90, booksCompleted: 7),
+            const ProfileStatTiles(bestChantRounds: 16, bestReadingMinutes: 90, bestDayPoints: 759),
             dark: dark));
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
 
-        for (final t in ['16', '90', '7', 'best rounds', 'best reading (min)', 'books completed']) {
+        for (final t in ['16', '90', '759', 'best rounds', 'best reading (min)', 'best day points']) {
           expect(find.text(t), findsOneWidget, reason: t);
         }
         final gradients = tester
@@ -94,11 +77,11 @@ void main() {
         ]);
 
         // one row, equal widths, equal heights, inside the 320 dp column
-        final rects = [for (final t in ['16', '90', '7']) tester.getRect(find.text(t))];
+        final rects = [for (final t in ['16', '90', '759']) tester.getRect(find.text(t))];
         final cards = tester.widgetList(find.byType(ProfileStatTiles)).length;
         expect(cards, 1);
         final tiles = [
-          for (final c in ['best rounds', 'best reading (min)', 'books completed'])
+          for (final c in ['best rounds', 'best reading (min)', 'best day points'])
             tester.getRect(find.ancestor(of: find.text(c), matching: find.byType(Container)).last)
         ];
         expect(rects[0].center.dy, closeTo(rects[1].center.dy, .5));
@@ -111,7 +94,7 @@ void main() {
         expect(tiles[0].width, closeTo(tiles[1].width, .5));
 
         // no caption word is broken or cut: the longest word fits its line
-        for (final c in ['best rounds', 'best reading (min)', 'books completed']) {
+        for (final c in ['best rounds', 'best reading (min)', 'best day points']) {
           final box = tester.renderObject<RenderParagraph>(find.text(c));
           expect(box.didExceedMaxLines, isFalse, reason: c);
           final scaler = const TextScaler.linear(1).clamp(maxScaleFactor: 1.2);
@@ -131,10 +114,10 @@ void main() {
         }
       });
 
-      testWidgets('the loading ghost row is exactly as tall as the real row; a loading tile shows a ghost, not a wrong number — $s', (tester) async {
+      testWidgets('the loading ghost row is exactly as tall as the real row — $s', (tester) async {
         phone(tester, scale);
         await tester.pumpWidget(host(
-            const ProfileStatTiles(bestChantRounds: 16, bestReadingMinutes: 90, booksCompleted: 7),
+            const ProfileStatTiles(bestChantRounds: 16, bestReadingMinutes: 90, bestDayPoints: 759),
             dark: dark));
         await tester.pumpAndSettle();
         final real = tester.getSize(find.byType(ProfileStatTiles)).height;
@@ -143,13 +126,12 @@ void main() {
         expect(tester.getSize(find.byType(ProfileStatTilesGhost)).height, closeTo(real, 1.5));
         expect(tester.takeException(), isNull);
 
+        // a zero best (nothing earned yet) is still a whole, same-height tile
         await tester.pumpWidget(host(
-            const ProfileStatTiles(bestChantRounds: 16, bestReadingMinutes: 90, booksCompleted: null),
+            const ProfileStatTiles(bestChantRounds: 0, bestReadingMinutes: 0, bestDayPoints: 0),
             dark: dark));
         await tester.pump();
-        expect(find.text('16'), findsOneWidget);
-        expect(find.text('7'), findsNothing);
-        expect(find.text('books completed'), findsOneWidget);
+        expect(find.text('best day points'), findsOneWidget);
         expect(tester.getSize(find.byType(ProfileStatTiles)).height, closeTo(real, 1.5));
         expect(tester.takeException(), isNull);
       });
@@ -157,11 +139,11 @@ void main() {
       testWidgets('big numbers shrink, never overflow or wrap — $s', (tester) async {
         phone(tester, scale);
         await tester.pumpWidget(host(
-            const ProfileStatTiles(bestChantRounds: 250, bestReadingMinutes: 1440, booksCompleted: 1234),
+            const ProfileStatTiles(bestChantRounds: 250, bestReadingMinutes: 1440, bestDayPoints: 12345),
             dark: dark));
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
-        for (final t in ['250', '1440', '1234']) {
+        for (final t in ['250', '1440', '12345']) {
           expect(find.text(t), findsOneWidget);
         }
       });
@@ -198,13 +180,14 @@ void main() {
     expect(ratio, closeTo(5.62, .02));
   });
 
-  test('Profile wiring: tiles sit under the name card from the user document and the booksRead query; Log Out uses the button', () {
+  test('Profile wiring: tiles sit under the name card from the user document (no books query, no books-completed tile); Log Out uses the button', () {
     final src = File('lib/pages/Profile.dart').readAsStringSync();
     expect(src, contains("data['bestChantRounds']"));
     expect(src, contains("data['bestReadingMinutes']"));
-    expect(src, contains(".collection('booksRead')"));
-    expect(src, contains(".where('uid', isEqualTo: uid)"));
-    expect(src, contains('completedBooksOf('));
+    expect(src, contains("data['bestDayPoints']"));
+    expect(src, isNot(contains(".collection('booksRead')")));
+    expect(src, isNot(contains('completedBooksOf(')));
+    expect(src, isNot(contains('books completed')));
     expect(src, contains('ProfileStatTilesGhost()'));
     expect(src, contains('LogoutButton(onPressed: () => showLogoutDialog(context))'));
     final nameCard = src.indexOf('/// Profile header');

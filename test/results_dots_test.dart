@@ -18,7 +18,7 @@ import 'package:folk_app/widgets/FloatingPillNavBar.dart';
 
 import 'text_scale_test.dart' show scales, loadAppFonts;
 
-// The orange-dot trail of the published results: Insights tab -> Leaderboard tile -> "Results" (weekly) / "Monthly" tab then
+// The dot trail of the published results: Insights tab -> Leaderboard tile -> "Results" (weekly) / "Monthly" tab then
 // "Results" (monthly). A dot clears only when THAT period's Results are opened, tracked per student per period id.
 const uid = 'u1';
 
@@ -149,6 +149,17 @@ void main() {
     testWidgets('nothing new: no dot anywhere', (tester) async {
       await open(tester);
       expect(find.byType(UnseenDot), findsNothing);
+    });
+
+    testWidgets('the dots of the trail (Results button, Monthly tab) are the app dot: green with the thin dark border', (tester) async {
+      await open(tester, week: '2026-W42', month: '2026-10');
+      expect(find.byType(UnseenDot), findsNWidgets(2), reason: 'Results + Monthly');
+      for (final dot in find.byType(UnseenDot).evaluate()) {
+        final d = tester.widget<Container>(find.descendant(of: find.byWidget(dot.widget), matching: find.byType(Container)).first).decoration! as BoxDecoration;
+        expect(d.color, kUnseenDotFill);
+        expect((d.border! as Border).top.color, kUnseenDotBorder);
+        expect((d.border! as Border).top.width, 1.2);
+      }
     });
 
     testWidgets('weekly new, Weekly selected: a dot on "Results" only; opening Results clears it', (tester) async {

@@ -2,37 +2,31 @@ import 'package:flutter/material.dart';
 
 import '../theme/FolkTheme.dart';
 import '../theme/FolkTokens.dart';
-import '../utils/BookCurrentBook.dart' show isBookCompleted;
 import 'CountUpText.dart';
 import 'GhostPlaceholder.dart';
 import 'GradientCard.dart';
 import 'MinHeightBox.dart' show ghostHeight;
 
-// How many books the student has completed: the booksRead documents that
-// `isBookCompleted` says are finished. Computed, never stored.
-int completedBooksOf(Iterable<Map<String, dynamic>> docs) =>
-    docs.where(isBookCompleted).length;
-
 // The three tiles under the Profile name card: best daily chanting ever (green),
-// best daily reading ever (coral) and books completed (violet), side by side.
+// best daily reading ever (coral) and best day points (violet), side by side.
 //
-// [bestChantRounds] / [bestReadingMinutes] come from the user document (they are
-// stored because the reports they come from are deleted after a month).
-// [booksCompleted] is null while the books are still loading: that tile shows a
-// ghost in the number's place, then counts up once.
+// All three come from the user document (they are stored, kept by the server,
+// because the reports they come from are deleted after a month). The best day
+// points are the most the student ever earned in a single day, multipliers
+// included (`users.bestDayPoints`, only ever raised by the scoring trigger).
 class ProfileStatTiles extends StatelessWidget {
   const ProfileStatTiles({
     super.key,
     required this.bestChantRounds,
     required this.bestReadingMinutes,
-    required this.booksCompleted,
+    required this.bestDayPoints,
   });
 
   final int bestChantRounds;
   final int bestReadingMinutes;
-  final int? booksCompleted;
+  final int bestDayPoints;
 
-  // The captions are held to this text size, so a word like "completed" always
+  // The captions are held to this text size, so a word like "reading" always
   // fits the narrow tile whole.
   static const double captionMaxScale = 1.2;
 
@@ -77,11 +71,9 @@ class ProfileStatTiles extends StatelessWidget {
           Expanded(
             child: _StatTile(
               style: FolkGradientStyle.violet,
-              value: booksCompleted,
-              caption: 'books completed',
-              semanticLabel: booksCompleted == null
-                  ? 'Books completed: loading'
-                  : 'Books completed: $booksCompleted',
+              value: bestDayPoints,
+              caption: 'best day points',
+              semanticLabel: 'Best day: $bestDayPoints points',
             ),
           ),
         ],
@@ -157,7 +149,7 @@ class _StatTile extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 2),
-            // Held to [captionMaxScale] so a word like "completed" always fits the
+            // Held to [captionMaxScale] so a word like "reading" always fits the
             // narrow tile whole (the tile itself grows with the text).
             MediaQuery.withClampedTextScaling(
               maxScaleFactor: ProfileStatTiles.captionMaxScale,

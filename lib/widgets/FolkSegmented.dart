@@ -11,7 +11,7 @@ class FolkSegment<T> {
   final T value;
   final String label;
 
-  /// The orange "new" dot beside the label.
+  /// The green results "new" dot beside the label (only the Leaderboard's Monthly segment uses it).
   final bool dot;
 }
 
@@ -105,7 +105,6 @@ class FolkSegmented<T> extends StatelessWidget {
                                 show: segment.dot,
                                 offset: const Offset(-9, -3),
                                 dotSize: 8,
-                                ringColor: segment.value == value ? colors.primaryBg : colors.surfaceSecondary,
                                 child: Text(
                                   segment.label,
                                   maxLines: 1,

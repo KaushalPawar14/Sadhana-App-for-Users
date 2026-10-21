@@ -11,6 +11,7 @@ import 'package:lottie/lottie.dart';
 import '../theme/FolkTheme.dart';
 import '../theme/FolkTokens.dart';
 import '../widgets/FolkScaffold.dart';
+import '../widgets/RiseIn.dart';
 import '../widgets/ScoreWidgets.dart';
 
 class MonthlyLeaderboardPage extends StatefulWidget {
@@ -230,25 +231,13 @@ class _MonthlyLeaderboardPageState extends State<MonthlyLeaderboardPage> with Ti
                 controller: pageController,
                 itemCount: users.length,
                 itemBuilder: (context, index) {
-                  return TweenAnimationBuilder<double>(
-                    tween: Tween<double>(begin: 0, end: 1),
-                    duration: FolkMotion.of(
-                        context, Duration(milliseconds: 600 + (index * 150))),
-                    curve: Curves.easeOutBack,
-                    builder: (context, value, child) {
-                      // value goes from 0 → 1
-                      // scale & vertical translation for pop-up effect
-                      final double scale = 0.8 + 0.2 * value;
-                      final double translateY = 50 * (1 - value);
-
-                      return Transform.translate(
-                        offset: Offset(0, translateY),
-                        child: Transform.scale(
-                          scale: scale,
-                          child: child,
-                        ),
-                      );
-                    },
+                  // The same gentle rise as the Leaderboard: each card fades in and settles upward once (a little later for each
+                  // card), never replayed, static with "reduce animations".
+                  return RiseIn(
+                    key: ValueKey('results-card-$index'),
+                    delay: RiseMotion.cardStagger * (index.clamp(0, 2) * 2),
+                    duration: const Duration(milliseconds: 700),
+                    offset: 28,
                     child: AnimatedBuilder(
                       animation: pageController,
                       builder: (context, child) {
@@ -290,14 +279,11 @@ class _MonthlyLeaderboardPageState extends State<MonthlyLeaderboardPage> with Ti
             ),
 
             /// THE MESSAGE FOR THIS STUDENT
-            TweenAnimationBuilder<double>(
-              tween: Tween(begin: 0.1, end: 1),
-              duration: FolkMotion.of(context, const Duration(milliseconds: 800)),
-              curve: Curves.easeOutBack,
-              builder: (context, scale, child) {
-                return Transform.scale(
-                  scale: scale,
-                  child: Padding(
+            RiseIn(
+              delay: const Duration(milliseconds: 600),
+              duration: const Duration(milliseconds: 600),
+              offset: 16,
+              child: Padding(
                     padding: const EdgeInsets.fromLTRB(
                         FolkSpace.pagePadding, 8, FolkSpace.pagePadding, 24),
                     child: Text(
@@ -306,8 +292,6 @@ class _MonthlyLeaderboardPageState extends State<MonthlyLeaderboardPage> with Ti
                       style: text.topBarTitle.copyWith(fontSize: 22),
                     ),
                   ),
-                );
-              },
             ),
           ],
         ),
@@ -394,15 +378,10 @@ class _MonthlyLeaderboardPageState extends State<MonthlyLeaderboardPage> with Ti
                 return Center(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.all(24),
-                    child: TweenAnimationBuilder<double>(
-                      tween: Tween(begin: 0.7, end: 1),
-                      duration: FolkMotion.of(
-                          context, const Duration(milliseconds: 1200)),
-                      curve: Curves.easeOutBack,
-                      builder: (context, scale, child) {
-                        return Transform.scale(
-                          scale: scale,
-                          child: Column(
+                    child: RiseIn(
+                      duration: const Duration(milliseconds: 700),
+                      offset: 24,
+                      child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               const Text(
@@ -423,8 +402,6 @@ class _MonthlyLeaderboardPageState extends State<MonthlyLeaderboardPage> with Ti
                               ),
                             ],
                           ),
-                        );
-                      },
                     ),
                   ),
                 );

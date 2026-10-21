@@ -34,7 +34,7 @@ LinearGradient categoryGradient(HighlightCategory c) => switch (c) {
       HighlightCategory.good => FolkGradients.saffron,
       HighlightCategory.excellent => FolkGradients.green,
       HighlightCategory.rare => FolkGradients.violet,
-      HighlightCategory.doubt => FolkGradients.slate,
+      HighlightCategory.doubt => FolkGradients.pink,
     };
 
 /// "12 highlights in 3 books" / "1 highlight in 1 book" / "No highlights yet".
@@ -140,7 +140,7 @@ class _BooksNotesPageState extends State<BooksNotesPage> {
         HighlightCategory.good => FolkGradientStyle.saffron,
         HighlightCategory.excellent => FolkGradientStyle.green,
         HighlightCategory.rare => FolkGradientStyle.violet,
-        HighlightCategory.doubt => FolkGradientStyle.slate,
+        HighlightCategory.doubt => FolkGradientStyle.pink,
       };
 
   Widget _tile(HighlightCategory c, {required double minHeight, required Key key, required int index}) {

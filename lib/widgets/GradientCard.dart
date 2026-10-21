@@ -103,7 +103,7 @@ class _DecorationPainter extends CustomPainter {
         _dots(canvas, size);
       case FolkGradientStyle.coral:
         _circles(canvas, size);
-      case FolkGradientStyle.slate:
+      case FolkGradientStyle.pink:
         _ripples(canvas, size);
       case FolkGradientStyle.warm:
       case FolkGradientStyle.sky:

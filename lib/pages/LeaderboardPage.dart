@@ -11,12 +11,12 @@ import '../utils/LeaderboardData.dart';
 import '../utils/UnseenDot.dart';
 import '../utils/ResultsDots.dart';
 import '../utils/SameGender.dart';
-import '../widgets/EntryAnimation.dart';
 import '../widgets/FolkCard.dart';
 import '../widgets/FolkErrorRetry.dart';
 import '../widgets/FolkScaffold.dart';
 import '../widgets/FolkSegmented.dart';
 import '../widgets/LeaderboardPodium.dart';
+import '../widgets/RiseIn.dart';
 import '../widgets/OwnScoreCard.dart';
 import '../widgets/PressScale.dart';
 import '../widgets/ScoreWidgets.dart';
@@ -117,7 +117,7 @@ class _LeaderboardPageState extends State<LeaderboardPage> {
 
   ResultsDots? get _dots => widget.resultsDots ?? ResultsDots.forCurrentUser();
 
-  /// The orange dots of the published results: one stream per period.
+  /// The dots of the published results: one stream per period.
   late final Stream<bool>? _weeklyNew = _dots?.unseen(BoardPeriod.weekly);
   late final Stream<bool>? _monthlyNew = _dots?.unseen(BoardPeriod.monthly);
 
@@ -189,8 +189,9 @@ class _LeaderboardPageState extends State<LeaderboardPage> {
               final docs = snap.data!;
               return AnimatedSwitcher(
                 duration: FolkMotion.of(context, const Duration(milliseconds: 200)),
+                // Switching Weekly / Monthly or Leaderboard / Scores builds the content afresh, so its rise plays again.
                 child: KeyedSubtree(
-                  key: ValueKey(_tab),
+                  key: ValueKey('${_tab.name}-${_period.name}'),
                   child: _tab == LeaderboardTab.leaderboard
                       ? _LeaderboardTab(docs: docs, directory: directory, period: _period, myName: widget.username)
                       : _ScoresTab(
@@ -281,21 +282,26 @@ class _LeaderboardTab extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(FolkSpace.pagePadding, FolkSpace.md, FolkSpace.pagePadding, 28),
       children: [
         if (myIndex >= 0)
-          Padding(
-            padding: const EdgeInsets.only(bottom: FolkSpace.md),
-            child: Text(
-              'Your place: #${myIndex + 1} of ${board.length}',
-              key: const ValueKey('my-place'),
-              textAlign: TextAlign.center,
-              style: text.bodyStrong,
+          RiseIn(
+            duration: RiseMotion.row,
+            offset: RiseMotion.rowOffset,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: FolkSpace.md),
+              child: Text(
+                'Your place: #${myIndex + 1} of ${board.length}',
+                key: const ValueKey('my-place'),
+                textAlign: TextAlign.center,
+                style: text.bodyStrong,
+              ),
             ),
           ),
         LeaderboardPodium(top: top, myName: myName),
         const SizedBox(height: FolkSpace.lg),
+        // The rest of the list rises in row by row (a quick, subtle stagger) once the podium is up.
         for (var i = 0; i < rest.length; i++)
-          EntryAnimation(
-            index: i,
-            child: LeaderboardRankRow(
+          _row(
+            i,
+            LeaderboardRankRow(
               rank: top.length + i + 1,
               name: rest[i].name,
               valueLabel: pointsText(rest[i].points),
@@ -305,6 +311,11 @@ class _LeaderboardTab extends StatelessWidget {
       ],
     );
   }
+
+  /// A list row: the first few rise in after the podium (row by row); one further down is simply there when it scrolls in.
+  static Widget _row(int i, Widget row) => i >= RiseMotion.rows
+      ? row
+      : RiseIn(delay: RiseMotion.rowsStart + RiseMotion.rowStagger * i, duration: RiseMotion.row, offset: RiseMotion.rowOffset, child: row);
 }
 
 // ----------------------------------------------------------------------------------------- the Scores tab
@@ -340,26 +351,39 @@ class _ScoresTab extends StatelessWidget {
       physics: const BouncingScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(FolkSpace.pagePadding, FolkSpace.md, FolkSpace.pagePadding, 28),
       children: [
-        FutureBuilder<Map<String, double>>(
-          future: changes,
-          builder: (context, snap) => OwnScoreCard(
-            period: period,
-            data: _mine(),
-            changes: snap.data,
-            hostelLocalite: hostel,
+        RiseIn(
+          child: FutureBuilder<Map<String, double>>(
+            future: changes,
+            builder: (context, snap) => OwnScoreCard(
+              period: period,
+              data: _mine(),
+              changes: snap.data,
+              hostelLocalite: hostel,
+            ),
           ),
         ),
         const SizedBox(height: FolkSpace.xl),
-        Text('Best performers ${period.thisPeriod}', style: text.topBarTitle),
-        const SizedBox(height: 4),
-        Text('Points of each field alone, without multipliers.', style: text.caption),
+        RiseIn(
+          delay: RiseMotion.cardStagger,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Best performers ${period.thisPeriod}', style: text.topBarTitle),
+              const SizedBox(height: 4),
+              Text('Points of each field alone, without multipliers.', style: text.caption),
+            ],
+          ),
+        ),
         const SizedBox(height: FolkSpace.md),
-        for (final f in fields) ...[
-          _BestCard(
-            field: f,
-            best: bestOf(docs, period, f, include: directory.sameByName),
-            myName: myName,
-            period: period,
+        for (var i = 0; i < fields.length; i++) ...[
+          RiseIn(
+            delay: RiseMotion.cardStagger * (i + 2).clamp(0, 6),
+            child: _BestCard(
+              field: fields[i],
+              best: bestOf(docs, period, fields[i], include: directory.sameByName),
+              myName: myName,
+              period: period,
+            ),
           ),
           const SizedBox(height: FolkSpace.cardGap),
         ],
