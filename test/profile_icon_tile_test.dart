@@ -25,7 +25,7 @@ void phone(WidgetTester tester, double scale) {
 }
 
 const rows = [
-  ('My Competitions', 'Chanting competition and your badges', Icons.emoji_events_outlined, true),
+  ('My Competitions', 'Competition and your badges', Icons.emoji_events_outlined, true),
   ('My Notifications', 'Choose what you are notified about', CupertinoIcons.bell, true),
   ('My Date of Birth', 'Tap to add your date of birth', CupertinoIcons.gift, true),
   ('My Commitments', 'Tap to set your daily commitment', CupertinoIcons.flame_fill, true),

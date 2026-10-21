@@ -401,7 +401,7 @@ class _ProfilePageState extends State<ProfilePage>
                 // are one page now.
                 _menuRow(
                   'My Competitions',
-                  "Chanting competition and your badges",
+                  "Competition and your badges",
                   Icons.emoji_events_outlined,
                   () {
                     Navigator.push(
