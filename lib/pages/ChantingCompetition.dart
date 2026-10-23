@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/ChallengeRange.dart';
 import '../utils/SameGender.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -393,7 +394,13 @@ class _ChantingCompetitionSectionState
     });
 
     _winnerTimer?.cancel();
-    _winnerTimer = Timer(const Duration(seconds: 6), _dismissWinner);
+    // A result with a day-by-day table is something to read, not glance at, so
+    // it waits for the student to press Continue. A single day keeps the
+    // six-second card it always had.
+    final span = ChallengeSpan.of(ended);
+    if (span == null || !span.isRange) {
+      _winnerTimer = Timer(const Duration(seconds: 6), _dismissWinner);
+    }
   }
 
   void _dismissWinner() {
@@ -493,8 +500,14 @@ class _ChantingCompetitionSectionState
         ? (challenge['currentTotal'] as num).toInt()
         : 0;
     final ts = challenge['targetDate'];
-    final dateText =
-        ts is Timestamp ? DateFormat('dd MMM yyyy').format(ts.toDate()) : '';
+    // A range reads "15 Oct – 20 Oct 2026"; a single day, or a competition
+    // from before ranges, its one date exactly as before.
+    final span = ChallengeSpan.of(challenge);
+    final dateText = span != null
+        ? span.label
+        : ts is Timestamp
+            ? DateFormat('dd MMM yyyy').format(ts.toDate())
+            : '';
     final collectiveFraction =
         target <= 0 ? 0.0 : (total / target).clamp(0.0, 1.0);
 
@@ -559,6 +572,8 @@ class _ChantingCompetitionSectionState
               return {
                 'name': (data['studentName'] ?? '').toString(),
                 'rounds': rounds,
+                // For the day-by-day table; a row from before ranges has none.
+                'byDay': data['byDay'],
               };
             }).toList()
               ..sort((a, b) =>
@@ -575,14 +590,29 @@ class _ChantingCompetitionSectionState
               );
             }
 
+            final span = ChallengeSpan.of(challenge);
             return Column(
-              children: rows
-                  .map((r) => _leaderboardRow(
-                        r['name'] as String,
-                        r['rounds'] as int,
-                        target,
-                      ))
-                  .toList(),
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ...rows.map((r) => _leaderboardRow(
+                      r['name'] as String,
+                      r['rounds'] as int,
+                      target,
+                    )),
+                if (span != null && span.isRange) ...[
+                  const SizedBox(height: 10),
+                  ChallengeDayTable(
+                    days: buildDayTable(
+                      span,
+                      rows.map((r) => {
+                            'studentName': r['name'],
+                            'rounds': r['rounds'],
+                            'byDay': r['byDay'],
+                          }),
+                    ),
+                  ),
+                ],
+              ],
             );
           },
         ),
@@ -621,18 +651,37 @@ class _ChantingCompetitionSectionState
         .where((n) => n.isNotEmpty)
         .toList();
 
+    final span = ChallengeSpan.of(challenge);
+    final card = ChallengeResultCard(
+      achieved: achieved,
+      name: name,
+      total: total,
+      target: target,
+      topStudents: topStudents,
+      topRounds: topRounds,
+      action: PrimaryButton(label: "Continue", onPressed: _dismissWinner),
+    );
+
+    // A competition over several days shows the total ranking above (the
+    // top contributors) AND who chanted how much on which day.
+    if (span != null && span.isRange && _winnerTop.isNotEmpty) {
+      return SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            card,
+            const SizedBox(height: 16),
+            ChallengeDayTable(days: buildDayTable(span, _winnerTop)),
+          ],
+        ),
+      );
+    }
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
-        child: ChallengeResultCard(
-          achieved: achieved,
-          name: name,
-          total: total,
-          target: target,
-          topStudents: topStudents,
-          topRounds: topRounds,
-          action: PrimaryButton(label: "Continue", onPressed: _dismissWinner),
-        ),
+        child: card,
       ),
     );
   }
