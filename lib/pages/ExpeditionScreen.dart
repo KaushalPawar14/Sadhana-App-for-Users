@@ -6,9 +6,12 @@ import 'package:intl/intl.dart';
 import '../theme/FolkColors.dart';
 import '../theme/FolkTheme.dart';
 import '../theme/FolkTokens.dart';
+import '../utils/ExpeditionExperience.dart';
 import '../utils/SeenMarkers.dart';
+import '../utils/TripDates.dart';
 import '../widgets/FolkDialog.dart';
 import '../widgets/FolkScaffold.dart';
+import 'ExpeditionExperienceForm.dart';
 import '../widgets/GhostPlaceholder.dart';
 import '../widgets/PrimaryButton.dart';
 
@@ -63,11 +66,20 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
   Stream<QuerySnapshot<Map<String, dynamic>>>? _tripsStream;
   late Stream<QuerySnapshot<Map<String, dynamic>>> _registrationsStream;
 
+  /// The server's requests to share what a trip meant (Master 2 B), asked the
+  /// morning after a trip ends. Only this student's own, the one query the
+  /// rules allow; opened once, like the others.
+  late Stream<QuerySnapshot<Map<String, dynamic>>> _experiencesStream;
+
   @override
   void initState() {
     super.initState();
     _registrationsStream = _firestore
         .collection('expeditionRegistrations')
+        .where('studentUid', isEqualTo: widget.uid)
+        .snapshots();
+    _experiencesStream = _firestore
+        .collection('expeditionExperiences')
         .where('studentUid', isEqualTo: widget.uid)
         .snapshots();
     _loadProfile();
@@ -103,6 +115,40 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
       .where('targetGender', isEqualTo: gender)
       .where('archived', isEqualTo: false)
       .snapshots();
+
+  /// Requests to share an experience that are still open. Nothing at all when
+  /// there are none — and on any error, because this is an extra on top of the
+  /// trips and must never hide them.
+  Widget _experienceRequests() {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _experiencesStream,
+      builder: (context, snap) {
+        if (snap.hasError || !snap.hasData) return const SizedBox.shrink();
+        final open = openRequests(snap.data!.docs.map((d) => MapEntry(d.id, d.data())));
+        if (open.isEmpty) return const SizedBox.shrink();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _sectionHeading("Share your experience"),
+            for (final r in open)
+              ExperienceRequestCard(
+                key: ValueKey('experience-card-${r.id}'),
+                request: r,
+                onOpen: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => ExpeditionExperienceForm(
+                    uid: widget.uid,
+                    tripId: r.tripId,
+                    tripName: r.tripName,
+                    firestore: widget.firestore,
+                  ),
+                )),
+              ),
+            const SizedBox(height: 14),
+          ],
+        );
+      },
+    );
+  }
 
   String _formatTs(dynamic value) {
     if (value is! Timestamp) return "Not set";
@@ -370,7 +416,7 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
           const SizedBox(height: 6),
           _iconLine(
               Icons.place, (trip['location'] ?? 'No location').toString()),
-          _iconLine(Icons.event, _formatTs(trip['tripDate'])),
+          _iconLine(Icons.event, tripDatesText(trip)),
           _iconLine(
             Icons.how_to_reg,
             "Register by ${_formatTs(trip['registrationDeadline'])}",
@@ -450,7 +496,7 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
           if (trip != null) ...[
             _iconLine(
                 Icons.place, (trip['location'] ?? 'No location').toString()),
-            _iconLine(Icons.event, _formatTs(trip['tripDate'])),
+            _iconLine(Icons.event, tripDatesText(trip)),
           ],
           if (hasReflected) ...[
             const SizedBox(height: 10),
@@ -617,6 +663,7 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
                   padding: const EdgeInsets.all(FolkSpace.pagePadding),
                   physics: const BouncingScrollPhysics(),
                   children: [
+                    _experienceRequests(),
                     _sectionHeading("Upcoming Trips"),
                     if (upcoming.isEmpty)
                       _emptyCard("No upcoming trips right now")

@@ -6,6 +6,7 @@ import '../main.dart';
 import '../pages/BookPageList.dart';
 import '../pages/BooksNotesPage.dart';
 import '../pages/Calendar.dart';
+import '../pages/ExpeditionExperienceForm.dart';
 import '../pages/ExpeditionScreen.dart';
 import '../pages/MyCompetitions.dart';
 import '../pages/RduaFriendsScreen.dart';
@@ -140,6 +141,27 @@ Future<void> _dispatch(Map<String, dynamic> data) async {
       // A new trip for this student's gender: opens Expeditions.
       case 'student_expeditions':
         await _openExpeditions(navState);
+        break;
+
+      // The morning after a trip ends: "Share your experience of <trip>" opens the
+      // form for that trip. An older notification, or a window that has closed,
+      // lands on a friendly "nothing to share here" rather than an error.
+      case 'student_expedition_experience':
+        final tripId = (data['tripId'] ?? '').toString();
+        final uid = FirebaseAuth.instance.currentUser?.uid;
+        if (tripId.isNotEmpty && uid != null) {
+          navState.push(
+            MaterialPageRoute(
+              builder: (_) => ExpeditionExperienceForm(
+                uid: uid,
+                tripId: tripId,
+                tripName: (data['tripName'] ?? '').toString(),
+              ),
+            ),
+          );
+        } else {
+          await _openExpeditions(navState);
+        }
         break;
 
       // The guide answered a doubt: Notes -> Doubts, on that doubt's card.
