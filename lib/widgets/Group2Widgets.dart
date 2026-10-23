@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import '../utils/ChallengeRange.dart';
 
 import '../theme/FolkColors.dart';
 import '../theme/FolkTheme.dart';
@@ -267,6 +269,68 @@ class ContributionRow extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// Master 2 A — who chanted how many rounds on which day, and how many students
+// filed each day, for a competition that runs over several days. One row per
+// day; a row opens to show the names.
+class ChallengeDayTable extends StatelessWidget {
+  const ChallengeDayTable({super.key, required this.days});
+
+  final List<ChallengeDay> days;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.folk;
+    final text = context.folkText;
+    return FolkCard(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Material(
+        type: MaterialType.transparency,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 2),
+              child: Text("Day by day", style: text.bodyStrong),
+            ),
+            for (final day in days)
+              ExpansionTile(
+                key: ValueKey('day-${day.dayKey}'),
+                shape: const Border(),
+                collapsedShape: const Border(),
+                tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+                title: Text(DateFormat('EEE dd MMM').format(day.date),
+                    style: text.body),
+                subtitle: Text(
+                  day.studentCount == 0
+                      ? 'Nobody filed'
+                      : '${day.studentCount} student'
+                          '${day.studentCount == 1 ? '' : 's'}',
+                  style: text.caption,
+                ),
+                trailing: Text('${day.rounds}',
+                    style: text.chip.copyWith(
+                        color: day.rounds == 0 ? colors.mutedText : null)),
+                children: [
+                  for (final c in day.contributors)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(28, 2, 16, 8),
+                      child: Row(
+                        children: [
+                          Expanded(child: Text(c.name, style: text.small)),
+                          const SizedBox(width: 8),
+                          Text('${c.rounds}', style: text.chip),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+          ],
+        ),
       ),
     );
   }

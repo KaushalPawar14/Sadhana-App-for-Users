@@ -412,7 +412,7 @@ void main() {
       final reader = File('lib/pages/BookReaderPage.dart').readAsStringSync();
       final r = reader.substring(reader.indexOf("'endDate': today,"), reader.indexOf("'endDate': today,") + 300);
       expect(r, contains("'isCurrentBook': false"));
-      final guide = File('../../Guides/Sadhana-App-for-Admin/lib/Home/FolkBoysWorkspace.dart').readAsStringSync();
+      final guide = File('../../Guides/Sadhana-App-for-Admin/lib/actions/BookActions.dart').readAsStringSync();
       final g = guide.substring(guide.indexOf("'endDate': today,"), guide.indexOf("'endDate': today,") + 200);
       expect(g, contains("'isCurrentBook': false"));
       final books = File('lib/pages/BookPageList.dart').readAsStringSync();
