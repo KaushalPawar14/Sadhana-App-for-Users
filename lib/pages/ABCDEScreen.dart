@@ -7,6 +7,8 @@ import '../theme/FolkColors.dart';
 import '../theme/FolkTheme.dart';
 import '../theme/FolkTokens.dart';
 import '../utils/BookCurrentBook.dart';
+import '../utils/FormRounds.dart';
+import '../utils/SadhanaReportSource.dart';
 import '../utils/UnseenFeatureBadge.dart';
 import '../widgets/DailyMessageCard.dart';
 import '../widgets/EntryAnimation.dart';
@@ -66,7 +68,10 @@ class _ABCDEScreenState extends State<ABCDEScreen> {
   late final String _uid;
   late Stream<QuerySnapshot<Map<String, dynamic>>> _associationStream;
   late Stream<QuerySnapshot<Map<String, dynamic>>> _booksStream;
-  late Stream<DocumentSnapshot<Map<String, dynamic>>> _userDocStream;
+
+  /// Chanting (C): the rounds of the daily sadhana FORM over the last 30 days (never the in-app japa counter). Set once the student's name is
+  /// known, because reports are keyed by name.
+  Future<int>? _formRounds;
 
   @override
   void initState() {
@@ -85,7 +90,6 @@ class _ABCDEScreenState extends State<ABCDEScreen> {
         .collection('booksRead')
         .where('uid', isEqualTo: _uid)
         .snapshots();
-    _userDocStream = _firestore.collection('users').doc(_uid).snapshots();
   }
 
   /// A progress line whose stream failed (offline, or refused): a friendly line that opens the streams again when
@@ -130,10 +134,17 @@ class _ABCDEScreenState extends State<ABCDEScreen> {
         _userName = (doc.data()?['name'] ?? '').toString();
         _role = (doc.data()?['role'] ?? '').toString();
         _gender = doc.data()?['gender'] == 'female' ? 'female' : 'male';
+        _loadFormRounds();
       });
     } catch (_) {
       // Non-fatal — the chanting card simply falls back to its empty state.
     }
+  }
+
+  void _loadFormRounds() {
+    final name = _userName ?? '';
+    if (name.isEmpty) return;
+    _formRounds = fetchDateReports(name).then((r) => formRoundsLast30(r, DateTime.now()));
   }
 
   // ---------------------------------------------------------------------------
@@ -185,35 +196,31 @@ class _ABCDEScreenState extends State<ABCDEScreen> {
     );
   }
 
-  /// C — Chanting. Reads `lifetimeRounds` from the user document. The old
-  /// sadhana-based "today" figure was removed: it only counted rounds typed
-  /// into the sadhana form, so it contradicted the japa counter.
+  /// C — Chanting: the rounds of the daily sadhana FORM over the last 30 days (ALL SADHANA NUMBERS COME FROM THE SADHANA FORM ONLY). The in-app
+  /// japa counter (`lifetimeRounds`) is a personal tool on the Chanting screen and is not shown here.
   ///
-  /// Shown as the tall tile's big number ("rounds lifetime" under it): the
-  /// same stream and the same reading as the old "Lifetime: N rounds" line.
+  /// Shown as the tall tile's big number ("rounds, last 30 days" under it).
   Widget _chantingProgress() {
-    return StreamBuilder<DocumentSnapshot>(
-      stream: _userDocStream,
+    final future = _formRounds;
+    return FutureBuilder<int>(
+      future: future,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: () => setState(_openStreams),
+            onTap: () => setState(_loadFormRounds),
             child: Text('—', key: const ValueKey('abcde-chanting-failed'), style: context.folkText.bigStat),
           );
         }
-        final data = snapshot.data?.data() as Map<String, dynamic>?;
-        final raw = data?['lifetimeRounds'];
-        final lifetime = raw is num ? raw.toInt() : 0;
-
+        final loading = future == null || snapshot.connectionState == ConnectionState.waiting;
         return GhostedTextLine(
-          loading: snapshot.connectionState == ConnectionState.waiting,
+          loading: loading,
           lineHeight: 53,
           ghostWidth: 90,
           child: CountUpText(
-            value: lifetime,
+            value: snapshot.data ?? 0,
             style: context.folkText.bigStat,
-            ready: snapshot.connectionState != ConnectionState.waiting,
+            ready: !loading,
           ),
         );
       },
@@ -340,7 +347,7 @@ class _ABCDEScreenState extends State<ABCDEScreen> {
               style: FolkFeatureGradients.chanting,
               progress: _chantingProgress(),
               tall: true,
-              statCaption: "rounds lifetime",
+              statCaption: "rounds in your form, 30 days",
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(
