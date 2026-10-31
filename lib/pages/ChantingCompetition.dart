@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../utils/ChallengeRange.dart';
+import '../utils/CompetitionDots.dart';
 import '../utils/SameGender.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -416,6 +417,8 @@ class _ChantingCompetitionSectionState
     // same summary once more on a future cold open, never a crash.
     final endedId = _winnerChallenge?['id'] as String?;
     final myUid = _uid;
+    // the result has been seen: its dot goes (the dot trail of the competitions, CompetitionDots)
+    if (endedId != null) CompetitionDots.forCurrentUser()?.markSeen([CompetitionDots.resultKey(endedId), CompetitionDots.newKey(endedId)]);
     if (endedId != null && myUid != null) {
       _firestore.collection('chantingChallenges').doc(endedId).set({
         'summarySeenBy': FieldValue.arrayUnion([myUid]),
@@ -517,12 +520,17 @@ class _ChantingCompetitionSectionState
       child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        ChallengeSummaryCard(
-          name: name,
-          dateText: dateText,
-          total: total,
-          target: target,
-          fraction: collectiveFraction,
+        // the dot of THIS competition while it is new for the student (it clears when he leaves the page)
+        CompetitionDot(
+          dotKey: CompetitionDots.newKey((challenge['id'] ?? '').toString()),
+          offset: const Offset(12, 12),
+          child: ChallengeSummaryCard(
+            name: name,
+            dateText: dateText,
+            total: total,
+            target: target,
+            fraction: collectiveFraction,
+          ),
         ),
         const SizedBox(height: 20),
         Text("Who's contributing", style: text.bodyStrong),
@@ -652,14 +660,19 @@ class _ChantingCompetitionSectionState
         .toList();
 
     final span = ChallengeSpan.of(challenge);
-    final card = ChallengeResultCard(
-      achieved: achieved,
-      name: name,
-      total: total,
-      target: target,
-      topStudents: topStudents,
-      topRounds: topRounds,
-      action: PrimaryButton(label: "Continue", onPressed: _dismissWinner),
+    // the dot of the RESULT while it is new for the student (it clears when he continues, or leaves the page)
+    final card = CompetitionDot(
+      dotKey: CompetitionDots.resultKey((challenge['id'] ?? '').toString()),
+      offset: const Offset(10, 10),
+      child: ChallengeResultCard(
+        achieved: achieved,
+        name: name,
+        total: total,
+        target: target,
+        topStudents: topStudents,
+        topRounds: topRounds,
+        action: PrimaryButton(label: "Continue", onPressed: _dismissWinner),
+      ),
     );
 
     // A competition over several days shows the total ranking above (the

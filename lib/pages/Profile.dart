@@ -29,6 +29,8 @@ import '../widgets/LogoutButton.dart';
 import '../widgets/ProfileMenuRow.dart';
 import '../widgets/ProfileNameCard.dart';
 import '../utils/GuideNameCache.dart';
+import '../utils/CompetitionDots.dart';
+import '../utils/UnseenDot.dart';
 import '../widgets/ProfileStatTiles.dart';
 import '../services/StudentApi.dart';
 import '../widgets/FolkErrorRetry.dart';
@@ -40,6 +42,9 @@ class ProfilePage extends StatefulWidget {
 
 class _ProfilePageState extends State<ProfilePage>
     with SingleTickerProviderStateMixin {
+  /// "A chanting competition (or its result) is new for me": the dot of the "My Competitions" row (the Profile tab's dot is made of the same stream). Hoisted once.
+  final Stream<bool> _competitionUnseen = CompetitionDots.forCurrentUser()?.anyUnseen ?? Stream.value(false);
+
   String? name;
   String? email;
   String? role;
@@ -399,17 +404,26 @@ class _ProfilePageState extends State<ProfilePage>
               child: _menuCard([
                 // Books lives on Journey; the chanting competition and the badges
                 // are one page now.
-                _menuRow(
-                  'My Competitions',
-                  "Competition and your badges",
-                  Icons.emoji_events_outlined,
-                  () {
-                    Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (context) =>
-                                MyCompetitionsPage(username: name ?? "")));
-                  },
+                // the dot stays until he has seen the competition (the trail: Profile tab -> this row -> the competition's card)
+                StreamBuilder<bool>(
+                  stream: _competitionUnseen,
+                  builder: (context, snap) => UnseenBadge(
+                    key: const ValueKey('my-competitions-dot'),
+                    show: snap.data ?? false,
+                    offset: const Offset(40, 14),
+                    child: _menuRow(
+                      'My Competitions',
+                      "Competition and your badges",
+                      Icons.emoji_events_outlined,
+                      () {
+                        Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (context) =>
+                                    MyCompetitionsPage(username: name ?? "")));
+                      },
+                    ),
+                  ),
                 ),
 
                 /// NOTIFICATIONS — what this student wants to be told

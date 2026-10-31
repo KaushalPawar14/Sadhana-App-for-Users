@@ -10,6 +10,7 @@ import 'package:folk_app/theme/FolkTheme.dart';
 import 'package:folk_app/theme/FolkTokens.dart';
 import 'package:folk_app/utils/MainAppReached.dart';
 import 'package:folk_app/utils/SameGender.dart';
+import 'package:folk_app/utils/CompetitionDots.dart';
 import 'package:folk_app/utils/ResultsDots.dart';
 import 'package:folk_app/utils/SeenMarkers.dart';
 import 'package:folk_app/utils/UnseenDot.dart';
@@ -72,7 +73,7 @@ Widget hostHeader(BuildContext context, int idx) {
 /// The pill's four items. [journeyUnseen] feeds the one unseen-content dot (on
 /// Journey); the launch ghost passes none.
 List<FolkNavItem> hostNavItems(BuildContext context,
-    {Stream<bool>? journeyUnseen, Stream<bool>? insightsUnseen}) {
+    {Stream<bool>? journeyUnseen, Stream<bool>? insightsUnseen, Stream<bool>? profileUnseen}) {
   final colors = context.folk;
   final titles = kHostTabTitles;
   return [
@@ -127,8 +128,20 @@ List<FolkNavItem> hostNavItems(BuildContext context,
         color: color,
       ),
     ),
+    // The Profile tab carries the dot while a chanting competition (or its result) is new for the student (`CompetitionDots`): the trail goes on to the "My Competitions" row
+    // and the competition's own card.
     FolkNavItem(
       label: titles[3],
+      decorate: profileUnseen == null
+          ? null
+          : (context, icon) => StreamBuilder<bool>(
+                stream: profileUnseen,
+                builder: (context, snap) => UnseenBadge(
+                  show: snap.data ?? false,
+                  offset: const Offset(0, -2),
+                  child: icon,
+                ),
+              ),
       iconBuilder: (context, selected, color) => Icon(
         selected ? Icons.person_rounded : Icons.person_outline_rounded,
         size: 22,
@@ -147,6 +160,7 @@ class CurvedNavBar extends StatefulWidget {
     this.buildScreens,
     this.journeyUnseen,
     this.insightsUnseen,
+    this.profileUnseen,
     this.dailyMessage,
   });
   final String role;
@@ -163,6 +177,9 @@ class CurvedNavBar extends StatefulWidget {
   /// Tests hand in the Insights dot; the app builds it from the results (`ResultsDots`).
   @visibleForTesting
   final Stream<bool>? insightsUnseen;
+
+  /// Tests hand in the Profile dot; the app builds it from the chanting competitions (`CompetitionDots`).
+  final Stream<bool>? profileUnseen;
   @visibleForTesting
   final DailyMessageService? dailyMessage;
 
@@ -262,6 +279,7 @@ class _CurvedNavBarState extends State<CurvedNavBar>
   /// once here, never in `build()`.
   late final Stream<bool> _journeyUnseen;
   late final Stream<bool> _insightsUnseen = widget.insightsUnseen ?? ResultsDots.forCurrentUser()?.anyUnseen ?? Stream.value(false);
+  late final Stream<bool> _profileUnseen = widget.profileUnseen ?? CompetitionDots.forCurrentUser()?.anyUnseen ?? Stream.value(false);
 
   @override
   void initState() {
@@ -552,7 +570,7 @@ class _CurvedNavBarState extends State<CurvedNavBar>
         // open.
         bottomNavigationBar: FloatingPillNavBar(
           currentIndex: currentIdx, // initial selection is index 2
-          items: hostNavItems(context, journeyUnseen: _journeyUnseen, insightsUnseen: _insightsUnseen),
+          items: hostNavItems(context, journeyUnseen: _journeyUnseen, insightsUnseen: _insightsUnseen, profileUnseen: _profileUnseen),
           onTap: (index) {
             setState(() {
               currentIdx = index;

@@ -178,7 +178,7 @@ void main() {
 
     test('the callers keep their sizes and offsets (nothing moved): the known sites still pass their own size and offset', () {
       final nav = File('lib/utils/BottomNavBar.dart').readAsStringSync();
-      expect(RegExp(r'offset: const Offset\(0, -2\)').allMatches(nav).length, 2, reason: 'Journey and Insights tabs');
+      expect(RegExp(r'offset: const Offset\(0, -2\)').allMatches(nav).length, 3, reason: 'Journey, Insights and Profile tabs');
       final seg = File('lib/widgets/FolkSegmented.dart').readAsStringSync();
       expect(seg, contains('offset: const Offset(-9, -3)'));
       expect(seg, contains('dotSize: 8'));

@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
 import 'LeaderboardData.dart';
+import 'SeenMarkers.dart';
 
 /// The dot trail of the published RESULTS (weekly results every Monday, monthly results on the 1st).
 ///
@@ -61,7 +62,7 @@ class ResultsDots {
       .map((v) => v is String && v.isNotEmpty ? v : null);
 
   /// Which period ids this student has opened the Results of.
-  Stream<Set<String>> seenKeys() => db.collection('seenMarkers').doc(uid).snapshots().map((s) {
+  Stream<Set<String>> seenKeys() => SeenMarkers.liveFrom(db, uid).map((s) {
         final m = s.data()?[seenField];
         return m is Map ? m.keys.map((k) => k.toString()).toSet() : <String>{};
       });
